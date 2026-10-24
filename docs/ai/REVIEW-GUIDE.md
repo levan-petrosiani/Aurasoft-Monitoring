@@ -91,6 +91,34 @@ it also repeated the 9999-12-31 rule, and its English translation said the *bank
 app, მმპ). Fix: requirement and quote down to the 90-day sentence only, translation corrected. (Its expected HTTP status
 400 is fine: the Berlin Group defines PERIOD_INVALID as a 400 error, even though this clause does not say it.)
 
+## Reviewing scenario drafts (Drafts page)
+
+Once a rule is approved, the AI can draft a **test scenario** for it (Drafts page, or `aqt scenarios draft <rule>`).
+The tool has already:
+- set the scenario's id, suite, rule link (`rules:`) and spec reference itself — the model cannot change them;
+- loaded it with the engine (templates exist, requests only go to the bank's own XS2A API);
+- run it once on a built-in MockBank (never a real bank) and fed any errors back to the model, up to 3 times.
+
+You check four things (the Drafts page's "How to review" box says the same):
+
+1. **Does it test the rule, and only the rule?** Read the rule shown above the YAML, then the steps.
+2. **Is the request otherwise valid?** In a negative test only the one field the rule is about should be wrong.
+3. **Are the expectations the rule's?** Status and error code as in the rule; an orange note means they differ.
+4. **Dry run.** *Passed* = MockBank behaves as the rule says. *Failed* with a **MockBank gap** note = the model thinks
+   the scenario is right and MockBank simply does not implement the rule. Open the dry run: if the failing step shows
+   MockBank accepting what the rule says to reject (e.g. 201 where the rule says 400 PERIOD_INVALID), agree and
+   approve — the scenario will test real banks correctly, and MockBank needs the rule added.
+
+| Situation | Action |
+|---|---|
+| All four fine | **Approve** — writes `scenarios/<suite>/<id>-….yaml` and links it to the rule. Commit the file. |
+| Small fix (a value, a step name, an extra expectation) | **Edit** the YAML; it is checked and dry-run again on save |
+| Tests something else, or the request is wrong in more than one way | **Reject** with the reason |
+
+Example (2026-10-25, local qwen3:8b): for GE-CON-001 it drafted *"Create consent with validTo beyond 90 days is
+rejected"* — `validTo: {{date.today+91d}}`, expect 400 `PERIOD_INVALID`. MockBank answered 201 (it has no 90-day limit),
+and the model reported that as a MockBank gap. Right call: approve, and add the 90-day check to MockBank.
+
 ## Afterwards
 
 - **Export approved to rules/** (button on the Rules page, or `aqt rules export`) writes the approved rules to

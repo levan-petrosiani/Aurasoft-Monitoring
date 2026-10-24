@@ -21,7 +21,7 @@ SUCCESS = 0
 TESTS_FAILED = 1
 CONFIGURATION_ERROR = 2
 
-_FLAGS = {"verbose", "no-preflight-gate", "sca-auto", "with-mock", "replace", "show-input", "no-embed", "no-db", "auto-summarize"}
+_FLAGS = {"verbose", "no-preflight-gate", "sca-auto", "with-mock", "replace", "show-input", "no-embed", "no-db", "auto-summarize", "drafts"}
 
 # Folder that holds banks/ and scenarios/ next to this Python package (the repository root).
 _TOOL_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -322,24 +322,38 @@ def cmd_validate(cli: CliArgs) -> int:
         Out.ok(f"templates {len(templates.header_set_names)} header set(s), {len(templates.body_names)} bod(ies)")
 
         loaded = scenarios.load_all(paths.scenarios)
-        header_sets = {n.lower() for n in templates.header_set_names}
-        bodies = {n.lower() for n in templates.body_names}
         for s in loaded:
-            for step in s.steps + (s.cleanup or []):
-                r = step.request
-                if r is None:
-                    continue
-                if r.headers_template is not None and r.headers_template.lower() not in header_sets:
-                    raise ConfigurationError(f"{s.source_path}: unknown headersTemplate '{r.headers_template}'")
-                if r.body_template is not None and r.body_template.lower() not in bodies:
-                    raise ConfigurationError(f"{s.source_path}: unknown bodyTemplate '{r.body_template}'")
+            scenarios.check_templates(s, templates)
 
         Out.ok(f"scenarios {len(loaded)} valid")
+        _warn_rule_links(cli, loaded)
     except ConfigurationError as ex:
         ok = False
         Out.error(str(ex))
 
     return SUCCESS if ok else CONFIGURATION_ERROR
+
+
+def _warn_rule_links(cli: CliArgs, loaded) -> None:
+    """With --db or AQT_DB: warn about scenarios whose `rules:` name a rule that is missing or not approved."""
+    if not any(s.rules for s in loaded):
+        return
+    try:
+        from . import cli_ai
+        connection = cli_ai.run_connection(cli)
+        if connection is None:
+            Out.muted("rules     not checked against the store (set --db or AQT_DB)")
+            return
+        from .store import AqtStore
+        from .store.coverage import scenario_rule_problems
+        problems = scenario_rule_problems(AqtStore(connection), loaded)
+    except Exception as ex:  # the store is optional: a failure is a notice, never a failed validate
+        Out.muted(f"rules     not checked against the store: {type(ex).__name__}: {ex}")
+        return
+    for p in problems:
+        Out._write("  WARN  " + p, "dark_yellow")
+    if not problems:
+        Out.ok("rules     every scenario rule link is an approved rule")
 
 
 def cmd_mock(cancel: threading.Event) -> int:
@@ -424,9 +438,10 @@ def main(argv: list[str]) -> int:
         if command == "portal":
             from .portal.app import run_portal
             return run_portal(cli)
-        if command in ("db", "ai", "standards", "rules"):
+        if command in ("db", "ai", "standards", "rules", "scenarios", "coverage"):
             from . import cli_ai
-            return {"db": cli_ai.cmd_db, "ai": cli_ai.cmd_ai, "standards": cli_ai.cmd_standards, "rules": cli_ai.cmd_rules}[command](cli)
+            return {"db": cli_ai.cmd_db, "ai": cli_ai.cmd_ai, "standards": cli_ai.cmd_standards, "rules": cli_ai.cmd_rules,
+                    "scenarios": cli_ai.cmd_scenarios, "coverage": cli_ai.cmd_coverage}[command](cli)
         if command == "list":
             return cmd_list(cli)
         if command == "validate":

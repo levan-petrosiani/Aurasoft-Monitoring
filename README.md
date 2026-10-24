@@ -28,11 +28,12 @@ This installs the `aqt` command (`python -m aqt` works too). Run it from the rep
 | `aqt/` | Engine: YAML loading (`yamljson`, `binding`, `profiles`, `scenarios`), runner (`runner`, `steps`, `variables`, `jsonpath`), `signing`, `certificates`, `oauth`, `httpclient`, `reporting` |
 | `aqt/cli.py` | `aqt` command line |
 | `aqt/mockbank/` | In-memory fake ASPSP enforcing real XS2A checks |
-| `aqt/portal/` | Web portal (Flask); `ai_services.py` adds the store writes, AI summary, Standards and Rules pages |
-| `aqt/store/` | PostgreSQL store: schema migrations, `masking` (secrets/IBANs), run import, clause and rule queries |
+| `aqt/portal/` | Web portal (Flask); `ai_services.py` adds the store writes, AI summary, Standards, Rules, Drafts and Coverage pages |
+| `aqt/store/` | PostgreSQL store: schema migrations, `masking` (secrets/IBANs), run import, clause, rule and scenario-draft queries, `coverage` |
 | `aqt/standards/` | Standards → clauses: PDF reader (table of contents driven), Word reader, quote verifier, `sources.yaml` |
-| `aqt/ai/` | Model providers + audit (`chat`), run summaries, standards ingest, rule drafting and review (`rules`); prompts in `ai/prompts/` |
-| `aqt/cli_ai.py` | `aqt db`, `aqt ai`, `aqt standards`, `aqt rules` |
+| `aqt/ai/` | Model providers + audit (`chat`), run summaries, standards ingest, rule drafting and review (`rules`), scenario drafting and review (`scenario_drafting`); prompts in `ai/prompts/` |
+| `aqt/dryrun.py` | Runs one scenario on an in-process MockBank (never a real bank); used to check AI drafts |
+| `aqt/cli_ai.py` | `aqt db`, `aqt ai`, `aqt standards`, `aqt rules`, `aqt scenarios`, `aqt coverage` |
 | `tests/` | pytest, including every shipped YAML file and an end-to-end run against MockBank |
 
 ## Web portal (`aqt/portal`)
@@ -51,6 +52,9 @@ aqt portal                 # http://localhost:5280/   (--port, --root <dir>, --d
 | **Run** | Live progress while running, a **"Bank login needed"** button when a scenario waits for SCA, then results per scenario with steps and HTTP exchanges; links to `report.html`, `summary.json`, `junit.xml`; Run again / Delete |
 | **Runs** | History of all runs |
 | **Scenarios** | The scenario catalogue grouped by suite |
+| **Standards / Rules** | Clauses of the standards; AI rule drafts to approve, edit or reject (store/AI layer) |
+| **Drafts** | AI scenario drafts from approved rules, with the MockBank dry run; approve writes the YAML file |
+| **Coverage** | Approved rules → scenarios → last result per bank |
 
 - Runs execute one at a time (manual SCA uses one fixed callback port) and queue otherwise.
 - Each run is stored in its own folder (`run.json` + reports) under `reports/portal-python/`, so history survives restarts.
@@ -178,6 +182,7 @@ severity: Major                 # Critical | Major | Minor | Info
 specRef: "NextGenPSD2 IG 6.2; 14.11.1"
 origin: TPP/Blazor/BadRequests/CreateConsentBadRequests.cs#PsuIpAddressHeaderNull
 requires: [features.consents]   # skipped if the profile lacks it; `features.consents=aspspManaged` = array contains
+rules: [GE-CON-001]             # optional: approved rules this scenario verifies (aqt coverage; validate warns with --db)
 steps:
   - request:
       method: POST
@@ -278,6 +283,9 @@ aqt standards fetch && aqt standards ingest
 aqt standards search "consent validity"
 aqt rules draft GE-XS2A:0.8.RC3:9.2.2 --provider ollama
 aqt rules approve GE-AUTH-001 --by "Your Name"
+aqt scenarios draft GE-CON-001 --provider ollama   # needs an approved rule; dry runs on an in-process MockBank
+aqt scenarios approve NEG-CON-009 --by "Your Name"  # writes scenarios/negative/NEG-CON-009-....yaml, links the rule
+aqt coverage                            # approved rules -> scenarios -> last result per bank
 aqt portal                              # store/AI pages on when the database is reachable (--no-db turns them off)
 ```
 
@@ -289,6 +297,13 @@ aqt portal                              # store/AI pages on when the database is
   the quote must occur in the clause (else `invalid`), the level must match the wording, duplicates are flagged. A
   person approves, edits or rejects on the portal's **Rules** page or with `aqt rules`; how to decide:
   [docs/ai/REVIEW-GUIDE.md](docs/ai/REVIEW-GUIDE.md).
+- **Scenarios from rules:** the AI drafts a scenario YAML for one approved rule. Code sets the id, suite, severity,
+  `specRef`, `origin` and `rules:`; loads the draft with the engine (templates must exist, requests only to the bank's
+  XS2A API); runs it on an in-process MockBank; and sends errors and dry-run failures back to the model (at most 3
+  attempts). The model may answer that MockBank does not implement the rule (`MOCK_GAP`); that is shown to the reviewer,
+  who decides. A person approves, edits (checked and dry-run again) or rejects on the **Drafts** page or with
+  `aqt scenarios`; approving writes the file to `scenarios/<suite>/`. **Coverage** shows each approved rule with its
+  scenarios and their last result per bank.
 - **Providers:** Claude (`claude-opus-5-5`, refusal fallback, effort per feature) by default; switch a feature to the
   local model with `--provider ollama` or `AQT_AI_<FEATURE>_PROVIDER=ollama` (e.g. `AQT_AI_SUMMARY_PROVIDER`).
 - Database tests run when `AQT_TEST_DB` is set (`host=localhost port=5435 user=aqt password=aqt_dev`); each test
@@ -308,6 +323,6 @@ every existing rule quote still verifies).
 
 ## Not done yet
 
-Phase 3 (scenarios drafted from approved rules), the ask-agent (Phase 4); Playwright and decoupled SCA modes, onboarding (client registration), PIS
+The ask-agent (Phase 4); Playwright and decoupled SCA modes, onboarding (client registration), PIS
 suite, OpenAPI schema validation, Excel report, `aqt compare`, monitor mode. The AIS suite has been verified against
 MockBank (all 16 scenarios pass); it has not yet been run against a real local XS2A + AuthServer or a bank sandbox.

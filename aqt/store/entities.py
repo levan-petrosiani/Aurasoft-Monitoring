@@ -198,3 +198,29 @@ class AiCallRow:
     input_tokens: int | None = None
     output_tokens: int | None = None
     error: str | None = None
+
+
+@dataclass
+class ScenarioDraftRow:
+    """A test scenario drafted by AI from an approved rule; becomes a file in scenarios/ only when a person approves it."""
+    id: UUID
+    rule_id: str
+    scenario_id: str
+    suite: str
+    title: str
+    yaml: str
+    status: str                  # draft | failed | approved | rejected
+    attempts: int
+    drafted_by: str
+    created_utc: datetime
+    updated_utc: datetime
+    check_notes: list[str] = field(default_factory=list)
+    dry_run_outcome: str | None = None
+    dry_run: dict | None = None
+    mock_gap: str | None = None
+    model: str | None = None
+    ai_call_ids: list[UUID] = field(default_factory=list)
+    reviewed_by: str | None = None
+    reviewed_utc: datetime | None = None
+    review_note: str | None = None
+    file_path: str | None = None

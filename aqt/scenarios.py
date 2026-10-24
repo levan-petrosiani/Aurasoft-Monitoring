@@ -2,6 +2,7 @@
 
 import copy
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -155,6 +156,9 @@ class Scenario:
     description: str | None = None
     # Profile paths that must be present and truthy (e.g. endpoints.discovery), otherwise the scenario is skipped.
     requires: list[str] | None = None
+    # Rules (approved requirements from the standards, e.g. GE-CON-002) this scenario verifies. The engine only checks
+    # the id format; which rules exist and are approved is checked against the store (aqt coverage, the Drafts page).
+    rules: list[str] | None = None
     steps: list[Step] = required()
     # Steps that always run at the end (e.g. delete the consent). Their failures become warnings.
     cleanup: list[Step] | None = None
@@ -209,6 +213,34 @@ def load_all(directory: str) -> list[Scenario]:
     return scenarios
 
 
+def load_text(text: str, source_name: str) -> Scenario:
+    """Loads one scenario from YAML text (e.g. an AI draft that is not a file yet), with the same checks as load_all."""
+    raw = yamljson.parse(text, source_name)
+    if not isinstance(raw, dict):
+        raise ConfigurationError(f"{source_name}: a scenario must be a YAML mapping")
+    try:
+        scenario = bind(Scenario, raw)
+    except ConfigurationError as ex:
+        raise ConfigurationError(f"{source_name}: {ex}") from ex
+    _validate(scenario, source_name)
+    return scenario
+
+
+def check_templates(scenario: Scenario, templates: "TemplateLibrary", source_name: str | None = None):
+    """Raises ConfigurationError if a step names a header set or body template that does not exist."""
+    where = source_name or scenario.source_path or scenario.id
+    header_sets = {n.lower() for n in templates.header_set_names}
+    bodies = {n.lower() for n in templates.body_names}
+    for step in scenario.steps + (scenario.cleanup or []):
+        r = step.request
+        if r is None:
+            continue
+        if r.headers_template is not None and r.headers_template.lower() not in header_sets:
+            raise ConfigurationError(f"{where}: unknown headersTemplate '{r.headers_template}'")
+        if r.body_template is not None and r.body_template.lower() not in bodies:
+            raise ConfigurationError(f"{where}: unknown bodyTemplate '{r.body_template}'")
+
+
 def filter_scenarios(scenarios, suites, ids) -> list[Scenario]:
     """Filters by suite names and/or scenario ids (case-insensitive). Empty filters match everything."""
     suites = {s.lower() for s in suites}
@@ -217,9 +249,15 @@ def filter_scenarios(scenarios, suites, ids) -> list[Scenario]:
             if (not suites or s.suite.lower() in suites) and (not ids or s.id.lower() in ids)]
 
 
+_RULE_ID = re.compile(r"^[A-Z]+-[A-Z]+-\d{3}$")
+
+
 def _validate(scenario: Scenario, file: str):
     if not scenario.steps:
         raise ConfigurationError(f"{file}: scenario has no steps")
+    for rule in scenario.rules or []:
+        if not _RULE_ID.match(rule):
+            raise ConfigurationError(f"{file}: rules: '{rule}' is not a rule id like GE-CON-002")
 
     for index, step in enumerate(scenario.steps + (scenario.cleanup or [])):
         if step.kind_count != 1:

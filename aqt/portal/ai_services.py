@@ -191,17 +191,75 @@ class RuleService:
         return self.book.export(self.rules_directory)
 
 
+class ScenarioService:
+    """Scenario drafts for the portal: drafting from an approved rule in the background (dry runs on an in-process
+    MockBank only), review actions (approve writes scenarios/<suite>/..., edit re-checks) and coverage."""
+
+    def __init__(self, store, root_directory: str):
+        from ..ai import options as opt
+        self.store = store
+        self.options = opt.AiOptions.from_environment()
+        self.scenarios_directory = os.path.join(root_directory, "scenarios")
+        self.banks_directory = os.path.join(root_directory, "banks")
+        self._jobs = _Background()
+        self._last_error: dict[str, str] = {}
+
+    def drafting_provider(self, rule_id: str) -> str | None:
+        return self._jobs.busy(rule_id)
+
+    def last_error(self, rule_id: str) -> str | None:
+        return self._last_error.get(rule_id)
+
+    def model_for(self, provider: str) -> str:
+        from ..ai import options as opt
+        return self.options.with_provider(opt.SCENARIO_DRAFTING, provider).for_feature(opt.SCENARIO_DRAFTING).model
+
+    def start_draft(self, rule_id: str, provider: str, triggered_by: str) -> bool:
+        from ..ai import options as opt
+        from ..ai.chat import ChatFactory, StoreAuditSink
+        from ..ai.scenario_drafting import ScenarioDrafter
+        from ..dryrun import MockDryRun
+
+        def job():
+            self._last_error.pop(rule_id, None)
+            try:
+                factory = ChatFactory(self.options.with_provider(opt.SCENARIO_DRAFTING, provider), StoreAuditSink(self.store, print), self.store.masker)
+                with MockDryRun(self.banks_directory, self.scenarios_directory) as dry_run:
+                    ScenarioDrafter(self.store, factory, self.scenarios_directory, dry_run).draft(rule_id, triggered_by)
+            except Exception as ex:  # noqa: BLE001 - shown on the Drafts page
+                self._last_error[rule_id] = f"{type(ex).__name__}: {ex}"
+                raise
+
+        return self._jobs.start(rule_id, provider, job)
+
+    def review(self, action) -> str | None:
+        """Runs action(review); returns its error message instead of raising (shown next to the draft)."""
+        from ..ai.scenario_drafting import ScenarioReview, ScenarioReviewError
+        from ..dryrun import MockDryRun
+        try:
+            with MockDryRun(self.banks_directory, self.scenarios_directory) as dry_run:
+                action(ScenarioReview(self.store, self.scenarios_directory, dry_run, self.store.masker))
+            return None
+        except ScenarioReviewError as ex:
+            return str(ex)
+
+    def coverage(self, include_drafts: bool = False):
+        from ..store import coverage
+        return coverage.compute(self.store, self.scenarios_directory, include_drafts)
+
+
 def try_create(connection: str | None, root_directory: str, auto_summarize: bool = False):
-    """(recorder, summaries, rules, problem). Everything None with a reason when the store/AI layer is not available."""
+    """(recorder, summaries, rules, scenarios, problem). Everything None with a reason when the store/AI layer is not available."""
     try:
         from ..store import AqtStore, DOCKER_COMPOSE_DEFAULT
     except ImportError as ex:
-        return None, None, None, f"The store and AI pages need the AI extra: pip install -e '.[ai]' ({ex})"
+        return None, None, None, None, f"The store and AI pages need the AI extra: pip install -e '.[ai]' ({ex})"
     store = AqtStore(connection or DOCKER_COMPOSE_DEFAULT)
     try:
         applied = store.migrate()
         if applied:
             print(f"  store: applied migrations {', '.join(applied)}")
     except Exception as ex:  # noqa: BLE001 - the portal still works without the database
-        return None, None, None, f"The database is not reachable ({ex}). Start it with 'docker compose up -d' or set AQT_DB."
-    return StoreRecorder(store), SummaryService(store, auto_summarize), RuleService(store, root_directory), None
+        return None, None, None, None, f"The database is not reachable ({ex}). Start it with 'docker compose up -d' or set AQT_DB."
+    return (StoreRecorder(store), SummaryService(store, auto_summarize), RuleService(store, root_directory),
+            ScenarioService(store, root_directory), None)

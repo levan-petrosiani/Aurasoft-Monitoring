@@ -10,8 +10,8 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from . import connection as conn_mod
-from .entities import (AiCallRow, ClauseRow, ExchangeRow, RuleReviewRow, RuleRow, RunRow, RunSummaryRow, ScenarioRow,
-                       StandardDocumentRow, StepRow)
+from .entities import (AiCallRow, ClauseRow, ExchangeRow, RuleReviewRow, RuleRow, RunRow, RunSummaryRow, ScenarioDraftRow,
+                       ScenarioRow, StandardDocumentRow, StepRow)
 from .mapper import RunInfo, to_rows
 from .masking import MaskingOptions, SensitiveDataMasker
 
@@ -408,6 +408,72 @@ class AqtStore:
         cur.execute("INSERT INTO rule_reviews (rule_id, time_utc, reviewer, action, note, before, after) VALUES (%s, %s, %s, %s, %s, %s, %s)",
                     (h.rule_id, h.time_utc, h.reviewer, h.action, h.note, self._jsonb(h.before), self._jsonb(h.after)))
 
+    # --- scenario drafts (Phase 3) and the rule <-> scenario link
+
+    def add_scenario_draft(self, draft: ScenarioDraftRow) -> None:
+        cols = _columns(ScenarioDraftRow)
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"INSERT INTO scenario_drafts ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))})",
+                            [self._jsonb(draft.dry_run) if c == "dry_run" else getattr(draft, c) for c in cols])
+            conn.commit()
+
+    def update_scenario_draft(self, draft: ScenarioDraftRow, expected_updated_utc: datetime) -> None:
+        """Saves a changed draft; fails if someone else changed it since it was read."""
+        cols = [c for c in _columns(ScenarioDraftRow) if c != "id"]
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT updated_utc, reviewed_by FROM scenario_drafts WHERE id = %s FOR UPDATE", (draft.id,))
+                row = cur.fetchone()
+                if row is None:
+                    raise ValueError(f"Scenario draft {draft.id} no longer exists")
+                if row[0] != expected_updated_utc:
+                    raise ValueError(f"The draft was changed by someone else ({row[1] or 'another session'}); reload it and try again.")
+                cur.execute(f"UPDATE scenario_drafts SET {', '.join(c + ' = %s' for c in cols)} WHERE id = %s",
+                            [self._jsonb(draft.dry_run) if c == "dry_run" else getattr(draft, c) for c in cols] + [draft.id])
+            conn.commit()
+
+    def get_scenario_draft(self, draft_id) -> ScenarioDraftRow | None:
+        with self.connect() as conn, self._cursor(conn, ScenarioDraftRow) as cur:
+            cur.execute(f"SELECT {', '.join(_columns(ScenarioDraftRow))} FROM scenario_drafts WHERE id::text = %s", (str(draft_id),))
+            return cur.fetchone()
+
+    def list_scenario_drafts(self, status: str | None = None, rule_id: str | None = None) -> list[ScenarioDraftRow]:
+        with self.connect() as conn, self._cursor(conn, ScenarioDraftRow) as cur:
+            cur.execute(f"""SELECT {', '.join(_columns(ScenarioDraftRow))} FROM scenario_drafts
+                            WHERE (%(s)s::text IS NULL OR status = %(s)s) AND (%(r)s::text IS NULL OR rule_id = %(r)s)
+                            ORDER BY created_utc DESC""", {"s": status, "r": rule_id})
+            return cur.fetchall()
+
+    def drafted_scenario_ids(self) -> set[str]:
+        """Scenario ids already used by drafts that are not rejected (so new drafts get new ids)."""
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT scenario_id FROM scenario_drafts WHERE status <> 'rejected'")
+            return {r[0].lower() for r in cur.fetchall()}
+
+    def link_rule_scenario(self, rule_id: str, scenario_id: str, reviewer: str) -> None:
+        """Adds the scenario to the rule's `scenarios` and records it in rule_reviews (status unchanged)."""
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""UPDATE rules SET scenarios = array_append(scenarios, %(s)s), updated_utc = now()
+                               WHERE id = %(r)s AND NOT (%(s)s = ANY(scenarios))""", {"s": scenario_id, "r": rule_id})
+                if cur.rowcount:
+                    cur.execute("INSERT INTO rule_reviews (rule_id, time_utc, reviewer, action, note) VALUES (%s, now(), %s, 'linked', %s)",
+                                (rule_id, reviewer, f"Verified by scenario {scenario_id}"))
+            conn.commit()
+
+
+    def latest_outcomes(self, scenario_ids: list[str]) -> dict[tuple[str, str], tuple[str, str, datetime]]:
+        """(scenario id, bank BIC) -> (outcome, run id, time) of the newest run that included the scenario."""
+        if not scenario_ids:
+            return {}
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT DISTINCT ON (s.scenario_id, r.bank_bic) s.scenario_id, r.bank_bic, s.outcome, r.id,
+                                  coalesce(r.started_utc, r.created_utc)
+                           FROM scenario_results s JOIN runs r ON r.id = s.run_id
+                           WHERE s.scenario_id = ANY(%s)
+                           ORDER BY s.scenario_id, r.bank_bic, coalesce(r.started_utc, r.created_utc) DESC""", (scenario_ids,))
+            return {(row[0], row[1]): (row[2], row[3], row[4]) for row in cur.fetchall()}
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)

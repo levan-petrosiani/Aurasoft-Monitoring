@@ -104,6 +104,9 @@
             <input class="input-inline" name="note" placeholder="Reason for rejecting" />
             <button class="btn btn-small btn-ghost btn-danger" {{ disabled }}>Reject</button></form>
         {% endif %}
+        {% if rule.status == 'approved' %}
+        <a class="btn btn-small btn-ghost" href="/drafts?rule={{ rule.id }}&status=all">Test scenarios{{ ' (' ~ rule.scenarios | length ~ ')' if rule.scenarios }} →</a>
+        {% endif %}
         {% if rule.status in ['approved', 'rejected'] %}
         <form method="post" action="/rules/{{ rule.id }}/reopen" style="display:inline"><input type="hidden" name="back" value="{{ back }}" />
             <button class="btn btn-small btn-ghost" {{ disabled }}>Reopen</button></form>

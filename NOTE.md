@@ -566,3 +566,40 @@ packages and line counts, the Python stack, the port's verification, the new bug
 **Why:** the user chose to regenerate it for Python and to publish the port as a **pull request**, so teammates see
 the change to their `aqt/oauth.py` before it reaches `main`. The earlier local commit with the C# PDF (`18409b2`) was
 dropped from local `main` (it only ever existed locally).
+
+## 2026-10-25 · 44. Phase 3: scenarios drafted from approved rules
+
+**What:**
+- **Engine (no AI):**
+  - `rules:` field on scenarios. The engine checks only the format, e.g. `GE-CON-001`.
+  - `scenarios.load_text` and `check_templates`. `validate` now uses `check_templates` too.
+  - `aqt/dryrun.py` (`MockDryRun`): runs one scenario on an in-process MockBank on free ports, with the MOCK profile and the headless SCA approver.
+- **Store:** migration `0002_scenario_drafts.sql`, plus:
+  - `ScenarioDraftRow`;
+  - draft CRUD with an optimistic `updated_utc` check;
+  - `link_rule_scenario`, which adds the scenario to `rules.scenarios` and writes a `rule_reviews` row with action `linked`;
+  - `latest_outcomes`;
+  - `store/coverage.py`.
+- **AI:** `aqt/ai/scenario_drafting.py` and the prompt `prompts/scenario_drafting.txt`.
+  - `ScenarioDrafter`: the prompt is the format reference, the templates file and two example scenarios. The answer is YAML in a fence.
+    1. Code overwrites id, suite, severity, `specRef`, `origin` and `rules:`.
+    2. The draft is loaded with the engine and the template names are checked.
+    3. Requests may only go to the bank's XS2A API, as a relative path or a saved link.
+    4. A dry run on MockBank.
+    5. Errors or failures go back to the model, up to 3 attempts.
+    6. Code notes when the scenario does not expect the rule's status or error code.
+  - `ScenarioReview`:
+    - approve writes `scenarios/<suite>/<id>-<slug>.yaml`, reloads the whole folder (and removes the file if it no longer loads), then links the rule;
+    - reject needs a reason;
+    - edit keeps the code-owned fields, then checks and dry-runs again.
+- **CLI:** `aqt scenarios draft|drafts|show|approve|reject` and `aqt coverage`. `validate` warns about scenarios linked to rules that are missing or unapproved (with `--db`/`AQT_DB`; a store failure is only a notice).
+- **Portal:** a **Drafts** page (generate with Claude or locally, YAML, dry-run table, MockBank-gap note, approve/edit/reject) and a **Coverage** page. Approved rule cards link to their scenarios.
+
+**Why:** this is the plan's Phase 3: approved rule → generated scenario → checked on MockBank → a person approves → coverage goes up. As elsewhere, facts are in code: the ids and the link to the standard are never taken from the model, and MockBank, not the model, decides pass/fail. The model's only judgement is "this failure is a MockBank gap". It is accepted only for a failed expectation, not a tool error, and is shown to the reviewer.
+
+**Result:**
+- Live with local qwen3:8b on a throwaway DB with GE-CON-001 approved there, so the real DB was untouched. In 57 s and 2 attempts it produced `NEG-CON-009`: `validTo` = today+91d, expect 400 `PERIOD_INVALID`.
+- MockBank answered 201 and the model reported a MockBank gap. That is correct: MockBank has no 90-day limit (a follow-up for MockBank, plan decision 6).
+- Tests: 104 passed with `AQT_TEST_DB`; 81 passed and 23 skipped without it. The C#-baseline migration test now also expects the later migrations.
+
+**Not done:** no scenario files were approved. That needs the user to approve AIS rules first, and the real DB has only PIS/COMMON approved rules.

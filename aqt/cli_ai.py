@@ -1,5 +1,5 @@
 """
-aqt db | ai | standards | rules — the store and AI commands, and the store hook of `aqt run`.
+aqt db | ai | standards | rules | scenarios | coverage — the store and AI commands, and the store hook of `aqt run`.
 
 Imports of the database and AI packages happen inside the commands, so the core tool (run, mock, portal, validate)
 works without the `ai` extra installed.
@@ -20,6 +20,9 @@ USAGE = """  aqt db migrate|status [--db <connection>]           create/upgrade 
   aqt standards fetch|ingest [--standard ID] [--no-embed] | list | search "<text>" [--standard ID] | show <clause-key>
   aqt rules draft <clause-key> [--provider ..] [--model ..] | list [--status s] [--standard ID] | show <id>
   aqt rules approve|reject|reopen <id> --by <name> [--note ..] | export        rules from the standards
+  aqt scenarios draft <rule-id> [--provider ..] [--model ..] | drafts [--status s] [--rule id] | show <draft>
+  aqt scenarios approve|reject <draft> --by <name> [--note ..]   AI scenario drafts (checked on MockBank only)
+  aqt coverage [--drafts]                             approved rules -> scenarios -> last result per bank
     (store commands use --db or AQT_DB; db/ai/standards/rules default to the docker-compose database, localhost:5435)"""
 
 
@@ -364,3 +367,99 @@ def cmd_rules(cli) -> int:
         Out.ok(f"{written} approved rule(s) written to rules/, {removed} stale file(s) removed")
         return SUCCESS
     raise ConfigurationError("Usage: aqt rules draft|list|show|approve|reject|reopen|export")
+
+
+# ---- aqt scenarios / aqt coverage ------------------------------------------------------------------------------
+
+def _find_draft(store, key: str):
+    """A draft by its id (or the first 8+ characters of it) or by scenario id (the newest open one)."""
+    key = (key or "").strip()
+    drafts = store.list_scenario_drafts()
+    by_scenario = [d for d in drafts if d.scenario_id.lower() == key.lower()]
+    if by_scenario:
+        return next((d for d in by_scenario if d.status in ("draft", "failed")), by_scenario[0])
+    matches = [d for d in drafts if len(key) >= 8 and str(d.id).startswith(key.lower())]
+    if len(matches) != 1:
+        raise ConfigurationError(f"No scenario draft '{key}' (use the scenario id or the draft id from aqt scenarios drafts)")
+    return matches[0]
+
+
+def _print_draft(d, full: bool):
+    Out = _out()
+    print()
+    line = f"{d.scenario_id}  [{d.status}]  rule {d.rule_id} · dry run {d.dry_run_outcome or '-'} · {str(d.id)[:8]}  {d.title}"
+    (Out.error if d.status == "failed" else Out.ok)(line)
+    if d.mock_gap:
+        print(f"   MockBank gap (model's view): {d.mock_gap}")
+    for n in d.check_notes:
+        Out.muted("   check: " + n)
+    if d.reviewed_by:
+        Out.muted(f"   {d.status} by {d.reviewed_by}{': ' + d.review_note if d.review_note else ''}{' -> ' + d.file_path if d.file_path else ''}")
+    if full:
+        print()
+        print(d.yaml)
+
+
+def cmd_scenarios(cli) -> int:
+    from .ai.scenario_drafting import ScenarioDrafter, ScenarioReview, ScenarioReviewError
+    from .cli import Paths
+    from .dryrun import MockDryRun
+    Out = _out()
+    sub = cli.positional[0] if cli.positional else "drafts"
+    arg = cli.positional[1] if len(cli.positional) > 1 else None
+    paths = Paths(cli)
+    store = _store(cli)
+
+    if sub == "draft":
+        if arg is None:
+            raise ConfigurationError("Usage: aqt scenarios draft <approved rule id> [--provider anthropic|ollama] [--model name]")
+        from .ai import options as opt
+        factory = _factory(store, cli, opt.SCENARIO_DRAFTING)
+        settings = factory.describe(opt.SCENARIO_DRAFTING)
+        Out.muted(f"Drafting a scenario for {arg} with {settings.provider} {settings.model}; dry runs on an in-process MockBank ...")
+        with MockDryRun(paths.banks, paths.scenarios) as dry_run:
+            try:
+                draft = ScenarioDrafter(store, factory, paths.scenarios, dry_run).draft(arg, f"{os.environ.get('USER', 'cli')} (aqt scenarios draft)")
+            except ValueError as ex:
+                raise ConfigurationError(str(ex)) from ex
+        _print_draft(draft, full=True)
+        return SUCCESS if draft.status == "draft" else TESTS_FAILED
+    if sub == "drafts":
+        for d in store.list_scenario_drafts(cli.get("status"), cli.get("rule")):
+            print(f"{str(d.id)[:8]}  {d.scenario_id:<12} {d.status:<9} {d.rule_id:<12} {(d.dry_run_outcome or '-'):<8} {d.title}")
+        return SUCCESS
+    if sub == "show":
+        _print_draft(_find_draft(store, arg), full=True)
+        return SUCCESS
+    if sub in ("approve", "reject"):
+        reviewer = cli.get("by")
+        if not reviewer or not arg:
+            raise ConfigurationError(f"Usage: aqt scenarios {sub} <draft> --by <your name> [--note text]")
+        draft = _find_draft(store, arg)
+        review = ScenarioReview(store, paths.scenarios)
+        try:
+            draft = review.approve(draft.id, reviewer, cli.get("note")) if sub == "approve" else review.reject(draft.id, reviewer, cli.get("note") or "")
+        except ScenarioReviewError as ex:
+            raise ConfigurationError(str(ex)) from ex
+        Out.ok(f"{draft.scenario_id} is now {draft.status}" + (f": {draft.file_path} (linked to {draft.rule_id})" if draft.file_path else ""))
+        return SUCCESS
+    raise ConfigurationError("Usage: aqt scenarios draft|drafts|show|approve|reject")
+
+
+def cmd_coverage(cli) -> int:
+    from .cli import Paths
+    from .store import coverage
+    Out = _out()
+    result = coverage.compute(_store(cli), Paths(cli).scenarios, include_drafts=cli.has("drafts"))
+    for r in result.rules:
+        line = f"{r.rule_id:<14} {r.status:<9} {r.level:<6} {r.service:<6} {r.title}"
+        (Out.ok if r.covered else Out.muted)(line)
+        for s in r.scenarios:
+            results = ", ".join(f"{bank} {outcome}" for bank, (outcome, _) in sorted(s.results.items())) or "never run"
+            print(f"        {s.id:<12} {results}{'' if s.file else '  (no scenario file)'}")
+        if r.open_drafts:
+            Out.muted(f"        {r.open_drafts} scenario draft(s) waiting for review")
+    for p in result.problems:
+        Out.error(p)
+    Out.muted(f"{result.covered_count} of {result.approved_count} approved rule(s) have a scenario.")
+    return SUCCESS

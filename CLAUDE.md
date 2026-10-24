@@ -28,6 +28,9 @@ aqt ai check                                             # Claude + Ollama reach
 aqt ai summarize latest --provider ollama --show-input   # AI run triage
 aqt standards fetch && aqt standards ingest              # standards → clauses (+ local embeddings)
 aqt rules draft <clause-key> --provider ollama           # AI rule drafts
+aqt scenarios draft <approved-rule-id> --provider ollama # AI scenario draft, dry run on in-process MockBank only
+aqt scenarios drafts | approve|reject <draft> --by <name>  # review scenario drafts
+aqt coverage                                             # approved rules -> scenarios -> last result per bank
 AQT_TEST_DB="host=localhost port=5435 user=aqt password=aqt_dev" pytest   # include database tests
 ```
 
@@ -44,11 +47,12 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
 | `aqt/` | Engine: `yamljson` + `binding` (YAML → dataclasses, unknown properties rejected), `profiles`, `scenarios`, `runner`, `steps` (request/tls/sca/localCertificates + expectations), `variables`, `jsonpath`, `signing` (JWS + Digest), `certificates`, `oauth` (PKCE, callback listener, headless approval), `httpclient` (mTLS, retries), `reporting`. No UI, no AI |
 | `aqt/cli.py` | `aqt` command (`run`, `mock`, `portal`, `list`, `validate`, `version`) |
 | `aqt/mockbank/` | In-memory fake ASPSP enforcing real XS2A checks (pyOpenSSL for optional client certificates); the reference target for new scenarios |
-| `aqt/portal/` | Flask UI; `services.py` (`RunService`) queues runs and stores them in `reports/portal-python/`; `ai_services.py` writes them to the store and serves the AI summary, Standards and Rules pages |
-| `aqt/store/` | PostgreSQL store (psycopg, plain SQL): `migrations/*.sql`, `masking.py`, `importer.py`, `store.py` |
+| `aqt/portal/` | Flask UI; `services.py` (`RunService`) queues runs and stores them in `reports/portal-python/`; `ai_services.py` writes them to the store and serves the AI summary, Standards, Rules, Drafts and Coverage pages |
+| `aqt/store/` | PostgreSQL store (psycopg, plain SQL): `migrations/*.sql`, `masking.py`, `importer.py`, `store.py`, `coverage.py` |
+| `aqt/dryrun.py` | `MockDryRun`: one scenario on an in-process MockBank on free ports (MOCK profile, loopback only) |
 | `aqt/standards/` | No AI/DB: `pdf_reader.py` (TOC-driven, pdfplumber), `docx_reader.py`, `quote.py` (verifier), `sources.py` |
-| `aqt/ai/` | `chat.py` (Claude / Ollama + audit + masking), `summaries.py`, `ingest.py`, `rules.py` (drafter, RuleBook, export), `prompts/` |
-| `aqt/cli_ai.py` | `aqt db | ai | standards | rules` (imports the optional packages only when used) |
+| `aqt/ai/` | `chat.py` (Claude / Ollama + audit + masking), `summaries.py`, `ingest.py`, `rules.py` (drafter, RuleBook, export), `scenario_drafting.py` (ScenarioDrafter, ScenarioReview), `prompts/` |
+| `aqt/cli_ai.py` | `aqt db | ai | standards | rules | scenarios | coverage` (imports the optional packages only when used) |
 | `tests/` | pytest: YAML, signing, reports, every shipped YAML file, end-to-end MockBank run on free ports |
 | `docker-compose.yml` | PostgreSQL + pgvector for the store (localhost:5435) |
 | `banks/<BIC>.yaml` | Bank profiles; `extends: _shared.yaml`; `_`-prefixed files are not run |
@@ -78,6 +82,9 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
   indexed standard text (`aqt/standards/quote.py`, checked in code, not by the model). Georgian documents stay Georgian;
   quotes are verified against the Georgian text, English translations are per rule and marked as AI-made.
 - Only `RuleBook` (`aqt/ai/rules.py`) changes a rule's status, always with a reviewer name and a `rule_reviews` row.
+- Only `ScenarioReview` (`aqt/ai/scenario_drafting.py`) turns a scenario draft into a file in `scenarios/`; drafts are
+  dry-run only on the in-process MockBank (`aqt/dryrun.py`), and code (not the model) sets their id, suite, `specRef`,
+  `origin` and `rules:`.
 - Every model call is written to the audit log (model, prompt hash, token usage, output, who triggered it).
 - Data sent to the model is masked first (tokens, auth codes, PSU identifiers, IBANs as configured).
 - Providers (`aqt/ai/chat.py`): Claude via the official `anthropic` SDK (`claude-opus-5-5`) or a local model via Ollama,
