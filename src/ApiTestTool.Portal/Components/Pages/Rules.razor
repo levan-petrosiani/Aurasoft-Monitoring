@@ -19,7 +19,7 @@
     {
         <button class="chip @(_status == s ? "chip-on" : "")" @onclick="() => SetStatus(s)">@s <span class="muted">@Count(s)</span></button>
     }
-    <select class="field field-inline" @bind="_standard" @bind:after="Load">
+    <select class="input-inline" @bind="_standard" @bind:after="Load">
         <option value="">all standards</option>
         @foreach (var d in _all.Select(r => r.Standard).Distinct().Order())
         {

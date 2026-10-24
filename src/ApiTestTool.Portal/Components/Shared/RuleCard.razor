@@ -16,21 +16,25 @@
     @if (_editing)
     {
         <div class="form rule-edit">
-            <label class="label">Title</label>
-            <input class="field" @bind="_title" />
-            <label class="label">Level</label>
-            <select class="field" @bind="_level"><option>MUST</option><option>SHOULD</option><option>MAY</option></select>
-            <label class="label">Requirement (what the bank's API does)</label>
-            <textarea class="field" rows="3" @bind="_requirement"></textarea>
-            <label class="label">Quote (verbatim from the clause; checked again on save)</label>
-            <textarea class="field" rows="4" @bind="_quote"></textarea>
+            <div class="row">
+                <label class="field"><span>Title</span><input class="input" @bind="_title" /></label>
+                <label class="field"><span>Level</span>
+                    <select class="input" @bind="_level"><option>MUST</option><option>SHOULD</option><option>MAY</option></select>
+                </label>
+            </div>
+            <label class="field"><span>Requirement <span class="hint">what the bank's API does</span></span>
+                <textarea rows="3" @bind="_requirement"></textarea>
+            </label>
+            <label class="field"><span>Quote <span class="hint">verbatim from the clause; checked again on save</span></span>
+                <textarea rows="4" @bind="_quote"></textarea>
+            </label>
             @if (Rule.QuoteEnglish is not null || _quoteEnglish is { Length: > 0 })
             {
-                <label class="label">Quote in English</label>
-                <textarea class="field" rows="3" @bind="_quoteEnglish"></textarea>
+                <label class="field"><span>Quote in English <span class="hint">AI translation</span></span>
+                    <textarea rows="3" @bind="_quoteEnglish"></textarea>
+                </label>
             }
-            <label class="label">Operation</label>
-            <input class="field" @bind="_operation" />
+            <label class="field"><span>Operation</span><input class="input" placeholder="e.g. POST /v2/consents/account-access" @bind="_operation" /></label>
             <div class="actions">
                 <button class="btn btn-small btn-primary" @onclick="SaveEdit">Save</button>
                 <button class="btn btn-small btn-ghost" @onclick="() => _editing = false">Cancel</button>
@@ -87,8 +91,10 @@
             }
             @if (Rule.Status is "draft" or "approved")
             {
-                <input class="field field-inline" placeholder="Reason for rejecting" @bind="_rejectNote" />
-                <button class="btn btn-small btn-ghost btn-danger" disabled="@NoReviewer" @onclick="Reject">Reject</button>
+                <span class="reject-row">
+                    <input class="input-inline" placeholder="Reason for rejecting" @bind="_rejectNote" />
+                    <button class="btn btn-small btn-ghost btn-danger" disabled="@NoReviewer" @onclick="Reject">Reject</button>
+                </span>
             }
             @if (Rule.Status is "approved" or "rejected")
             {

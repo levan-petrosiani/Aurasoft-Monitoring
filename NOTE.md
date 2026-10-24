@@ -373,3 +373,18 @@ review workflow and guards, stale review, export as valid YAML. Store test: hybr
   - GE-CON-001..002: approve 002; edit 001 to remove the second requirement and the 400 status.
 - Next: set `ANTHROPIC_API_KEY` and compare Claude's drafts on the same clauses. Then Phase 3 (scenarios from approved
   rules).
+
+## 2026-10-24 · 29. Portal: themed form controls (user's request)
+
+**What:** The user reported that input boxes looked bare on most pages.
+**Cause:**
+- The stylesheet styled only `<select>`, so text boxes and text areas used the browser default.
+- My Phase 2 pages put the `field` class (meant for the label wrapper) on the controls themselves.
+**Fix:**
+- Global styles for every text input, textarea and select: surface background, line border, 8 px radius, muted
+  placeholder, accent hover/focus ring, themed drop-down arrow, accent-coloured checkboxes, disabled state.
+- `color-scheme: light dark` so native pop-ups follow the theme.
+- `input` / `input-inline` classes on the controls.
+- The rule edit form uses the same `label.field` layout as New run.
+- Clause text in the normal font (the monospace font made Georgian hard to read).
+**Verified:** headless-Chrome screenshots of Rules, Standards and New run in dark mode, and Rules in light mode.
