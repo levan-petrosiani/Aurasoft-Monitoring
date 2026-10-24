@@ -397,3 +397,20 @@ examples from the first five drafts) and a collapsible **How to review** box on 
 **Why:** the user, who reviews for now, asked how to decide. Staff will review later, and the checklist should sit where
 the decision is made. Writing it down also corrected my earlier advice: BG-CON-001 and 002 have the same flaw as
 003 (they describe request formats, not duties of the bank), so all three should be rejected, not just 003.
+
+## 2026-10-24 · 31. C# replaced by the Python implementation (user's request)
+
+**What:** removed the C# solution (`src/`, `tests/`, `ApiTestTool.sln`, `Directory.*.props`, `nuget.config`,
+`dotnet-tools.json`) and added the Python implementation at the repository root: `aqt/` (engine, CLI, MockBank,
+Flask portal), `tests/` (pytest), `pyproject.toml`, `requirements.txt`. README, CLAUDE.md and ARCHITECTURE.md now
+describe the Python tool. YAML (`banks/`, `scenarios/`), `docs/`, `standards/`, `rules/` and `docker-compose.yml`
+are unchanged.
+**Why:** the user asked to change the C# code to the Python port.
+**Not ported:** Store (PostgreSQL, masking, import), AI (summaries, audit log, rule drafting/review) and Standards
+(fetch/ingest/search), with their CLI commands and portal pages. They remain in git history (`8abf9f6`) and are
+listed in the README under "Moved from C#".
+**Verified (from this repository, fresh venv):** `pip install -e .[test]`; `aqt validate` (18 profiles, 23 scenarios);
+`pytest` 22 passed; `aqt run --bank MOCK --with-mock --sca-auto` 16 passed, 7 skipped; `aqt run --bank TBC-MOCK
+--suite preflight,tbc --sca-auto` 11/11; portal on :5280, a MOCK run from New run completed 16 passed / 7 skipped
+and served its report files. Before removing C#, the Python client passed 16/16 against the C# MockBank and the
+C# client 16/16 against the Python MockBank.

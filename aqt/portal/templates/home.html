@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "macros.html" import badge, run_table %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<p class="lead">Test banks' XS2A sandboxes as a TPP and keep the results. Banks come from <code>{{ catalog.banks_directory }}</code>.</p>
+
+<div class="tiles">
+    <div class="tile"><b>{{ banks | selectattr('profile') | list | length }}</b>bank profiles</div>
+    <div class="tile"><b>{{ runs | length }}</b>runs stored</div>
+    <div class="tile"><b>{{ 1 if active else 0 }}</b>running now</div>
+    <div class="tile">
+        <b class="{{ 'text-pass' if mock_reachable else 'text-muted' }}">{{ 'Up' if mock_reachable else 'Down' }}</b>
+        MockBank {{ '(in portal)' if mock.is_hosted_here else ('(external)' if mock_reachable else '') }}
+        <div class="tile-actions">
+            {% if mock.is_hosted_here %}
+                <form method="post" action="/mock/stop" style="display:inline"><button class="btn btn-small">Stop</button></form>
+                <a class="btn btn-small btn-ghost" href="{{ mock.dashboard_url }}" target="_blank">Open</a>
+            {% elif not mock_reachable %}
+                <form method="post" action="/mock/start" style="display:inline"><button class="btn btn-small">Start</button></form>
+            {% else %}
+                <a class="btn btn-small btn-ghost" href="{{ mock.dashboard_url }}" target="_blank">Open</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<h2>Banks</h2>
+<table class="grid">
+    <thead>
+        <tr><th>Profile</th><th>Bank</th><th>XS2A sandbox</th><th>Last run</th><th>Pass rate</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for bank in banks %}{% set l = last[bank.key] %}
+        <tr>
+            <td><code>{{ bank.key }}</code></td>
+            <td>
+                {{ bank.name }}
+                {% if bank.error %}<div class="text-fail small">{{ bank.error }}</div>{% endif %}
+            </td>
+            <td class="small">{{ bank.profile.endpoints.xs2a if bank.profile }}</td>
+            <td>
+                {% if l %}
+                    <a href="/runs/{{ l.id }}">{{ badge(l.record.status) }} <span class="small muted">{{ local_time(l.record.created_utc, '%d.%m %H:%M') }}</span></a>
+                {% else %}
+                    <span class="muted small">never</span>
+                {% endif %}
+            </td>
+            <td>{{ format_rate(l.record.pass_rate) ~ '%' if l and l.record.status == COMPLETED else '' }}</td>
+            <td class="right">
+                {% if bank.profile %}<a class="btn btn-small" href="/run/new?bank={{ bank.key | urlencode }}">Run…</a>{% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+<h2>Recent runs</h2>
+{{ run_table(runs[:8]) }}
+{% endblock %}

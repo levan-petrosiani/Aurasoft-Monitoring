@@ -2,7 +2,9 @@
 
 ApiTestTool (`aqt`) tests banks' XS2A (Berlin Group NextGenPSD2 / NBG Georgia) sandboxes as a TPP:
 mTLS with a QWAC, requests signed with a QSealC (`Digest` + `X-Jws-Signature`), OAuth/PKCE SCA, and
-every response checked against the standard. .NET 10, C#, data-driven by YAML. Hackathon project.
+every response checked against the standard. Python 3.11+, data-driven by YAML. Hackathon project.
+It was first written in C#/.NET (last C# commit `8abf9f6`); the Store, AI and Standards layers are not ported yet
+(see README "Moved from C#").
 
 - `README.md` — user manual · `docs/ai/PLAN.md` — AI layer plan and decisions
 - `ARCHITECTURE.md` — Mermaid snapshot of the current system; **update it at the end of every phase**
@@ -13,36 +15,28 @@ every response checked against the standard. .NET 10, C#, data-driven by YAML. H
 ## Commands
 
 ```bash
-dotnet build ApiTestTool.sln
-dotnet test                                                          # engine unit tests (xUnit)
-dotnet run --project src/ApiTestTool.Cli -- validate                 # load and check every YAML file
-dotnet run --project src/ApiTestTool.Cli -- run --bank MOCK --with-mock --sca-auto   # full run, no real bank
-dotnet run --project src/ApiTestTool.Portal --launch-profile Portal  # web UI on http://localhost:5280/
-docker compose up -d                                                 # PostgreSQL on localhost:5435
-dotnet run --project src/ApiTestTool.Cli -- db migrate|import|status # store
-dotnet run --project src/ApiTestTool.Cli -- ai check                 # Claude + Ollama reachable, audited
-dotnet run --project src/ApiTestTool.Cli -- ai summarize latest --provider ollama --show-input   # AI run triage
-dotnet run --project src/ApiTestTool.Cli -- standards fetch && dotnet run --project src/ApiTestTool.Cli -- standards ingest
-dotnet run --project src/ApiTestTool.Cli -- rules draft <clause-key> --provider ollama          # AI rule drafts
-AQT_TEST_DB="Host=localhost;Port=5435;Username=aqt;Password=aqt_dev" dotnet test   # include database tests
-dotnet tool restore && dotnet ef migrations add <Name> --project src/ApiTestTool.Store --output-dir Migrations
+python -m venv .venv && .venv\Scripts\activate && pip install -e .[test]   # once
+pytest                                                   # unit + end-to-end tests
+aqt validate                                             # load and check every YAML file
+aqt run --bank MOCK --with-mock --sca-auto               # full run, no real bank
+aqt run --bank TBC-MOCK --suite preflight,tbc --sca-auto # public TBC mock
+aqt mock                                                 # MockBank only (https :7443, http :7080)
+aqt portal                                               # web UI on http://localhost:5280/
 ```
 
-After changing YAML, run `validate`. After changing engine code, run `dotnet test` and a MOCK run.
-After changing store entities, add a migration. Run `dotnet` from the repo root (the CLI finds `banks/` there).
+After changing YAML, run `validate`. After changing engine code, run `pytest` and a MOCK run.
+Run `aqt` from the repo root (the CLI finds `banks/` there).
 
 ## Layout
 
 | Path | Role |
 |---|---|
-| `src/ApiTestTool.Engine` | Core library: YAML loading, scenario runner, HTTP/TLS/SCA steps, JWS signing, OAuth, reports. No UI, no AI |
-| `src/ApiTestTool.Cli` | `aqt` executable (`run`, `list`, `validate`, `mock`) |
-| `src/ApiTestTool.MockBank` | In-memory fake ASPSP enforcing real XS2A checks; the reference target for new scenarios |
-| `src/ApiTestTool.Portal` | Blazor Server UI; `Services/RunService.cs` queues runs, `StoreRecorder.cs` writes them to PostgreSQL |
-| `src/ApiTestTool.Store` | EF Core + Npgsql store (`AqtStore`), `SensitiveDataMasker`, `RunImporter`, migrations |
-| `src/ApiTestTool.Standards` | No AI/DB: `PdfClauseReader` (TOC-driven), `DocxClauseReader` (heading styles), `QuoteVerifier`, `StandardSources` (manifest, fetch, SHA-256) |
-| `src/ApiTestTool.AI` | `ChatClientFactory` (Claude / Ollama per feature, embeddings), `AuditingChatClient` (mask + audit every call), `Summaries/` (run triage), `Standards/StandardsIngestor`, `Rules/` (`RuleDrafter`, `RuleBook` review + export, `NormativeLevel`) |
-| `tests/ApiTestTool.*.Tests` | xUnit: engine (every shipped YAML end to end), store (masking, import, DB with `AQT_TEST_DB`), AI |
+| `aqt/` | Engine: `yamljson` + `binding` (YAML → dataclasses, unknown properties rejected), `profiles`, `scenarios`, `runner`, `steps` (request/tls/sca/localCertificates + expectations), `variables`, `jsonpath`, `signing` (JWS + Digest), `certificates`, `oauth` (PKCE, callback listener, headless approval), `httpclient` (mTLS, retries), `reporting`. No UI, no AI |
+| `aqt/cli.py` | `aqt` command (`run`, `mock`, `portal`, `list`, `validate`, `version`) |
+| `aqt/mockbank/` | In-memory fake ASPSP enforcing real XS2A checks (pyOpenSSL for optional client certificates); the reference target for new scenarios |
+| `aqt/portal/` | Flask UI; `services.py` (`RunService`) queues runs and stores them in `reports/portal-python/` |
+| `tests/` | pytest: YAML, signing, reports, every shipped YAML file, end-to-end MockBank run on free ports |
+| `docker-compose.yml` | PostgreSQL + pgvector for the (not yet ported) store |
 | `banks/<BIC>.yaml` | Bank profiles; `extends: _shared.yaml`; `_`-prefixed files are not run |
 | `scenarios/<suite>/*.yaml` | Test cases; reusable headers/bodies in `scenarios/_templates` |
 | `rules/` | Approved rules exported from the database (`aqt rules export`); the database is the source of truth |
@@ -51,8 +45,8 @@ After changing store entities, add a migration. Run `dotnet` from the repo root 
 
 ## Hard constraints
 
-- **Standalone:** only public nuget.org packages, versions in `Directory.Packages.props` (central
-  package management — no `Version=` on `PackageReference`). Never reference B7.PSD2/AltaSoft projects.
+- **Standalone:** only public PyPI packages, declared in `pyproject.toml` (and `requirements.txt`).
+  Never reference B7.PSD2/AltaSoft projects.
 - **Never commit secrets:** `certs/` contents, `*.pfx`, API keys. Keys come from environment variables
   (`AQT_QWAC_PASSWORD`, `AQT_QSEALC_PASSWORD`, `ANTHROPIC_API_KEY`).
 - **`--sca-auto` is for MockBank / public mocks only** — never add it to a real bank's flow.
@@ -61,7 +55,10 @@ After changing store entities, add a migration. Run `dotnet` from the repo root 
 
 ## AI layer rules (see docs/ai/PLAN.md)
 
-- `ApiTestTool.Engine` stays deterministic and AI-free. AI code lives in `src/ApiTestTool.AI` and only
+The AI, Store and Standards layers are **not ported to Python yet**. These rules apply when they are; class names
+below refer to the C# implementation in git history (`8abf9f6`).
+
+- The engine (`aqt/`) stays deterministic and AI-free. AI code lives in its own package and only
   *produces artifacts* (draft rules, draft scenarios, summaries) or *answers questions*; the engine
   executes. An AI never sends requests to a bank directly.
 - AI output is a **draft** until a human approves it (`status: draft` → `approved` happens only in the
@@ -86,6 +83,7 @@ After changing store entities, add a migration. Run `dotnet` from the repo root 
 
 ## Style
 
-Match the existing code: file-scoped namespaces, `sealed` classes, `required`/`init` properties, XML
-`<summary>` comments on public types, nullable enabled. Keep README tables in sync when adding commands,
-profile fields, scenario fields or suites.
+Match the existing code: dataclasses for models (YAML fields are camelCase, bound to snake_case fields by
+`aqt/binding.py`), type hints, docstrings on modules and public classes, `ConfigurationError` for problems on our
+side (they become `Error`, never `Failed`). Keep README tables in sync when adding commands, profile fields,
+scenario fields or suites.

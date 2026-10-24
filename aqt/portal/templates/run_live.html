@@ -1,0 +1,75 @@
+{% from "macros.html" import badge, scenario_view %}
+<div data-active="{{ 1 if run.is_active else 0 }}">
+<div class="title-row">
+    <h1>{{ r.bank_name or r.request.bank }} <span class="muted">· {{ r.request.bank }}</span></h1>
+    {{ badge(r.status) }}
+</div>
+<p class="muted small">
+    Run <code>{{ r.id }}</code> · created {{ local_time(r.created_utc) }}
+    · suites: {{ 'all' if not r.request.suites else r.request.suites | join(', ') }}
+    {% if r.request.scenario_ids %}<span> · scenarios: {{ r.request.scenario_ids | join(', ') }}</span>{% endif %}
+    {% if r.request.use_mock_bank %}<span> · built-in MockBank</span>{% endif %}
+    {% if r.request.auto_sca %}<span> · automatic SCA</span>{% endif %}
+</p>
+
+<div class="actions">
+    {% if run.is_active %}
+        <form method="post" action="/runs/{{ r.id }}/cancel" style="display:inline"><button class="btn">Cancel run</button></form>
+    {% else %}
+        <form method="post" action="/runs/{{ r.id }}/again" style="display:inline"><button class="btn btn-primary">Run again</button></form>
+        {% if run.result %}
+            <a class="btn btn-ghost" href="/runs/{{ r.id }}/files/report.html" target="_blank">HTML report</a>
+            <a class="btn btn-ghost" href="/runs/{{ r.id }}/files/summary.json" target="_blank">summary.json</a>
+            <a class="btn btn-ghost" href="/runs/{{ r.id }}/files/junit.xml" target="_blank">junit.xml</a>
+        {% endif %}
+        <form method="post" action="/runs/{{ r.id }}/delete" style="display:inline" onsubmit="return confirm('Delete this run?')"><button class="btn btn-ghost btn-danger">Delete</button></form>
+    {% endif %}
+</div>
+
+{% if r.error %}
+<div class="alert {{ 'alert-warn' if r.status == 'Cancelled' else 'alert-fail' }}">{{ r.error }}</div>
+{% endif %}
+
+{% if run.login_url %}
+<div class="alert alert-action">
+    <b>Bank login needed.</b> A scenario is waiting for SCA. Open the bank's login page on this machine and log in with the sandbox user:
+    <div><a class="btn btn-primary" href="{{ run.login_url }}" target="_blank">Open login page</a></div>
+</div>
+{% endif %}
+
+<div class="tiles">
+    <div class="tile"><b>{{ rate }}%</b>pass rate</div>
+    <div class="tile"><b class="text-pass">{{ completed | selectattr('outcome', 'equalto', Outcome.PASSED) | list | length }}</b>passed</div>
+    <div class="tile"><b class="text-fail">{{ completed | selectattr('outcome', 'equalto', Outcome.FAILED) | list | length }}</b>failed</div>
+    <div class="tile"><b class="text-error">{{ completed | selectattr('outcome', 'equalto', Outcome.ERROR) | list | length }}</b>errors</div>
+    <div class="tile"><b>{{ completed | selectattr('outcome', 'equalto', Outcome.BLOCKED) | list | length }}</b>blocked</div>
+    <div class="tile"><b>{{ completed | selectattr('outcome', 'equalto', Outcome.SKIPPED) | list | length }}</b>skipped</div>
+</div>
+
+{% if run.is_active %}
+<div class="progress"><div class="progress-bar" style="width:{{ progress }}%"></div></div>
+<p class="muted small">
+    {{ completed | length }} of {{ run.total_scenarios or '?' }} done
+    {% if run.current_scenario %}<span> · running <b>{{ run.current_scenario }}</b></span>{% endif %}
+    {% if r.status == 'Queued' %}<span> · waiting for the previous run to finish</span>{% endif %}
+</p>
+{% endif %}
+
+{% if completed %}
+<h2>Scenarios</h2>
+<div class="filter-row">
+    {% for f in ['All', 'Problems'] %}
+    <a class="chip {{ 'chip-on' if filter == f }}" href="?filter={{ f }}">{{ f }}</a>
+    {% endfor %}
+</div>
+{% for s in shown %}{{ scenario_view(s) }}{% endfor %}
+{% endif %}
+
+{% set log = run.log %}
+{% if log %}
+<details class="log" id="run-log" {{ 'open' if run.is_active }}>
+    <summary>Run log ({{ log | length }})</summary>
+    <pre>{{ log | join('\n') }}</pre>
+</details>
+{% endif %}
+</div>

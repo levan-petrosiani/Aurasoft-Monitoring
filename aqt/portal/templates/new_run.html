@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}New run{% endblock %}
+{% block content %}
+<h1>New run</h1>
+
+{% if load_error %}
+<div class="alert alert-fail"><pre>{{ load_error }}</pre></div>
+{% else %}
+<form class="form" method="post" action="/run/new" id="run-form">
+    <label class="field">
+        <span>Bank</span>
+        <select name="bank" id="bank" onchange="location.href='/run/new?bank=' + encodeURIComponent(this.value)">
+            {% for b in banks %}
+            <option value="{{ b.key }}" {{ 'selected' if bank and b.key == bank.key }}>{{ b.key }} — {{ b.name }}</option>
+            {% endfor %}
+        </select>
+        {% if bank %}<span class="hint">{{ bank.profile.endpoints.xs2a }}</span>{% endif %}
+    </label>
+
+    <fieldset class="field">
+        <legend>Suites <span class="hint">(none selected = all)</span></legend>
+        <div class="checks">
+            {% for suite in suites %}
+            <label class="check">
+                <input type="checkbox" name="suite" value="{{ suite }}" {{ 'checked' if suite in form.getlist('suite') }} />
+                {{ suite }} <span class="muted small">({{ scenarios | selectattr('suite', 'equalto', suite) | list | length }})</span>
+            </label>
+            {% endfor %}
+        </div>
+    </fieldset>
+
+    <details class="field">
+        <summary>Pick individual scenarios <span class="hint" id="picked">(optional)</span></summary>
+        <div class="checks checks-list">
+            {% for s in scenarios %}
+            <label class="check" data-suite="{{ s.suite }}">
+                <input type="checkbox" name="scenario" value="{{ s.id }}" data-suite="{{ s.suite }}" {{ 'checked' if s.id in form.getlist('scenario') }} />
+                <code>{{ s.id }}</code> {{ s.title }} <span class="muted small">{{ s.severity }}</span>
+            </label>
+            {% endfor %}
+        </div>
+    </details>
+
+    <fieldset class="field">
+        <legend>Options</legend>
+        {% if is_local %}
+        <label class="check">
+            <input type="checkbox" name="use_mock" {{ 'checked' if (not posted) or form.get('use_mock') }} />
+            Start the built-in MockBank if it is not running
+        </label>
+        {% endif %}
+        {% if headless %}
+        <label class="check">
+            <input type="checkbox" name="auto_sca" {{ 'checked' if (not posted) or form.get('auto_sca') }} />
+            Complete SCA automatically (clicks "approve" on the sandbox consent page; test servers only)
+        </label>
+        {% else %}
+        <p class="hint">SCA (bank login) is manual for this bank: the run page shows a link to the bank's login page when a scenario needs it.</p>
+        {% endif %}
+        <label class="check">
+            <input type="checkbox" name="preflight_gate" {{ 'checked' if (not posted) or form.get('preflight_gate') }} />
+            Preflight gate: block other scenarios when a critical preflight check fails
+        </label>
+    </fieldset>
+
+    {% if error %}<div class="alert alert-fail">{{ error }}</div>{% endif %}
+
+    <div class="actions">
+        <button class="btn btn-primary" type="submit" {{ 'disabled' if not bank }}>Start run</button>
+        <span class="hint"><span id="planned">{{ scenarios | length }}</span> scenario(s) will run</span>
+    </div>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    const form = document.getElementById('run-form');
+    if (!form) return;
+    function update() {
+        const suites = [...form.querySelectorAll('input[name=suite]:checked')].map(i => i.value);
+        const picks = [...form.querySelectorAll('input[name=scenario]')];
+        const ids = picks.filter(i => i.checked).map(i => i.value);
+        let planned = 0;
+        for (const p of picks) {
+            const inSuite = suites.length === 0 || suites.includes(p.dataset.suite);
+            p.closest('label').style.display = inSuite ? '' : 'none';
+            if (inSuite && (ids.length === 0 || ids.includes(p.value))) planned++;
+        }
+        document.getElementById('planned').textContent = planned;
+        document.getElementById('picked').textContent = ids.length ? '(' + ids.length + ' selected)' : '(optional)';
+    }
+    form.addEventListener('change', e => { if (e.target.name !== 'bank') update(); });
+    update();
+})();
+</script>
+{% endblock %}

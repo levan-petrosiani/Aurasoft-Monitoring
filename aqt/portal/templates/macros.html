@@ -1,0 +1,85 @@
+{% macro badge(value) -%}
+<span class="badge badge-{{ badge_css(value) }}">{{ value }}</span>
+{%- endmacro %}
+
+{% macro run_table(runs) %}
+{% if not runs %}
+<p class="muted">No runs yet. <a href="/run/new">Start one</a>.</p>
+{% else %}
+<table class="grid">
+    <thead>
+        <tr><th>Started</th><th>Bank</th><th>Suites</th><th>Status</th><th>Passed</th><th>Failed</th><th>Errors</th><th>Blocked</th><th>Pass rate</th></tr>
+    </thead>
+    <tbody>
+    {% for run in runs %}{% set r = run.record %}
+        <tr class="clickable" onclick="location.href='/runs/{{ run.id }}'">
+            <td>{{ local_time(r.created_utc) }}</td>
+            <td>{{ r.bank_name or r.request.bank }} <span class="muted small">{{ r.request.bank }}</span></td>
+            <td class="small">{{ 'all' if not r.request.suites else r.request.suites | join(', ') }}</td>
+            <td>{{ badge(r.status) }}</td>
+            <td class="text-pass">{{ r.passed }}</td>
+            <td class="{{ 'text-fail' if r.failed > 0 }}">{{ r.failed }}</td>
+            <td class="{{ 'text-error' if r.errors > 0 }}">{{ r.errors }}</td>
+            <td>{{ r.blocked }}</td>
+            <td>{{ format_rate(r.pass_rate) ~ '%' if r.status == COMPLETED else '' }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endmacro %}
+
+{% macro exchange_view(x) %}
+<details class="exchange" id="x-{{ x.started_at_utc.timestamp() if x.started_at_utc else '' }}-{{ x.url | length }}">
+    <summary>
+        <code>{{ x.method }} {{ x.url }}</code>
+        <span class="badge {{ 'badge-pass' if x.status_code and 200 <= x.status_code < 300 else ('badge-error' if x.status_code is none else 'badge-muted') }}">{{ x.status_code if x.status_code is not none else 'no response' }}</span>
+        <span class="muted small">{{ x.duration_ms }} ms</span>
+    </summary>
+    <div class="exchange-grid">
+        <div>
+            <div class="label">Request</div>
+            <pre>{% for k, v in x.request_headers %}{{ k }}: {{ v }}
+{% endfor %}{% if x.request_body is not none %}
+{{ pretty_json(x.request_body) }}{% endif %}</pre>
+        </div>
+        <div>
+            <div class="label">Response</div>
+            <pre>{% if x.error %}Error: {{ x.error }}
+{% endif %}{% for k, v in x.response_headers %}{{ k }}: {{ v }}
+{% endfor %}{% if x.response_body %}
+{{ pretty_json(x.response_body) }}{% endif %}</pre>
+        </div>
+    </div>
+</details>
+{% endmacro %}
+
+{% macro step_view(step, is_cleanup) %}
+<div class="step">
+    <div class="step-head">
+        {{ badge(step.outcome) }}
+        <span>{{ 'Cleanup: ' if is_cleanup }}{{ step.name }}</span>
+        <span class="muted small">{{ step.duration_ms }} ms</span>
+    </div>
+    {% if step.failures %}<ul class="msg msg-fail">{% for f in step.failures %}<li>{{ f }}</li>{% endfor %}</ul>{% endif %}
+    {% if step.warnings %}<ul class="msg msg-warn">{% for w in step.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+    {% if step.info %}<ul class="msg msg-info">{% for i in step.info %}<li>{{ i }}</li>{% endfor %}</ul>{% endif %}
+    {% for x in step.all_exchanges() %}{{ exchange_view(x) }}{% endfor %}
+</div>
+{% endmacro %}
+
+{% macro scenario_view(s) %}
+<details class="scenario" id="s-{{ s.id }}" {{ 'open' if s.outcome in (Outcome.FAILED, Outcome.ERROR) }}>
+    <summary>
+        {{ badge(s.outcome) }}
+        <span class="scenario-id">{{ s.id }}</span>
+        <span class="scenario-title">{{ s.title }}</span>
+        <span class="muted small">{{ s.suite }} · {{ s.severity }} · {{ s.duration_ms }} ms</span>
+    </summary>
+    {% if s.reason %}<p class="reason">{{ s.reason }}</p>{% endif %}
+    {% if s.spec_ref %}<p class="muted small">Spec: {{ s.spec_ref }}</p>{% endif %}
+    {% if s.origin %}<p class="muted small">Origin: {{ s.origin }}</p>{% endif %}
+    {% for step in s.steps %}{{ step_view(step, false) }}{% endfor %}
+    {% for step in s.cleanup %}{{ step_view(step, true) }}{% endfor %}
+</details>
+{% endmacro %}

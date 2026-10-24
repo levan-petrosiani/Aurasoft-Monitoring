@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Scenarios{% endblock %}
+{% block content %}
+<h1>Scenarios</h1>
+<p class="muted small">From <code>{{ directory }}</code>. Add a test by adding a YAML file there; the portal picks it up on the next run.</p>
+
+{% if error %}<div class="alert alert-fail"><pre>{{ error }}</pre></div>{% endif %}
+
+{% for name, items in groups %}
+<h2>{{ name }} <span class="muted small">({{ items | length }})</span></h2>
+<table class="grid">
+    <thead><tr><th>ID</th><th>Title</th><th>Severity</th><th>Steps</th><th>Spec</th></tr></thead>
+    <tbody>
+    {% for s in items %}
+        <tr>
+            <td><code>{{ s.id }}</code></td>
+            <td>
+                {{ s.title }}
+                {% if s.requires %}<div class="muted small">requires {{ s.requires | join(', ') }}</div>{% endif %}
+            </td>
+            <td><span class="sev sev-{{ s.severity | lower }}">{{ s.severity }}</span></td>
+            <td>{{ s.steps | length }}</td>
+            <td class="small">{{ s.spec_ref or '' }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endfor %}
+{% endblock %}

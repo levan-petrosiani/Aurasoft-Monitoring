@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Run {{ r.id }}{% endblock %}
+{% block content %}
+<div id="live">{% include "run_live.html" %}</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// While the run is active, refresh the live part every second, keeping opened sections open.
+(function () {
+    const live = document.getElementById('live');
+    async function tick() {
+        if (!live.querySelector('[data-active="1"]')) return;
+        const before = new Map([...live.querySelectorAll('details[id]')].map(d => [d.id, d.open]));
+        try {
+            const url = new URL(location.href);
+            url.searchParams.set('fragment', '1');
+            const response = await fetch(url);
+            if (response.ok) {
+                live.innerHTML = await response.text();
+                for (const d of live.querySelectorAll('details[id]')) {
+                    if (before.has(d.id)) d.open = before.get(d.id);
+                }
+            }
+        } catch (e) { /* portal restarting; try again */ }
+        setTimeout(tick, 1000);
+    }
+    setTimeout(tick, 1000);
+})();
+</script>
+{% endblock %}

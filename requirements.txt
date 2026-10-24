@@ -1,0 +1,5 @@
+PyYAML>=6.0
+cryptography>=42
+pyOpenSSL>=24.3
+Flask>=3.0
+pytest>=8

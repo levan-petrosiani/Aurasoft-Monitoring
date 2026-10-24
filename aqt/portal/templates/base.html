@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}API Test Portal{% endblock %} · API Test Portal</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+</head>
+<body>
+<header class="topbar">
+    <a class="brand" href="/">
+        <span class="brand-mark">✓</span>
+        <span>API Test Portal</span>
+    </a>
+    <nav>
+        <a href="/" class="{{ 'active' if page == 'home' }}">Dashboard</a>
+        <a href="/run/new" class="{{ 'active' if page == 'new' }}">New run</a>
+        <a href="/runs" class="{{ 'active' if page == 'runs' }}">Runs</a>
+        <a href="/scenarios" class="{{ 'active' if page == 'scenarios' }}">Scenarios</a>
+    </nav>
+</header>
+
+<main class="page" id="page">
+{% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

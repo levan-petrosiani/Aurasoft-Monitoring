@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% from "macros.html" import run_table %}
+{% block title %}Runs{% endblock %}
+{% block content %}
+<div class="title-row">
+    <h1>Runs</h1>
+    <a class="btn btn-primary" href="/run/new">New run</a>
+</div>
+<p class="muted small">Stored in <code>{{ data_directory }}</code>.</p>
+
+{{ run_table(runs) }}
+{% endblock %}
