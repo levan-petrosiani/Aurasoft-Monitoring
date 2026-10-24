@@ -242,3 +242,31 @@ class AgentQuestionRow:
     ai_call_ids: list[UUID] = field(default_factory=list)
     error: str | None = None
     duration_ms: int = 0
+
+
+@dataclass
+class AlertRow:
+    """A change worth telling someone about, found in code after a run was saved."""
+    id: UUID
+    created_utc: datetime
+    run_id: str
+    bank_bic: str
+    kind: str                    # regression | fixed | bank_down | run_failed
+    message: str
+    previous_run_id: str | None = None
+    scenario_id: str | None = None
+    before: str | None = None
+    after: str | None = None
+    notified_utc: datetime | None = None
+    notify_error: str | None = None
+    acknowledged_by: str | None = None
+    acknowledged_utc: datetime | None = None
+
+
+@dataclass
+class MonitorStateRow:
+    name: str
+    last_started_utc: datetime
+    last_run_id: str | None = None
+    last_status: str | None = None
+    last_error: str | None = None

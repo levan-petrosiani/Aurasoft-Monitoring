@@ -668,3 +668,31 @@ still accepts.
 - MockBank run: 28 passed, 0 failed (was 16). All 12 PIS scenarios passed on the first run, and PIS-001 polls through the settlement.
 - TBC-MOCK skips the whole `pis` suite because it has no test accounts.
 - Tests: 117 passed with `AQT_TEST_DB`; 89 passed and 28 skipped without it.
+
+## 2026-10-25 · 48. Phase 6: monitoring
+
+**What:**
+- **Schedules:** `monitoring.yaml`, bound and checked in `aqt/monitor/config.py`:
+  - `every` (≥5 m) or a daily `at`; enabled; `withMock`; webhook env; retention days;
+  - a schedule that never ran waits for its time of day, so starting the portal doesn't fire every nightly run;
+  - a missed time catches up once;
+  - shipped schedules: MockBank nightly 02:00 (on) and the TBC mock every 6 h (off, because it calls an external service).
+- **Unattended runs:** `ScenarioRunner.skip_sca_reason`. Scenarios with an SCA step are skipped with a reason, unless SCA is automatic (MockBank). This applies in the portal (`RunRequest.unattended/schedule`) and via `aqt run --unattended`.
+- **Running schedules:** the portal's `MonitorService` ticks every 30 s; it never queues a schedule that's still running, and it runs retention daily. `aqt monitor run-due` does the same for cron/launchd.
+- **Alerts** (`aqt/monitor/alerts.py`), after every saved run (CLI, portal, schedule) against the bank's previous run:
+  - kinds: regression, fixed, bank_down (not repeated while the bank stays down, and not doubled as a regression), run_failed;
+  - stored once per run/kind/scenario;
+  - optional webhook (`AQT_ALERT_WEBHOOK`, Slack/Teams-style `{"text"}`), masked; the delivery result is recorded on the alert.
+- **Trends:** pass-rate series per bank, flaky scenarios (≥2 switches), slowest endpoints (ids in paths normalised), and an inline-SVG sparkline with no libraries.
+- **Retention:** `aqt db prune [--days]`, run daily by the monitor; results, summaries and alerts are kept.
+- **Store and pages:** migration `0004` (`monitor_state`, `alerts`, `agent.alerts` view for the Ask agent); portal pages **Monitoring** and **Alerts** (acknowledge with a name); CLI `aqt monitor status|run-due|alerts|ack|trends`.
+- **Masker:** now also hides `Bearer …`/`Basic …` written out in free text (error messages, alert texts, JSON string values), not only in headers.
+
+**Why:** this is the plan's Phase 6 plus the retention item from §6. It completes "monitor everything": history was already stored; now the tool runs on its own, notices changes and says so. Alerts and trends are facts, so they're computed in code. Unattended runs must not wait 5 minutes for a login nobody will do, and `--sca-auto` stays MockBank-only.
+
+**Found on the way:** the tests showed that a broken critical preflight check produced two alerts (bank_down plus a regression of the same scenario), and that a "Bearer token" in plain text wasn't masked. Both are fixed.
+
+**Result:**
+- `aqt monitor run-due --schedule mock-nightly` ran 28/28; no alerts against the previous MockBank run, which is correct; schedule state and retention were recorded.
+- On real history the Monitoring page shows pass-rate lines for MOCKGE22 and TBCBGE22. Flaky: TBC PRE-003/004 (the 21 October outage) and an early MockBank AIS-002. Slowest: TBC consent status, 1.9 s on average, 8.7 s at most.
+- Tests: 137 passed with `AQT_TEST_DB`; 105 passed and 32 skipped without it.

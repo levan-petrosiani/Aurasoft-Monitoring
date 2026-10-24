@@ -56,6 +56,8 @@ aqt portal                 # http://localhost:5280/   (--port, --root <dir>, --d
 | **Drafts** | AI scenario drafts from approved rules, with the MockBank dry run; approve writes the YAML file |
 | **Coverage** | Approved rules → scenarios → last result per bank |
 | **Ask** | Questions about runs, failures, rules and the standards, answered by an agent with read-only tools; history with what it looked up |
+| **Monitoring** | Schedules from `monitoring.yaml` (last run, next due, Run now), pass rate per bank over 30 days, flaky scenarios, slowest endpoints, retention |
+| **Alerts** | Regressions, fixes, bank down, failed runs — computed after every saved run; acknowledge with your name |
 
 - Runs execute one at a time (manual SCA uses one fixed callback port) and queue otherwise.
 - Each run is stored in its own folder (`run.json` + reports) under `reports/portal-python/`, so history survives restarts.
@@ -300,6 +302,8 @@ aqt scenarios draft GE-CON-001 --provider ollama   # needs an approved rule; dry
 aqt scenarios approve NEG-CON-009 --by "Your Name"  # writes scenarios/negative/NEG-CON-009-....yaml, links the rule
 aqt coverage                            # approved rules -> scenarios -> last result per bank
 aqt ask "Why did TBC fail last night?" --provider ollama    # the ask-agent; aqt ask history
+aqt monitor status | run-due | alerts | ack <id|all> --by "Your Name" | trends   # monitoring (monitoring.yaml)
+aqt db prune --days 90                  # retention: delete stored exchanges older than 90 days
 aqt portal                              # store/AI pages on when the database is reachable (--no-db turns them off)
 ```
 
@@ -325,6 +329,15 @@ aqt portal                              # store/AI pages on when the database is
   5 s. `aqt db migrate` sets its password from `AQT_AGENT_DB_PASSWORD` (dev default `aqt_agent_dev`). Every id in the
   answer is checked against the tool results; unknown ids are flagged (`unverified`). Questions, answers and tool calls
   are saved in `agent_questions`.
+- **Monitoring:** `monitoring.yaml` declares schedules (`every: 6h` or `at: "02:00"`, bank, suites, `withMock`). The
+  portal runs due schedules itself (`--no-monitor` turns that off); without the portal, run `aqt monitor run-due`
+  from cron/launchd. Scheduled runs are **unattended**: scenarios that need a bank login (SCA) are skipped and say so,
+  except on MockBank where the login is automatic (`aqt run --unattended` does the same by hand). After every saved run
+  (CLI, portal or schedule) code compares it with the bank's previous run and records **alerts**: `regression`
+  (Passed → Failed/Error), `fixed`, `bank_down` (a critical preflight check started failing; not repeated while it
+  stays down) and `run_failed`. If `AQT_ALERT_WEBHOOK` holds a Slack/Teams-style incoming-webhook URL, alerts are
+  posted there (masked). Retention deletes stored exchanges after `retention.exchangesDays` (90), daily; results,
+  summaries and alerts are kept. The Ask agent can query alerts too.
 - **Providers:** Claude (`claude-opus-5-5`, refusal fallback, effort per feature) by default; switch a feature to the
   local model with `--provider ollama` or `AQT_AI_<FEATURE>_PROVIDER=ollama` (e.g. `AQT_AI_SUMMARY_PROVIDER`).
 - Database tests run when `AQT_TEST_DB` is set (`host=localhost port=5435 user=aqt password=aqt_dev`); each test
@@ -344,6 +357,6 @@ every existing rule quote still verifies).
 
 ## Not done yet
 
-Playwright and decoupled SCA modes, onboarding (client registration), PIS
-suite, OpenAPI schema validation, Excel report, `aqt compare`, monitor mode. The AIS suite has been verified against
-MockBank (all 16 scenarios pass); it has not yet been run against a real local XS2A + AuthServer or a bank sandbox.
+Eval sets for the AI features; bulk/periodic payments and signing baskets; Playwright and decoupled SCA modes, onboarding (client
+registration), OpenAPI schema validation, Excel report, `aqt compare`. The AIS and PIS suites have been verified against
+MockBank (28 scenarios pass); they have not yet been run against a real local XS2A + AuthServer or a bank sandbox.

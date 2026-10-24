@@ -201,7 +201,7 @@ def test_a_database_created_by_the_csharp_tool_is_recognised(db):
         # Added by the later migrations; the C# tool never had them.
         conn.execute("DROP TABLE scenario_drafts")
         conn.execute("DROP SCHEMA agent CASCADE")
-        conn.execute("DROP TABLE agent_questions")
+        conn.execute("DROP TABLE agent_questions, monitor_state, alerts")
         conn.execute('CREATE TABLE "__EFMigrationsHistory" (migration_id varchar(150) PRIMARY KEY, product_version varchar(32))')
         conn.execute("""INSERT INTO "__EFMigrationsHistory" VALUES ('20261024084136_StandardsAndRules', '10.0.13')""")
         conn.commit()

@@ -57,7 +57,8 @@ def _local_path(url: str | None, default: str) -> str:
 
 
 def create_app(root: str | None = None, data_directory: str | None = None, mock_xs2a_url: str = "https://localhost:7443/",
-               database: str | None = None, use_database: bool = True, auto_summarize: bool = False) -> Flask:
+               database: str | None = None, use_database: bool = True, auto_summarize: bool = False,
+               monitor: bool = False) -> Flask:
     root = root or os.environ.get("AQT_HOME") or _REPO_ROOT
     data_directory = data_directory or os.path.join(root, "reports", "portal-python")
 
@@ -69,10 +70,15 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
     ai, ai_problem = None, "The store and AI pages are off (the portal was started with --no-db)."
     if use_database:
         from .ai_services import try_create
-        recorder, summaries, rules, drafts, asking, ai_problem = try_create(database or os.environ.get("AQT_DB"), root, auto_summarize)
+        recorder, summaries, rules, drafts, asking, monitoring, ai_problem = try_create(database or os.environ.get("AQT_DB"), root, auto_summarize)
         if recorder is not None:
-            ai = SimpleNamespace(recorder=recorder, summaries=summaries, rules=rules, drafts=drafts, ask=asking, store=recorder.store)
+            ai = SimpleNamespace(recorder=recorder, summaries=summaries, rules=rules, drafts=drafts, ask=asking, monitor=monitoring,
+                                 store=recorder.store)
     runs = RunService(catalog, mock_bank, data_directory, ai.recorder if ai else None, ai.summaries if ai else None)
+    if ai is not None:
+        ai.monitor.runs = runs
+        if monitor:
+            ai.monitor.start(runs)
     app.config.update(catalog=catalog, mock_bank=mock_bank, runs=runs, ai=ai, ai_problem=ai_problem)
 
     @app.context_processor
@@ -399,6 +405,50 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
             ai.ask.start(question[:2000], provider, f"{reviewer} (portal)")
         return redirect("/ask")
 
+    # ---- monitoring and alerts (Phase 6) -----------------------------------------------------------------------
+
+    @app.get("/monitoring")
+    def monitoring_page():
+        from ..monitor import trends
+        context = {"page": "monitoring", "schedules": [], "retention": None, "series": {}, "flaky": [], "slow": [],
+                   "problem": None, "enabled": False, "message": request.args.get("message"), "sparkline": trends.sparkline,
+                   "open_alerts": 0}
+        if ai is not None:
+            schedules, retention = ai.monitor.overview()
+            context.update(schedules=schedules, retention=retention, series=ai.store.pass_rate_series(30),
+                           flaky=trends.flaky(ai.store.outcome_sequences(30))[:20], slow=ai.store.slowest_endpoints(30, 10),
+                           problem=ai.monitor.problem, enabled=ai.monitor.enabled,
+                           open_alerts=len(ai.store.list_alerts(open_only=True)))
+        return render_template("monitoring.html", **context)
+
+    @app.post("/monitoring/run/<name>")
+    def monitoring_run_now(name):
+        if ai is None:
+            abort(404)
+        who = request.cookies.get(_REVIEWER_COOKIE) or "portal"
+        error = ai.monitor.run_now(name, f"{who} (Run now)")
+        return redirect("/monitoring" + ("?" + urlencode({"message": error}) if error else ""))
+
+    @app.get("/alerts")
+    def alerts_page():
+        show = request.args.get("show", "open")
+        context = {"page": "alerts", "alerts": [], "show": show, "open_count": 0}
+        if ai is not None:
+            context.update(alerts=ai.store.list_alerts(open_only=show == "open"), open_count=len(ai.store.list_alerts(open_only=True)))
+        return render_template("alerts.html", **context)
+
+    @app.post("/alerts/ack")
+    def alerts_ack():
+        if ai is None:
+            abort(404)
+        who = request.cookies.get(_REVIEWER_COOKIE)
+        if not who:
+            return redirect("/alerts?" + urlencode({"show": "open", "error": "Enter your name at the top first."}))
+        ids = request.form.getlist("id")
+        if ids:
+            ai.store.acknowledge_alerts(ids, who)
+        return redirect("/alerts")
+
     @app.post("/runs/<run_id>/cancel")
     def run_cancel(run_id):
         runs.cancel(run_id)
@@ -450,10 +500,10 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
 
 
 def run_portal(cli) -> int:
-    """aqt portal [--port 5280] [--root dir] [--data dir] [--db connection | --no-db] [--auto-summarize]"""
+    """aqt portal [--port 5280] [--root dir] [--data dir] [--db connection | --no-db] [--auto-summarize] [--no-monitor]"""
     port = int(cli.get("port") or 5280)
     app = create_app(cli.get("root"), cli.get("data"), database=cli.get("db"), use_database=not cli.has("no-db"),
-                     auto_summarize=cli.has("auto-summarize"))
+                     auto_summarize=cli.has("auto-summarize"), monitor=not cli.has("no-monitor"))
     runs: RunService = app.config["runs"]
     print(f"API Test Portal (Python): http://localhost:{port}/")
     print(f"  banks/scenarios from {app.config['catalog'].root_directory}")

@@ -36,7 +36,9 @@ _VIEWS = """Views (PostgreSQL, schema agent; times are timestamptz in UTC):
 - events(id, time_utc, run_id, source, type, level, message)
 - run_summaries(id, run_id, created_utc, provider, model, status, headline, health)
 - rules(id, status, title, level, service, area, requirement, standard, version, clause_number, clause_key, operation, scenarios text[], reviewed_by, reviewed_utc)
-- clauses(key, standard, version, number, title, level, language, page)"""
+- clauses(key, standard, version, number, title, level, language, page)
+- alerts(id, created_utc, run_id, previous_run_id, bank_bic, kind, scenario_id, before, after, message, acknowledged_by, acknowledged_utc)
+  kind: regression (Passed -> Failed/Error vs the bank's previous run) | fixed | bank_down | run_failed"""
 
 TOOLS = [
     Tool("list_runs", "Test runs, newest first: id, bank, start time, status, counts per outcome, pass rate, suites.",

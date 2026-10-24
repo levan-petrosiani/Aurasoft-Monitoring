@@ -16,6 +16,7 @@ AI_FLAGS = {"replace", "show-input", "no-embed"}
 
 USAGE = """  aqt db migrate|status [--db <connection>]           create/upgrade the PostgreSQL store, show row counts
   aqt db import [folder...] [--replace]               load report folders (default: ./reports) into the store
+  aqt db prune [--days N]                             retention: delete stored exchanges older than N days (monitoring.yaml)
   aqt ai check [--provider anthropic|ollama] [--model name]   one-line call to each AI provider, audited
   aqt ai summarize <run-id|latest> [--bank BIC] [--provider ..] [--model ..] [--show-input]   AI triage of a stored run
   aqt standards fetch|ingest [--standard ID] [--no-embed] | list | search "<text>" [--standard ID] | show <clause-key>
@@ -25,6 +26,7 @@ USAGE = """  aqt db migrate|status [--db <connection>]           create/upgrade 
   aqt scenarios approve|reject <draft> --by <name> [--note ..]   AI scenario drafts (checked on MockBank only)
   aqt coverage [--drafts]                             approved rules -> scenarios -> last result per bank
   aqt ask "<question>" [--provider ..] [--model ..] | ask history     questions about runs, results, rules, standards
+  aqt monitor status | run-due [--schedule name] | alerts [--all] | ack <id|all> --by <name> | trends     monitoring
     (store commands use --db or AQT_DB; db/ai/standards/rules default to the docker-compose database, localhost:5435)"""
 
 
@@ -64,7 +66,7 @@ def _database_problem(ex: Exception) -> bool:
     return isinstance(ex, (psycopg.Error, OSError))
 
 
-def save_run(connection: str, run_id: str, report_directory: str, run, suites: list[str]):
+def save_run(connection: str, run_id: str, report_directory: str, run, suites: list[str], root: str | None = None):
     """Writes a finished CLI run to the store. A database problem never fails the test run: the reports on disk are
     complete, and the folder can be imported later with `aqt db import`."""
     Out = _out()
@@ -79,8 +81,23 @@ def save_run(connection: str, run_id: str, report_directory: str, run, suites: l
         store.add_event("cli", "run.finished", f"{run.bank_bic}: {run.count(Outcome.PASSED)} passed, {run.count(Outcome.FAILED)} failed, "
                         f"{run.count(Outcome.ERROR)} errors", run_id, "Warning" if problems else "Info")
         Out.muted(f"  saved to the store as {run_id}")
+        _alerts_for(store, run_id, root)
     except Exception as ex:  # noqa: BLE001 - any store problem is only a notice for a test run
         Out.notice(f"Could not save the run to the store ({ex}); import it later with 'aqt db import'.")
+
+
+def _alerts_for(store, run_id: str, root: str | None):
+    """Alerts against the bank's previous run (printed, stored, sent to the webhook). Never fails the run."""
+    from .monitor import alerts, config
+    Out = _out()
+    try:
+        settings = config.load(root or os.getcwd())
+    except ConfigurationError as ex:
+        Out.notice(f"monitoring.yaml: {ex}; alerts are recorded but not sent")
+        settings = config.MonitoringConfig(alerts=config.AlertsConfig(notify=[]))
+    for a in alerts.process_run(store, run_id, settings, warn=Out.notice):
+        sent = " (sent)" if a.notified_utc else (f" (webhook failed: {a.notify_error})" if a.notify_error else "")
+        Out.notice(f"ALERT {a.kind}: {a.message}{sent}")
 
 
 # ---- aqt db --------------------------------------------------------------------------------------------------
@@ -108,12 +125,20 @@ def cmd_db(cli) -> int:
                 Out.notice(f"Pending migrations: {', '.join(status.pending_migrations)} - run 'aqt db migrate'")
             print(f"runs {status.runs} · scenario results {status.scenarios} · exchanges {status.exchanges} · events {status.events} · AI calls {status.ai_calls}")
             return SUCCESS
+        if sub == "prune":
+            from .cli import Paths
+            from .monitor import config
+            days = int(cli.get("days") or config.load(Paths(cli).root).retention.exchanges_days)
+            deleted = store.prune_exchanges(days)
+            store.add_event("cli", "retention.pruned", f"deleted {deleted} exchange(s) older than {days} days")
+            Out.ok(f"Deleted {deleted} stored exchange(s) older than {days} days (results, summaries and alerts are kept)")
+            return SUCCESS
     except Exception as ex:  # noqa: BLE001
         if _database_problem(ex):
             Out.error(f"Database: {ex}. Is it running? (docker compose up -d)")
             return CONFIGURATION_ERROR
         raise
-    raise ConfigurationError("Usage: aqt db migrate|import [folder...] [--replace]|status [--db <connection>]")
+    raise ConfigurationError("Usage: aqt db migrate|import [folder...] [--replace]|status|prune [--days N] [--db <connection>]")
 
 
 # ---- aqt ai --------------------------------------------------------------------------------------------------
@@ -505,3 +530,104 @@ def cmd_ask(cli) -> int:
                                           on_tool=lambda name, args: Out.muted(f"  · {name}({json.dumps(args, ensure_ascii=False)})"))
     _print_question(answer.row, show_tools=False)
     return SUCCESS if answer.row.status != "failed" else TESTS_FAILED
+
+
+# ---- aqt monitor -----------------------------------------------------------------------------------------------
+
+def cmd_monitor(cli, cancel) -> int:
+    from datetime import datetime, timezone
+    from .cli import CliArgs, Paths, cmd_run
+    from .monitor import config, trends
+    from .store.entities import MonitorStateRow
+    Out = _out()
+    sub = cli.positional[0] if cli.positional else "status"
+    paths = Paths(cli)
+    settings = config.load(paths.root)
+    store = _store(cli)
+    now = datetime.now(timezone.utc)
+
+    if sub == "status":
+        state = store.get_monitor_state()
+        if not settings.schedules:
+            Out.muted(f"No schedules in {config.FILE_NAME}.")
+        for s in settings.schedules:
+            st = state.get(s.name)
+            due = config.next_due(s, st.last_started_utc if st else None, now)
+            last = f"last {st.last_started_utc.astimezone():%Y-%m-%d %H:%M} {st.last_status or ''} {st.last_run_id or ''}".rstrip() if st else "never ran"
+            print(f"{s.name:<22} {s.bank:<10} {s.describe():<16} {'disabled' if not s.enabled else 'next ' + f'{due.astimezone():%Y-%m-%d %H:%M}'}  ·  {last}")
+        retention = state.get(config.RETENTION_STATE)
+        Out.muted(f"retention: exchanges kept {settings.retention.exchanges_days} days; "
+                  + (f"last pruned {retention.last_started_utc.astimezone():%Y-%m-%d %H:%M} ({retention.last_error})" if retention else "never pruned"))
+        open_alerts = store.list_alerts(open_only=True)
+        Out.muted(f"{len(open_alerts)} open alert(s) · webhook {'set' if settings.webhook_url else 'not set'} ({settings.alerts.webhook_env})")
+        return SUCCESS
+
+    if sub == "run-due":
+        # For cron/launchd: runs every due schedule (or --schedule NAME now) one after another, then the daily retention.
+        only = cli.get("schedule")
+        state = store.get_monitor_state()
+        chosen = [s for s in settings.schedules if (s.name == only if only else config.is_due(s, state[s.name].last_started_utc if s.name in state else None, now))]
+        if only and not chosen:
+            raise ConfigurationError(f"No schedule '{only}' in {config.FILE_NAME}")
+        worst = SUCCESS
+        for s in chosen:
+            Out.header(f"Schedule {s.name} ({s.describe()}): {s.bank}")
+            args = ["run", "--bank", s.bank, "--unattended", "--db", _connection(cli)]
+            args += ["--suite", ",".join(s.suites)] if s.suites else []
+            args += ["--scenario", ",".join(s.scenarios)] if s.scenarios else []
+            args += ["--with-mock", "--sca-auto"] if s.with_mock else []
+            if cli.get("root"):
+                args += ["--root", cli.get("root")]
+            run_cli = CliArgs.parse(args)
+            started = datetime.now(timezone.utc)
+            try:
+                code = cmd_run(run_cli, cancel)
+                store.set_monitor_state(MonitorStateRow(s.name, started, getattr(run_cli, "run_id", None), "Completed", None))
+            except ConfigurationError as ex:
+                Out.error(str(ex))
+                store.set_monitor_state(MonitorStateRow(s.name, started, None, "Failed", str(ex)))
+                code = CONFIGURATION_ERROR
+            worst = max(worst, code)
+        retention = store.get_monitor_state().get(config.RETENTION_STATE)
+        if retention is None or (now - retention.last_started_utc).total_seconds() >= 24 * 3600:
+            deleted = store.prune_exchanges(settings.retention.exchanges_days)
+            note = f"deleted {deleted} exchange(s) older than {settings.retention.exchanges_days} days"
+            store.set_monitor_state(MonitorStateRow(config.RETENTION_STATE, now, None, "Completed", note))
+            Out.muted("retention: " + note)
+        if not chosen:
+            Out.muted("Nothing due.")
+        return worst
+
+    if sub == "alerts":
+        for a in store.list_alerts(open_only=not cli.has("all"), limit=int(cli.get("limit") or 50)):
+            ack = f"  ack {a.acknowledged_by}" if a.acknowledged_by else ""
+            print(f"{str(a.id)[:8]}  {a.created_utc.astimezone():%Y-%m-%d %H:%M}  {a.kind:<10} {a.message}{ack}")
+        return SUCCESS
+
+    if sub == "ack":
+        who = cli.get("by")
+        target = cli.positional[1] if len(cli.positional) > 1 else None
+        if not who or not target:
+            raise ConfigurationError("Usage: aqt monitor ack <alert id prefix|all> --by <your name>")
+        ids = [str(a.id) for a in store.list_alerts(open_only=True) if target == "all" or str(a.id).startswith(target.lower())]
+        Out.ok(f"{store.acknowledge_alerts(ids, who)} alert(s) acknowledged by {who}")
+        return SUCCESS
+
+    if sub == "trends":
+        days = int(cli.get("days") or 30)
+        for bank, points in store.pass_rate_series(days).items():
+            rates = " ".join(f"{p[2]:.0f}" for p in points[-15:])
+            print(f"{bank:<10} {len(points):>3} run(s)  pass rate (oldest → newest): {rates}")
+        flaky = trends.flaky(store.outcome_sequences(days))
+        if flaky:
+            print("\nFlaky (outcome switched at least twice):")
+            for f in flaky[:15]:
+                print(f"  {f.bank_bic:<10} {f.scenario_id:<14} {f.changes} switch(es) in {f.runs} run(s), last {f.last}")
+        slow = store.slowest_endpoints(days, 10)
+        if slow:
+            print("\nSlowest endpoints (average):")
+            for bank, method, path, calls, avg, mx in slow:
+                print(f"  {bank:<10} {avg:>6} ms (max {mx})  {method} {path}  ×{calls}")
+        return SUCCESS
+
+    raise ConfigurationError("Usage: aqt monitor status | run-due [--schedule name] | alerts [--all] | ack <id|all> --by <name> | trends [--days N]")

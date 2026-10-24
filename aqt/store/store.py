@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from . import connection as conn_mod
-from .entities import (AgentQuestionRow, AiCallRow, ClauseRow, ExchangeRow, RuleReviewRow, RuleRow, RunRow, RunSummaryRow, ScenarioDraftRow,
+from .entities import (AgentQuestionRow, AiCallRow, AlertRow, MonitorStateRow, ClauseRow, ExchangeRow, RuleReviewRow, RuleRow, RunRow, RunSummaryRow, ScenarioDraftRow,
                        ScenarioRow, StandardDocumentRow, StepRow)
 from .mapper import RunInfo, to_rows
 from .masking import MaskingOptions, SensitiveDataMasker
@@ -531,6 +531,98 @@ class AqtStore:
         with self.connect() as conn, self._cursor(conn, AgentQuestionRow) as cur:
             cur.execute(f"SELECT {', '.join(_columns(AgentQuestionRow))} FROM agent_questions WHERE id::text = %s", (str(question_id),))
             return cur.fetchone()
+
+    # --- monitoring (Phase 6)
+
+    def add_alerts(self, alerts: list[AlertRow]) -> list[AlertRow]:
+        """Inserts alerts that are new (one per run, kind and scenario); returns the ones actually added."""
+        cols = _columns(AlertRow)
+        added = []
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                for a in alerts:
+                    cur.execute(f"INSERT INTO alerts ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))}) "
+                                "ON CONFLICT (run_id, kind, scenario_id) DO NOTHING", [getattr(a, c) for c in cols])
+                    if cur.rowcount:
+                        added.append(a)
+            conn.commit()
+        return added
+
+    def update_alert_notification(self, alert_id, notified_utc, error: str | None) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE alerts SET notified_utc = %s, notify_error = %s WHERE id = %s", (notified_utc, error, alert_id))
+            conn.commit()
+
+    def list_alerts(self, open_only: bool = False, limit: int = 200) -> list[AlertRow]:
+        with self.connect() as conn, self._cursor(conn, AlertRow) as cur:
+            cur.execute(f"""SELECT {', '.join(_columns(AlertRow))} FROM alerts
+                            WHERE NOT %(o)s OR acknowledged_utc IS NULL ORDER BY created_utc DESC LIMIT %(l)s""",
+                        {"o": open_only, "l": limit})
+            return cur.fetchall()
+
+    def acknowledge_alerts(self, alert_ids: list, who: str) -> int:
+        with self.connect() as conn:
+            cur = conn.execute("""UPDATE alerts SET acknowledged_by = %s, acknowledged_utc = now()
+                                  WHERE id::text = ANY(%s) AND acknowledged_utc IS NULL""", (who, [str(i) for i in alert_ids]))
+            conn.commit()
+            return cur.rowcount
+
+    def get_monitor_state(self) -> dict[str, MonitorStateRow]:
+        with self.connect() as conn, self._cursor(conn, MonitorStateRow) as cur:
+            cur.execute(f"SELECT {', '.join(_columns(MonitorStateRow))} FROM monitor_state")
+            return {r.name: r for r in cur.fetchall()}
+
+    def set_monitor_state(self, state: MonitorStateRow) -> None:
+        cols = _columns(MonitorStateRow)
+        with self.connect() as conn:
+            conn.execute(f"""INSERT INTO monitor_state ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))})
+                             ON CONFLICT (name) DO UPDATE SET {', '.join(f'{c} = EXCLUDED.{c}' for c in cols if c != 'name')}""",
+                         [getattr(state, c) for c in cols])
+            conn.commit()
+
+    def prune_exchanges(self, older_than_days: int) -> int:
+        """Retention: deletes stored HTTP exchanges older than the given number of days (results, summaries and alerts
+        are kept). Returns the number deleted."""
+        with self.connect() as conn:
+            cur = conn.execute("DELETE FROM exchanges WHERE started_utc < now() - make_interval(days => %s)", (int(older_than_days),))
+            conn.commit()
+            return cur.rowcount
+
+    def pass_rate_series(self, days: int = 30) -> dict[str, list[tuple]]:
+        """bank -> [(run id, started, pass rate, failed + errors)] of completed runs, oldest first."""
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT bank_bic, id, coalesce(started_utc, created_utc), pass_rate, failed + errors FROM runs
+                           WHERE status = 'Completed' AND passed + failed + errors > 0
+                             AND coalesce(started_utc, created_utc) >= now() - make_interval(days => %s)
+                           ORDER BY coalesce(started_utc, created_utc)""", (int(days),))
+            series: dict[str, list[tuple]] = {}
+            for bank, *rest in cur.fetchall():
+                series.setdefault(bank, []).append(tuple(rest))
+            return series
+
+    def outcome_sequences(self, days: int = 30) -> dict[tuple[str, str], list[tuple]]:
+        """(bank, scenario) -> [(run id, outcome)] oldest first, Passed/Failed/Error only (for flakiness)."""
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT r.bank_bic, s.scenario_id, r.id, s.outcome FROM scenario_results s JOIN runs r ON r.id = s.run_id
+                           WHERE s.outcome IN ('Passed', 'Failed', 'Error')
+                             AND coalesce(r.started_utc, r.created_utc) >= now() - make_interval(days => %s)
+                           ORDER BY coalesce(r.started_utc, r.created_utc)""", (int(days),))
+            result: dict[tuple[str, str], list[tuple]] = {}
+            for bank, scenario, run_id, outcome in cur.fetchall():
+                result.setdefault((bank, scenario), []).append((run_id, outcome))
+            return result
+
+    def slowest_endpoints(self, days: int = 30, limit: int = 10) -> list[tuple]:
+        """(bank, method, path with ids replaced, calls, avg ms, max ms), slowest average first."""
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(r"""SELECT r.bank_bic, x.method,
+                                   regexp_replace(regexp_replace(split_part(x.url, '?', 1), '^https?://[^/]+', ''),
+                                                  '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{id}', 'g') AS path,
+                                   count(*), round(avg(x.duration_ms)), max(x.duration_ms)
+                            FROM exchanges x JOIN runs r ON r.id = x.run_id
+                            WHERE x.status_code IS NOT NULL AND x.started_utc >= now() - make_interval(days => %s)
+                            GROUP BY 1, 2, 3 HAVING count(*) >= 2 ORDER BY 5 DESC LIMIT %s""", (int(days), int(limit)))
+            return cur.fetchall()
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)

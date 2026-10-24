@@ -1,0 +1,28 @@
+# Scheduled, unattended runs (Phase 6). The portal runs due schedules itself (unless started with --no-monitor);
+# without the portal, call `aqt monitor run-due` from cron/launchd every few minutes.
+#
+# Unattended runs skip scenarios that need a bank login (SCA): nobody is there to log in. On MockBank (withMock) the
+# login is automatic, so everything runs. After every saved run, code compares it with the bank's previous run and
+# records alerts (regression, fixed, bank_down, run_failed); see the portal's Alerts page.
+#
+#   every: 30m | 6h | 1d        or        at: "02:00"  (daily, local time of the machine running the monitor)
+
+schedules:
+  - name: mock-nightly
+    bank: MOCK
+    at: "02:00"
+    withMock: true           # starts MockBank and approves SCA automatically (localhost profiles only)
+
+  # The public TBC mock: preflight + TBC suite. Off by default (it calls an external service); set enabled: true.
+  - name: tbc-mock-6h
+    bank: TBC-MOCK
+    suites: [preflight, tbc]
+    every: 6h
+    enabled: false
+
+alerts:
+  webhookEnv: AQT_ALERT_WEBHOOK   # a Slack/Teams-style incoming webhook URL in this variable; unset = portal only
+  notify: [regression, bank_down, run_failed, fixed]
+
+retention:
+  exchangesDays: 90               # stored HTTP exchanges older than this are deleted daily; results are kept

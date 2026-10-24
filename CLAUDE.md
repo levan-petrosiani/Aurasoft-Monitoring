@@ -32,6 +32,7 @@ aqt scenarios draft <approved-rule-id> --provider ollama # AI scenario draft, dr
 aqt scenarios drafts | approve|reject <draft> --by <name>  # review scenario drafts
 aqt coverage                                             # approved rules -> scenarios -> last result per bank
 aqt ask "<question>" --provider ollama                   # ask-agent (read-only tools); aqt ask history
+aqt monitor status|run-due|alerts|trends                 # monitoring (monitoring.yaml); aqt db prune = retention
 AQT_TEST_DB="host=localhost port=5435 user=aqt password=aqt_dev" pytest   # include database tests
 ```
 
@@ -50,6 +51,7 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
 | `aqt/mockbank/` | In-memory fake ASPSP enforcing real XS2A checks (pyOpenSSL for optional client certificates); the reference target for new scenarios |
 | `aqt/portal/` | Flask UI; `services.py` (`RunService`) queues runs and stores them in `reports/portal-python/`; `ai_services.py` writes them to the store and serves the AI summary, Standards, Rules, Drafts, Coverage and Ask pages |
 | `aqt/store/` | PostgreSQL store (psycopg, plain SQL): `migrations/*.sql`, `masking.py`, `importer.py`, `store.py`, `coverage.py` |
+| `aqt/monitor/` | Monitoring (needs the store): `config.py` (`monitoring.yaml`, due times), `alerts.py` (detect after each saved run, webhook), `trends.py`; the portal's `MonitorService` runs schedules |
 | `aqt/dryrun.py` | `MockDryRun`: one scenario on an in-process MockBank on free ports (MOCK profile, loopback only) |
 | `aqt/standards/` | No AI/DB: `pdf_reader.py` (TOC-driven, pdfplumber), `docx_reader.py`, `quote.py` (verifier), `sources.py` |
 | `aqt/ai/` | `chat.py` (Claude / Ollama + audit + masking), `summaries.py`, `ingest.py`, `rules.py` (drafter, RuleBook, export), `scenario_drafting.py` (ScenarioDrafter, ScenarioReview), `agent.py` (AskAgent, AgentTools), `prompts/` |
@@ -71,6 +73,8 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
 - **`--sca-auto` is for MockBank / public mocks only** — never add it to a real bank's flow.
 - Codes, tokens and other secrets are masked in reports; any new output or store must mask them too.
 - Every scenario needs a `specRef` naming the clause it tests.
+- Unattended (scheduled) runs never wait for a bank login: scenarios with an SCA step are skipped
+  (`ScenarioRunner.skip_sca_reason`) unless SCA is automatic on MockBank. Alerts are computed in code, never by a model.
 - Payment (PIS) scenarios must `require` a `variables.pis.*` test account, so they only run where a profile names the
   bank's sandbox test accounts; AI drafts that send payment data without it are refused in code (`check_scenario`).
 
