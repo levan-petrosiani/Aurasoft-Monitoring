@@ -1,0 +1,26 @@
+# Settings shared by every bank profile (profiles use `extends: _shared.yaml`).
+# Values in a bank's own file override these.
+
+tpp:
+  # Our test TPP certificates, registered with each bank's sandbox.
+  # Option 1 — PFX files (paths relative to this folder) with passwords from environment variables:
+  qwac:
+    file: ../certs/qwac.pfx
+    passwordEnv: AQT_QWAC_PASSWORD
+  qsealc:
+    file: ../certs/qsealc.pfx
+    passwordEnv: AQT_QSEALC_PASSWORD
+  # Option 2 — Windows certificate store:
+  # qwac:   { store: CurrentUser/My, thumbprint: 3b5e6e1062a7c6ff977f928ba85fea3d9d3f15eb }
+  # qsealc: { store: CurrentUser/My, thumbprint: ce3fd7c91bda76314a49899932c06444d3630bc0 }
+
+  redirectUri: http://localhost:5199/callback
+  validateServerCertificate: true
+
+limits:
+  timeoutSeconds: 30
+  delayBetweenRequestsMs: 200
+  slowResponseMs: 3000
+
+# Verify the bank's X-Jws-Signature on responses: required | optional | ignore
+responseSignature: optional

@@ -1,0 +1,18 @@
+id: NEG-CON-008
+title: Reading an unknown consent without a token is rejected
+suite: negative
+severity: Major
+specRef: "NextGenPSD2 IG (ENG) 6.3.3 Get Consent Request; 14.11.1 (p. 147, 148, 276)"
+# The TestTool used GET v2/consents/{id}; the current API path is v2/consents/account-access/{id}.
+origin: TPP/Blazor/BadRequests/CreateConsentBadRequests.cs#WithInvalidConsentId
+
+steps:
+  - name: GET consent 638b9620-... without Authorization
+    request:
+      method: GET
+      path: v2/consents/account-access/638b9620-a286-4a61-a7d6-f693a2afe5d8
+      headersTemplate: consent
+    expect:
+      status: 401
+      errorCode: TOKEN_UNKNOWN
+      echoRequestId: true

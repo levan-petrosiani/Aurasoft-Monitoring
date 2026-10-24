@@ -1,0 +1,22 @@
+@inherits LayoutComponentBase
+
+<header class="topbar">
+    <a class="brand" href="/">
+        <span class="brand-mark">✓</span>
+        <span>API Test Portal</span>
+    </a>
+    <nav>
+        <NavLink href="/" Match="NavLinkMatch.All">Dashboard</NavLink>
+        <NavLink href="/run/new">New run</NavLink>
+        <NavLink href="/runs">Runs</NavLink>
+        <NavLink href="/scenarios">Scenarios</NavLink>
+    </nav>
+</header>
+
+<main class="page">
+    @Body
+</main>
+
+<div id="blazor-error-ui" class="error-banner">
+    Something went wrong. <a href="" class="reload">Reload</a>
+</div>

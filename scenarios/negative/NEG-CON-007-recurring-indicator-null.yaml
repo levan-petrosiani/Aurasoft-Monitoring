@@ -1,0 +1,20 @@
+id: NEG-CON-007
+title: Create consent with recurringIndicator = null is rejected
+suite: negative
+severity: Major
+specRef: "NextGenPSD2 IG (ENG) 6.3.1 Account Information Consent Request; 14.11.1 (p. 129, 274)"
+origin: TPP/Blazor/BadRequests/CreateConsentBadRequests.cs#WithInvalidRecurringIndicator
+
+steps:
+  - name: POST consent with recurringIndicator = null
+    request:
+      method: POST
+      path: v2/consents/account-access
+      headersTemplate: consent
+      bodyTemplate: consent.accountList
+      body:
+        recurringIndicator: null
+    expect:
+      status: 400
+      errorCode: FORMAT_ERROR
+      echoRequestId: true

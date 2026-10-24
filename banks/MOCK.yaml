@@ -1,0 +1,44 @@
+# ApiTestTool.MockBank on this machine — for trying the tool without any bank credentials.
+# Start the MockBank project first, then:  aqt run --bank MOCK --sca-auto
+#
+# No certificate files are needed: the TPP QWAC/QSealC are generated for each run (selfSigned),
+# and MockBank generates its own server certificate, so server validation is off.
+
+bank:
+  bic: MOCKGE22
+  name: ApiTestTool MockBank (local)
+  spec: NBG XS2A v2 (mock)
+
+endpoints:
+  xs2a: https://localhost:7443/
+  discovery: https://localhost:7443/.well-known/oauth-authorization-server
+
+tpp:
+  qwac:
+    selfSigned: { organizationId: PSDGE-NBG-MOCKTPP, commonName: ApiTestTool Mock TPP QWAC }
+  qsealc:
+    selfSigned: { organizationId: PSDGE-NBG-MOCKTPP, commonName: ApiTestTool Mock TPP QSealC }
+  redirectUri: http://localhost:5199/callback
+  validateServerCertificate: false
+
+features:
+  consents: [accountList, aspspManaged]
+  scaOAuth: true
+  accounts: [current]
+  payments: []
+  piis: false
+
+variables:
+  psu1:
+    username: testuser1
+  accounts:
+    gel: GE29MK0000000000000001
+    usd: GE02MK0000000000000002
+
+limits:
+  timeoutSeconds: 15
+  delayBetweenRequestsMs: 0
+  slowResponseMs: 3000
+
+# MockBank signs every response, so a missing or broken signature is a real defect here.
+responseSignature: required

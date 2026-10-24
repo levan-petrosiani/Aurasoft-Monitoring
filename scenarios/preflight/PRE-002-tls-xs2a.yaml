@@ -1,0 +1,13 @@
+id: PRE-002
+title: XS2A endpoint accepts mutual TLS with a valid server certificate
+suite: preflight
+severity: Critical
+specRef: "NBG XS2A — transport security (TLS 1.2+, eIDAS QWAC)"
+
+steps:
+  - name: TLS handshake with our QWAC
+    tls:
+      target: xs2a
+      minProtocol: Tls12
+      warnDaysBeforeExpiry: 30
+      sendClientCertificate: true

@@ -1,0 +1,18 @@
+id: NEG-SIG-001
+title: Request with an invalid X-Jws-Signature is rejected
+suite: negative
+severity: Critical
+specRef: "NBG XS2A — JWS signature profile (X-Jws-Signature, sigD, PS256)"
+origin: TPP/Blazor/Services/BadSignatureDigestService.cs (same idea, new implementation)
+
+steps:
+  - name: POST consent with a corrupted signature value
+    request:
+      method: POST
+      path: v2/consents/account-access
+      headersTemplate: consent
+      bodyTemplate: consent.accountList
+      signing: corruptSignature
+    expect:
+      status: [400, 401]
+      errorCode: "*"

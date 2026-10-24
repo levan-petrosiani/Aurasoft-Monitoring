@@ -1,0 +1,22 @@
+id: NEG-CON-006
+title: Consent for trusted beneficiaries is rejected as not supported
+suite: negative
+severity: Minor
+specRef: "NextGenPSD2 IG (ENG) 14.17 Additional Information Access; 14.11.1 (p. 285, 275)"
+origin: TPP/Blazor/BadRequests/CreateConsentBadRequests.cs#WithTrustedBeneficiaries
+
+steps:
+  - name: POST consent with rights = trustedBeneficiaries
+    request:
+      method: POST
+      path: v2/consents/account-access
+      headersTemplate: consent
+      bodyTemplate: consent.aspspManaged
+      body:
+        access:
+          payments:
+            - rights: [trustedBeneficiaries]
+    expect:
+      status: 400
+      errorCode: PARAMETER_NOT_SUPPORTED
+      echoRequestId: true

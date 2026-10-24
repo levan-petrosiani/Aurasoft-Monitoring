@@ -1,0 +1,45 @@
+# Template for a new bank profile. Copy to <BIC>.yaml and fill in what the bank provides.
+# Files starting with '_' are not listed or run.
+
+extends: _shared.yaml
+
+bank:
+  bic: XXXXGE22
+  name: Example Bank
+  spec: NBG XS2A v2            # specification version the bank implements
+
+endpoints:
+  xs2a: https://xs2a-sandbox.example.ge/
+  discovery: https://auth-sandbox.example.ge/.well-known/openid-configuration
+
+# Override shared TPP settings if this bank issued its own sandbox certificates:
+# tpp:
+#   qwac:   { file: ../certs/example-qwac.pfx, passwordEnv: AQT_EXAMPLE_QWAC_PASSWORD }
+#   validateServerCertificate: false   # only if the sandbox uses a test CA
+
+# What the bank supports. Scenarios with `requires:` paths that are missing or false are skipped.
+features:
+  consents: [accountList, aspspManaged, detailed]   # requires: features.consents=aspspManaged
+  scaOAuth: true                                     # redirect/OAuth SCA approach (needed by the ais suite)
+  accounts: [current, card]
+  payments: [single, bulk, periodic]
+  piis: false
+
+# Test data provided by the bank; available in scenarios as {{vars.*}}.
+variables:
+  psu1:
+    username: testuser1
+    passwordEnv: AQT_EXAMPLE_PSU1_PASSWORD
+    otp: "111111"
+  accounts:
+    gel: GE00XX0000000000000001
+    usd: GE00XX0000000000000002
+  creditorIban: GE00XX0000000000000099
+
+# Bank-specific deviations from the standard flow.
+quirks: {}
+#  oauth:
+#    scopeSuffix: " openid"   # appended to the OAuth scope
+#    nonce: "1234"
+#    uiLocales: ka-ge
+#    extraParams: { prompt: login }

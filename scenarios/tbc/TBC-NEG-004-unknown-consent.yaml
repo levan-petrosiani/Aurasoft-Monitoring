@@ -1,0 +1,16 @@
+id: TBC-NEG-004
+title: TBC status of an unknown consent is CONSENT_UNKNOWN
+suite: tbc
+severity: Major
+# TBC's reference documents 403 CONSENT_UNKNOWN; the mock answers 404. Both are accepted; the code must match.
+specRef: "Berlin Group 1.3 IG 14.11 (CONSENT_UNKNOWN); TBC reference: 403"
+requires: [features.tbcApi]
+steps:
+  - request:
+      method: GET
+      path: "v1/consents/{{uuid}}/status"
+      headersTemplate: tbc.basic
+    expect:
+      status: [403, 404]
+      errorCode: CONSENT_UNKNOWN
+      echoRequestId: true

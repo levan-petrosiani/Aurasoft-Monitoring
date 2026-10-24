@@ -1,0 +1,23 @@
+id: NEG-CON-005
+title: Global consent (allPsd2) is rejected as not supported
+suite: negative
+severity: Minor
+specRef: "NextGenPSD2 IG (ENG) 6.3.1.2 Consent Request on Account List or without Indication of Accounts; 14.11.1 (p. 144, 153, 275)"
+origin: TPP/Blazor/BadRequests/CreateConsentBadRequests.cs#WithAllPsd2
+
+steps:
+  - name: POST consent with consentType = global
+    request:
+      method: POST
+      path: v2/consents/account-access
+      headersTemplate: consent
+      bodyTemplate: consent.aspspManaged
+      body:
+        consentType: global
+        access:
+          payments:
+            - rights: [accountDetails]
+    expect:
+      status: 400
+      errorCode: PARAMETER_NOT_SUPPORTED
+      echoRequestId: true

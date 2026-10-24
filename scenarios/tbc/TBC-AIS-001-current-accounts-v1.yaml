@@ -1,0 +1,117 @@
+id: TBC-AIS-001
+title: TBC current accounts (v1) — consent, OAuth SCA, accounts, balances, transactions
+suite: tbc
+severity: Critical
+specRef: "TBC Open Banking AIS v1 (Berlin Group 1.3): /v1/consents, /v1/accounts; OAuth SCA with PKCE"
+description: >
+  Bank-offered v1 consent (the PSU chooses accounts during SCA), OAuth authorization with PKCE and nonce,
+  refresh token, then account list with balances, balances and booked transactions of the first account.
+requires:
+  - features.tbcApi
+
+steps:
+  - name: Create bank-offered consent (v1)
+    request:
+      method: POST
+      path: v1/consents
+      headersTemplate: tbc.consent
+      bodyTemplate: tbc.v1.bankOffered
+    expect:
+      status: 201
+      headers: [Location, ASPSP-SCA-Approach]
+      echoRequestId: true
+      json: { $.consentStatus: received }
+      exists: [$.consentId, $._links.startAuthorisation.href, $._links.status.href]
+    save:
+      consentId: $.consentId
+      startAuthorisationUrl: $._links.startAuthorisation.href
+
+  - name: Start consent authorisation
+    request:
+      method: POST
+      path: "{{startAuthorisationUrl}}"
+      headersTemplate: tbc.consent
+    expect:
+      status: 201
+      echoRequestId: true
+      exists: [$.authorisationId, $.scaStatus, $._links.scaOAuth.href]
+    save:
+      scaOAuthUrl: $._links.scaOAuth.href
+
+  - name: SCA via OAuth (approve on the TBC consent page)
+    sca:
+      mode: manual
+      discovery: "{{scaOAuthUrl}}"
+      scope: "AIS:{{consentId}}"
+      expectScopeContains: "{{consentId}}"
+      refresh: true
+
+  - name: Consent is valid after SCA
+    request:
+      method: GET
+      path: "v1/consents/{{consentId}}/status"
+      headersTemplate: tbc.basic
+      auth: "{{token}}"
+    expect:
+      status: 200
+      json: { $.consentStatus: valid }
+
+  - name: Read consent details
+    request:
+      method: GET
+      path: "v1/consents/{{consentId}}"
+      headersTemplate: tbc.basic
+      auth: "{{token}}"
+    expect:
+      status: 200
+      exists: [$.access, $.validUntil, $.frequencyPerDay]
+      json: { $.consentStatus: valid }
+
+  - name: Read account list with balances
+    request:
+      method: GET
+      path: v1/accounts?withBalance=true
+      headersTemplate: tbc.basic
+      headers: { Consent-ID: "{{consentId}}" }
+      auth: "{{token}}"
+    expect:
+      status: 200
+      echoRequestId: true
+      exists: ["$.accounts[0].resourceId", "$.accounts[0].iban", "$.accounts[0].currency", "$.accounts[0].balances[0].balanceAmount.amount"]
+    save:
+      accountId: $.accounts[0].resourceId
+      balancesUrl: $.accounts[0]._links.balances.href
+
+  - name: Read balances of the first account (via its _links)
+    request:
+      method: GET
+      path: "{{balancesUrl}}"
+      headersTemplate: tbc.basic
+      headers: { Consent-ID: "{{consentId}}" }
+      auth: "{{token}}"
+    expect:
+      status: 200
+      exists: ["$.balances[0].balanceAmount.amount", "$.balances[0].balanceType"]
+
+  - name: Read booked transactions of the last 30 days
+    request:
+      method: GET
+      path: "v1/accounts/{{accountId}}/transactions?bookingStatus=booked&dateFrom={{date.today-30d}}&dateTo={{date.today}}"
+      headersTemplate: tbc.basic
+      headers: { Consent-ID: "{{consentId}}" }
+      auth: "{{token}}"
+    expect:
+      status: 200
+      exists: [$.account.iban, $.transactions.booked]
+
+cleanup:
+  - name: Delete consent
+    runIf: [consentId]
+    request:
+      method: DELETE
+      path: "v1/consents/{{consentId}}"
+      headersTemplate: tbc.basic
+      auth: "{{token}}"
+      authOptional: true
+    expect:
+      status: 204

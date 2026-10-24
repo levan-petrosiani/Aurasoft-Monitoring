@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>aqt</AssemblyName>
+    <RootNamespace>ApiTestTool.Cli</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ApiTestTool.Engine\ApiTestTool.Engine.csproj" />
+    <!-- Lets "aqt mock" and "aqt run with-mock" host MockBank in-process (one IDE launch is enough). -->
+    <ProjectReference Include="..\ApiTestTool.MockBank\ApiTestTool.MockBank.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Ship bank profiles and scenarios next to the executable. -->
+  <ItemGroup>
+    <Content Include="..\..\banks\**\*.yaml" LinkBase="banks" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\scenarios\**\*.yaml" LinkBase="scenarios" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

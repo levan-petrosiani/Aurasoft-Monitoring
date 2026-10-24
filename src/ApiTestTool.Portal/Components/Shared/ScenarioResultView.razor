@@ -1,0 +1,93 @@
+@* One scenario result with its steps, failures, warnings and HTTP exchanges. *@
+<details class="scenario" open="@(Result.Outcome is Outcome.Failed or Outcome.Error)">
+    <summary>
+        <OutcomeBadge Outcome="Result.Outcome" />
+        <span class="scenario-id">@Result.Id</span>
+        <span class="scenario-title">@Result.Title</span>
+        <span class="muted small">@Result.Suite · @Result.Severity · @Result.DurationMs ms</span>
+    </summary>
+
+    @if (!string.IsNullOrEmpty(Result.Reason))
+    {
+        <p class="reason">@Result.Reason</p>
+    }
+    @if (Result.SpecRef is not null)
+    {
+        <p class="muted small">Spec: @Result.SpecRef</p>
+    }
+    @if (Result.Origin is not null)
+    {
+        <p class="muted small">Origin: @Result.Origin</p>
+    }
+
+    @foreach (var (step, isCleanup) in Result.Steps.Select(s => (s, false)).Concat(Result.Cleanup.Select(s => (s, true))))
+    {
+        <div class="step">
+            <div class="step-head">
+                <OutcomeBadge Outcome="step.Outcome" />
+                <span>@(isCleanup ? "Cleanup: " : "")@step.Name</span>
+                <span class="muted small">@step.DurationMs ms</span>
+            </div>
+            @if (step.Failures.Count > 0)
+            {
+                <ul class="msg msg-fail">@foreach (var f in step.Failures) { <li>@f</li> }</ul>
+            }
+            @if (step.Warnings.Count > 0)
+            {
+                <ul class="msg msg-warn">@foreach (var w in step.Warnings) { <li>@w</li> }</ul>
+            }
+            @if (step.Info.Count > 0)
+            {
+                <ul class="msg msg-info">@foreach (var i in step.Info) { <li>@i</li> }</ul>
+            }
+            @foreach (var x in Exchanges(step))
+            {
+                <details class="exchange">
+                    <summary>
+                        <code>@x.Method @x.Url</code>
+                        <span class="badge @(x.StatusCode is >= 200 and < 300 ? "badge-pass" : x.StatusCode is null ? "badge-error" : "badge-muted")">@(x.StatusCode?.ToString(CultureInfo.InvariantCulture) ?? "no response")</span>
+                        <span class="muted small">@x.DurationMs ms</span>
+                    </summary>
+                    <div class="exchange-grid">
+                        <div>
+                            <div class="label">Request</div>
+                            <pre>@RequestText(x)</pre>
+                        </div>
+                        <div>
+                            <div class="label">Response</div>
+                            <pre>@ResponseText(x)</pre>
+                        </div>
+                    </div>
+                </details>
+            }
+        </div>
+    }
+</details>
+
+@code {
+    [Parameter, EditorRequired] public ScenarioResult Result { get; set; } = default!;
+
+    private static IEnumerable<HttpExchange> Exchanges(StepResult step) =>
+        step.Exchange is null ? step.Exchanges : step.Exchanges.Prepend(step.Exchange);
+
+    private static string RequestText(HttpExchange x) =>
+        string.Join('\n', x.RequestHeaders.Select(h => $"{h.Key}: {h.Value}")) + (x.RequestBody is null ? "" : "\n\n" + Pretty(x.RequestBody));
+
+    private static string ResponseText(HttpExchange x) =>
+        (x.Error is null ? "" : $"Error: {x.Error}\n") +
+        string.Join('\n', x.ResponseHeaders.Select(h => $"{h.Key}: {h.Value}")) +
+        (string.IsNullOrEmpty(x.ResponseBody) ? "" : "\n\n" + Pretty(x.ResponseBody));
+
+    private static string Pretty(string text)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(text);
+            return System.Text.Json.JsonSerializer.Serialize(doc.RootElement, new System.Text.Json.JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return text;
+        }
+    }
+}

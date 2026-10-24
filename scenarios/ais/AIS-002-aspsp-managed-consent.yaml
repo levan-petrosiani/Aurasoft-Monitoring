@@ -1,0 +1,102 @@
+id: AIS-002
+title: ASPSP-managed consent — authorise with OAuth SCA, read balances and booked transactions
+suite: ais
+severity: Critical
+specRef: "NBG XS2A v2 — 6.3.1 consent (aspspManaged); SCA OAuth approach; 6.4 account information, transactions"
+description: >
+  The PSU chooses the accounts at the bank during SCA. After authorisation the TPP reads the account list,
+  the balances and the booked transactions of the last 30 days.
+origin: TPP/Blazor/Templates/ConsentTemplates.GetConsentRequestBodyWithAspspManaged
+requires:
+  - features.consents=aspspManaged
+  - features.scaOAuth
+
+steps:
+  - name: Create ASPSP-managed consent
+    request:
+      method: POST
+      path: v2/consents/account-access
+      headersTemplate: consent
+      bodyTemplate: consent.aspspManaged
+    expect:
+      status: 201
+      echoRequestId: true
+      json: { $.consentStatus: received }
+      exists: [$.consentId, $._links.startAuthorisation.href]
+    save:
+      consentId: $.consentId
+      startAuthorisationUrl: $._links.startAuthorisation.href
+
+  - name: Start consent authorisation
+    request:
+      method: POST
+      path: "{{startAuthorisationUrl}}"
+      headersTemplate: consent
+    expect:
+      status: 201
+      exists: [$.authorisationId, $._links.scaOAuth.href]
+    save:
+      scaOAuthUrl: $._links.scaOAuth.href
+
+  - name: SCA via OAuth (manual login, choose accounts)
+    sca:
+      mode: manual
+      discovery: "{{scaOAuthUrl}}"
+      scope: "AIS:{{consentId}}"
+
+  - name: Consent is valid after SCA
+    request:
+      method: GET
+      path: "v2/consents/account-access/{{consentId}}/status"
+      headersTemplate: basic
+      auth: "{{token}}"
+    expect:
+      status: 200
+      json: { $.consentStatus: valid }
+
+  - name: Read account list
+    request:
+      method: GET
+      path: v2/accounts
+      headersTemplate: basic
+      headers: { Consent-ID: "{{consentId}}" }
+      auth: "{{token}}"
+    expect:
+      status: 200
+      exists: ["$.accounts[0].resourceId"]
+    save:
+      accountId: $.accounts[0].resourceId
+
+  - name: Read balances
+    request:
+      method: GET
+      path: "v2/accounts/{{accountId}}/balances"
+      headersTemplate: basic
+      headers: { Consent-ID: "{{consentId}}" }
+      auth: "{{token}}"
+    expect:
+      status: 200
+      exists: [$.balances]
+
+  - name: Read booked transactions of the last 30 days
+    request:
+      method: GET
+      path: "v2/accounts/{{accountId}}/transactions?bookingStatus=booked&dateFrom={{date.today-30d}}&dateTo={{date.today}}"
+      headersTemplate: basic
+      headers: { Consent-ID: "{{consentId}}" }
+      auth: "{{token}}"
+    expect:
+      status: 200
+      exists: [$.transactions]
+
+cleanup:
+  - name: Delete consent
+    runIf: [consentId]
+    request:
+      method: DELETE
+      path: "v2/consents/account-access/{{consentId}}"
+      headersTemplate: basic
+      auth: "{{token}}"
+      authOptional: true
+    expect:
+      status: 204

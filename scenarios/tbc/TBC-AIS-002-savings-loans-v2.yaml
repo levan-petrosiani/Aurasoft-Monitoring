@@ -1,0 +1,114 @@
+id: TBC-AIS-002
+title: TBC savings and loans (v2) — detailed consent, OAuth SCA, savings and loans with balances
+suite: tbc
+severity: Critical
+specRef: "TBC Open Banking AIS v2: /v2/consents/account-access, /v2/savings, /v2/loans; OAuth SCA with PKCE"
+requires:
+  - features.tbcApi
+
+steps:
+  - name: Create detailed consent for savings and loans (v2)
+    request:
+      method: POST
+      path: v2/consents/account-access
+      headersTemplate: tbc.consent
+      bodyTemplate: tbc.v2.savingsAndLoans
+    expect:
+      status: 201
+      headers: [Location]
+      echoRequestId: true
+      json: { $.consentStatus: received }
+      exists: [$.consentId, $._links.startAuthorisation.href]
+    save:
+      consentId: $.consentId
+      startAuthorisationUrl: $._links.startAuthorisation.href
+
+  - name: Start consent authorisation
+    request:
+      method: POST
+      path: "{{startAuthorisationUrl}}"
+      headersTemplate: tbc.consent
+    expect:
+      status: 201
+      exists: [$.authorisationId, $._links.scaOAuth.href]
+    save:
+      scaOAuthUrl: $._links.scaOAuth.href
+
+  - name: SCA via OAuth (approve on the TBC consent page)
+    sca:
+      mode: manual
+      discovery: "{{scaOAuthUrl}}"
+      scope: "AIS:{{consentId}}"
+      expectScopeContains: "{{consentId}}"
+
+  - name: Consent is valid after SCA
+    request:
+      method: GET
+      path: "v2/consents/account-access/{{consentId}}/status"
+      headersTemplate: tbc.basic
+      auth: "{{token}}"
+    expect:
+      status: 200
+      json: { $.consentStatus: valid }
+
+  - name: Read savings with balances
+    request:
+      method: GET
+      path: v2/savings?withBalance=true
+      headersTemplate: tbc.basic
+      headers: { Consent-ID: "{{consentId}}" }
+      auth: "{{token}}"
+    expect:
+      status: 200
+      exists: ["$.accounts[0].resourceId", "$.accounts[0].currency", "$.accounts[0].balances[0].balanceAmount.amount"]
+      # Berlin Group links are "_links"; report deviations without failing the flow.
+      warnIfMissing: ["$.accounts[0]._links"]
+    save:
+      savingsId: $.accounts[0].resourceId
+
+  - name: Read balances of the first savings account
+    request:
+      method: GET
+      path: "v2/savings/{{savingsId}}/balances"
+      headersTemplate: tbc.basic
+      headers: { Consent-ID: "{{consentId}}" }
+      auth: "{{token}}"
+    expect:
+      status: 200
+      exists: ["$.balances[0].balanceAmount.amount"]
+
+  - name: Read loans
+    request:
+      method: GET
+      path: v2/loans
+      headersTemplate: tbc.basic
+      headers: { Consent-ID: "{{consentId}}" }
+      auth: "{{token}}"
+    expect:
+      status: 200
+      exists: ["$.accounts[0].resourceId", "$.accounts[0].balances[0].balanceAmount.amount", "$.accounts[0]._links.balances.href"]
+    save:
+      loanBalancesUrl: $.accounts[0]._links.balances.href
+
+  - name: Read balances of the first loan (via its _links)
+    request:
+      method: GET
+      path: "{{loanBalancesUrl}}"
+      headersTemplate: tbc.basic
+      headers: { Consent-ID: "{{consentId}}" }
+      auth: "{{token}}"
+    expect:
+      status: 200
+      exists: ["$.balances[0].balanceAmount.amount"]
+
+cleanup:
+  - name: Delete consent
+    runIf: [consentId]
+    request:
+      method: DELETE
+      path: "v2/consents/account-access/{{consentId}}"
+      headersTemplate: tbc.basic
+      auth: "{{token}}"
+      authOptional: true
+    expect:
+      status: 204

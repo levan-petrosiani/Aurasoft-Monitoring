@@ -1,0 +1,19 @@
+id: PRE-004
+title: XS2A API answers a signed request with a standard error for an unknown consent
+suite: preflight
+severity: Critical
+specRef: "NextGenPSD2 IG 6.3.2 Consent Status Request; 14.11 HTTP error codes"
+description: >
+  Proves the whole chain works without any test user: mTLS, our signature is accepted, routing reaches
+  the consent service, and errors come back in the standard format with the X-Request-ID echoed.
+
+steps:
+  - name: GET status of a random consent id
+    request:
+      method: GET
+      path: "v2/consents/account-access/{{uuid}}/status"
+      headersTemplate: basic
+    expect:
+      status: [400, 401, 403, 404]
+      echoRequestId: true
+      errorCode: "*"

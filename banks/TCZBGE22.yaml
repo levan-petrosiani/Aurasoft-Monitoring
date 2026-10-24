@@ -1,0 +1,11 @@
+# Sandbox URL taken from the existing TestTool configuration (TPP/Blazor/appsettings.json).
+# Fill in endpoints.discovery, features and variables when the bank provides them.
+
+extends: _shared.yaml
+
+bank:
+  bic: TCZBGE22
+  name: Ziraat Bank Georgia
+
+endpoints:
+  xs2a: https://psd2-xs2a-sandbox.ziraatbank.ge/

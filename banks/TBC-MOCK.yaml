@@ -1,0 +1,68 @@
+# TBC Bank Open Banking mock sandbox (independent simulator, synthetic data):
+#   docs  https://tbc-bank-mock-open-banking-api.vercel.app/reference/aisapioverview
+#   spec  https://tbc-bank-mock-open-banking-api.vercel.app/openapi.json
+#
+# Run it:  aqt run --bank TBC-MOCK --suite preflight,tbc --sca-auto
+#
+# What this sandbox is like (checked against the live mock):
+# - No eIDAS certificates, JWS signatures or bank passwords are needed; we still send our (generated)
+#   certificates and signatures, the mock ignores them.
+# - Current accounts use Berlin Group style v1 consents (POST /v1/consents, validUntil, /v1/accounts);
+#   savings and loans use Georgian v2 consents (POST /v2/consents/account-access with access.savings/loans).
+#   v2 consents with access.payments are rejected, so the generic `ais`/`negative` suites do not fit this bank.
+# - _links are host-relative and include the base path (/0.8/v1/...).
+# - SCA: authorize → consent page with Approve/Deny (no login) → redirect with code; PKCE S256, nonce required.
+# - Random delays and injected 503 "synthetic failure" responses are switched on, hence `limits.retry`.
+
+bank:
+  bic: TBCBGE22
+  name: TBC Bank Open Banking mock (Vercel)
+  spec: TBC Open Banking 0.8 (mock)
+
+endpoints:
+  xs2a: https://tbc-bank-mock-open-banking-api.vercel.app/0.8/
+  discovery: https://tbc-bank-mock-open-banking-api.vercel.app/.well-known/oauth-authorization-server
+
+tpp:
+  # The mock needs no certificates; generated ones give us a TPP id to use as OAuth client_id.
+  qwac:
+    selfSigned: { organizationId: PSDGE-NBG-MOCKTPP, commonName: ApiTestTool Mock TPP QWAC }
+  qsealc:
+    selfSigned: { organizationId: PSDGE-NBG-MOCKTPP, commonName: ApiTestTool Mock TPP QSealC }
+  redirectUri: http://localhost:5199/callback
+  validateServerCertificate: true
+
+features:
+  tbcApi: true          # enables the `tbc` suite
+  headlessSca: true     # the consent page only needs an "Approve" click, so --sca-auto / portal auto SCA work
+  consents: [bankOffered, detailed]
+  accounts: [current, savings, loans]
+
+quirks:
+  oauth:
+    nonce: "1682590731"   # TBC requires nonce on the authorize request
+    uiLocales: ka
+
+variables:
+  customer: მოქი მოქიაშვილი
+  accounts:
+    gel: GE11TB1000000000000010
+    usd: GE22TB2000000000000020
+  # Savings/loan IBANs from TBC's own consent example; the mock serves products for them.
+  savings:
+    iban1: GE58TB7868536615000052
+    iban2: GE19TB7868536515000156
+  loans:
+    iban1: GE78TB1121245063622479
+
+limits:
+  timeoutSeconds: 30
+  delayBetweenRequestsMs: 0
+  slowResponseMs: 5000
+  retry:
+    attempts: 4
+    delayMs: 700
+    statuses: [500, 502, 503, 504]
+
+# The mock does not sign responses.
+responseSignature: ignore

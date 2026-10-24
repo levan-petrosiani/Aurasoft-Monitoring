@@ -1,0 +1,17 @@
+id: TBC-NEG-001
+title: TBC v1 consent with validUntil in the past is rejected
+suite: tbc
+severity: Major
+specRef: "Berlin Group 1.3 IG 6.3.1 (validUntil); TBC error FORMAT_ERROR"
+requires: [features.tbcApi]
+steps:
+  - request:
+      method: POST
+      path: v1/consents
+      headersTemplate: tbc.consent
+      bodyTemplate: tbc.v1.bankOffered
+      body: { validUntil: "{{date.today-3d}}" }
+    expect:
+      status: 400
+      errorCode: FORMAT_ERROR
+      contentType: application/problem+json

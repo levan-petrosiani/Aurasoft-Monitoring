@@ -1,0 +1,122 @@
+@page "/"
+@implements IDisposable
+@inject CatalogService Catalog
+@inject RunService RunService
+@inject MockBankService MockBank
+@inject NavigationManager Nav
+
+<PageTitle>Dashboard · API Test Portal</PageTitle>
+
+<h1>Dashboard</h1>
+<p class="lead">Test banks' XS2A sandboxes as a TPP and keep the results. Banks come from <code>@Catalog.BanksDirectory</code>.</p>
+
+<div class="tiles">
+    <div class="tile"><b>@_banks.Count(b => b.Profile is not null)</b>bank profiles</div>
+    <div class="tile"><b>@RunService.Runs.Count</b>runs stored</div>
+    <div class="tile"><b>@(RunService.Runs.FirstOrDefault(r => r.IsActive) is { } active ? "1" : "0")</b>running now</div>
+    <div class="tile">
+        <b class="@(_mockReachable ? "text-pass" : "text-muted")">@(_mockReachable ? "Up" : "Down")</b>
+        MockBank @(MockBank.IsHostedHere ? "(in portal)" : _mockReachable ? "(external)" : "")
+        <div class="tile-actions">
+            @if (MockBank.IsHostedHere)
+            {
+                <button class="btn btn-small" @onclick="StopMock">Stop</button>
+                <a class="btn btn-small btn-ghost" href="@MockBank.DashboardUrl" target="_blank">Open</a>
+            }
+            else if (!_mockReachable)
+            {
+                <button class="btn btn-small" @onclick="StartMock" disabled="@_busy">Start</button>
+            }
+            else
+            {
+                <a class="btn btn-small btn-ghost" href="@MockBank.DashboardUrl" target="_blank">Open</a>
+            }
+        </div>
+    </div>
+</div>
+
+<h2>Banks</h2>
+<table class="grid">
+    <thead>
+        <tr><th>Profile</th><th>Bank</th><th>XS2A sandbox</th><th>Last run</th><th>Pass rate</th><th></th></tr>
+    </thead>
+    <tbody>
+        @foreach (var bank in _banks)
+        {
+            var last = RunService.Runs.FirstOrDefault(r => r.Record.Request.Bank.Equals(bank.Key, StringComparison.OrdinalIgnoreCase));
+            <tr>
+                <td><code>@bank.Key</code></td>
+                <td>
+                    @bank.Name
+                    @if (bank.Error is not null)
+                    {
+                        <div class="text-fail small">@bank.Error</div>
+                    }
+                </td>
+                <td class="small">@bank.Profile?.Endpoints.Xs2a</td>
+                <td>
+                    @if (last is not null)
+                    {
+                        <a href="/runs/@last.Id"><OutcomeBadge Status="last.Record.Status" /> <span class="small muted">@last.Record.CreatedUtc.ToLocalTime().ToString("dd.MM HH:mm", CultureInfo.InvariantCulture)</span></a>
+                    }
+                    else
+                    {
+                        <span class="muted small">never</span>
+                    }
+                </td>
+                <td>@(last?.Record.Status == RunStatus.Completed ? $"{last.Record.PassRate.ToString("0.#", CultureInfo.InvariantCulture)}%" : "")</td>
+                <td class="right">
+                    @if (bank.Profile is not null)
+                    {
+                        <button class="btn btn-small" @onclick="() => NewRun(bank.Key)">Run…</button>
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<h2>Recent runs</h2>
+<RunTable Runs="RunService.Runs.Take(8).ToList()" />
+
+@code {
+    private List<BankEntry> _banks = [];
+    private bool _mockReachable;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _banks = Catalog.GetBanks();
+        _mockReachable = await MockBank.IsReachableAsync();
+        RunService.RunsChanged += OnChanged;
+        MockBank.Changed += OnChanged;
+    }
+
+    private void NewRun(string bank) => Nav.NavigateTo("/run/new?bank=" + Uri.EscapeDataString(bank));
+
+    private async Task StartMock()
+    {
+        _busy = true;
+        await MockBank.EnsureRunningAsync();
+        _mockReachable = await MockBank.IsReachableAsync();
+        _busy = false;
+    }
+
+    private async Task StopMock()
+    {
+        await MockBank.StopAsync();
+        _mockReachable = await MockBank.IsReachableAsync();
+    }
+
+    private void OnChanged() => InvokeAsync(async () =>
+    {
+        _mockReachable = await MockBank.IsReachableAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        RunService.RunsChanged -= OnChanged;
+        MockBank.Changed -= OnChanged;
+    }
+}

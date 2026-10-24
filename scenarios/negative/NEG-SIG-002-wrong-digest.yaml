@@ -1,0 +1,18 @@
+id: NEG-SIG-002
+title: Request whose Digest does not match the body is rejected
+suite: negative
+severity: Critical
+specRef: "NBG XS2A — JWS signature profile, Digest (RFC 3230)"
+origin: TPP/Blazor/Services/BadSignatureDigestService.cs (same idea, new implementation)
+
+steps:
+  - name: POST consent with a Digest of a different body
+    request:
+      method: POST
+      path: v2/consents/account-access
+      headersTemplate: consent
+      bodyTemplate: consent.accountList
+      signing: wrongDigest
+    expect:
+      status: [400, 401]
+      errorCode: "*"

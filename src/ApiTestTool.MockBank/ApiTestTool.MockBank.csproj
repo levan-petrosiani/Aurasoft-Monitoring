@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    A fake bank for trying ApiTestTool without real sandbox credentials: XS2A v2 consent/account
+    endpoints, an OAuth2 authorization server with PKCE, mutual TLS and JWS request/response signatures.
+    Everything is in memory; certificates are generated at startup.
+  -->
+  <PropertyGroup>
+    <RootNamespace>ApiTestTool.MockBank</RootNamespace>
+  </PropertyGroup>
+
+  <!--
+    Settings live in mockbank.settings.json (not appsettings.json) so they do not collide with the
+    appsettings.json of projects that host MockBank in-process (aqt, the portal).
+  -->
+  <ItemGroup>
+    <Content Update="mockbank.settings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ApiTestTool.Engine\ApiTestTool.Engine.csproj" />
+  </ItemGroup>
+
+</Project>

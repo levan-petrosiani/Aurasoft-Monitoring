@@ -1,0 +1,45 @@
+# Templates for the TBC API (see banks/TBC-MOCK.yaml). TBC uses TPP-Redirect-URI, not Client-Redirect-URI.
+
+headers:
+  tbc.basic:
+    X-Request-ID: "{{uuid}}"
+    PSU-IP-Address: 192.168.1.1
+    PSU-Geo-Location: "GEO:41.715137;44.827096"
+    Accept-Language: ka
+
+  tbc.consent:
+    X-Request-ID: "{{uuid}}"
+    PSU-IP-Address: 192.168.1.1
+    PSU-Geo-Location: "GEO:41.715137;44.827096"
+    Accept-Language: ka
+    TPP-Redirect-URI: "{{tpp.redirectUri}}"
+    TPP-Redirect-Preferred: "true"
+
+bodies:
+  # Berlin Group 1.3 "bank offered consent": the PSU picks the accounts during SCA.
+  tbc.v1.bankOffered:
+    access:
+      accounts: []
+      balances: []
+      transactions: []
+    recurringIndicator: true
+    validUntil: "{{date.today+5d}}"
+    frequencyPerDay: 4
+    combinedServiceIndicator: false
+
+  # Georgian v2 "detailed" consent for savings and loans. The accounts come from the bank's test data
+  # (profile variables); TBC returns no products for an aspspManaged v2 consent.
+  tbc.v2.savingsAndLoans:
+    access:
+      savings:
+        - account: { iban: "{{vars.savings.iban1}}" }
+          rights: [accountDetails, balances, transactions, ownerName]
+        - account: { iban: "{{vars.savings.iban2}}" }
+          rights: [accountDetails, balances, transactions, ownerName]
+      loans:
+        - account: { iban: "{{vars.loans.iban1}}" }
+          rights: [accountDetails, balances, transactions, ownerName]
+    consentType: detailed
+    recurringIndicator: true
+    validTo: "{{date.today+5d}}"
+    frequencyPerDay: 4

@@ -1,0 +1,100 @@
+id: AIS-001
+title: Account-list consent — create, authorise with OAuth SCA, read accounts and balances
+suite: ais
+severity: Critical
+specRef: "NBG XS2A v2 — 6.3.1 consent, 6.3.1.2 account list; SCA OAuth approach; 6.4 account information"
+description: >
+  Full AIS happy path with the redirect/OAuth SCA approach used by the Georgian standard:
+  POST consent → POST _links.startAuthorisation → OAuth (PKCE) at _links.scaOAuth with scope AIS:<consentId>
+  → consent becomes 'valid' → read accounts and balances with Consent-ID + Bearer token.
+  Manual SCA: the tester logs in with a sandbox PSU in the browser.
+# Paths/payloads from XSA2/Api/Controllers/AIS (ConsentsController, AccountsController) and TPP/SDK.
+origin: TPP/Blazor/Pages/Accounts/StartAccountsProcess (same flow, automated)
+requires:
+  - features.consents=accountList
+  - features.scaOAuth
+
+steps:
+  - name: Create account-list consent
+    request:
+      method: POST
+      path: v2/consents/account-access
+      headersTemplate: consent
+      bodyTemplate: consent.accountListWithBalances
+    expect:
+      status: 201
+      headers: [Location]
+      echoRequestId: true
+      json: { $.consentStatus: received }
+      exists: [$.consentId, $._links.startAuthorisation.href]
+    save:
+      consentId: $.consentId
+      startAuthorisationUrl: $._links.startAuthorisation.href
+
+  - name: Start consent authorisation
+    request:
+      method: POST
+      path: "{{startAuthorisationUrl}}"
+      headersTemplate: consent
+    expect:
+      status: 201
+      echoRequestId: true
+      exists: [$.authorisationId, $.scaStatus, $._links.scaOAuth.href]
+    save:
+      authorisationId: $.authorisationId
+      scaOAuthUrl: $._links.scaOAuth.href
+
+  - name: SCA via OAuth (manual login)
+    sca:
+      mode: manual
+      discovery: "{{scaOAuthUrl}}"
+      scope: "AIS:{{consentId}}"
+      expectScopeContains: "{{consentId}}"
+      refresh: true
+
+  - name: Consent is valid after SCA
+    request:
+      method: GET
+      path: "v2/consents/account-access/{{consentId}}/status"
+      headersTemplate: basic
+      auth: "{{token}}"
+    expect:
+      status: 200
+      json: { $.consentStatus: valid }
+
+  - name: Read account list with balances
+    request:
+      method: GET
+      path: v2/accounts?withBalance=true
+      headersTemplate: basic
+      headers: { Consent-ID: "{{consentId}}" }
+      auth: "{{token}}"
+    expect:
+      status: 200
+      echoRequestId: true
+      exists: ["$.accounts[0].resourceId"]
+    save:
+      accountId: $.accounts[0].resourceId
+
+  - name: Read balances of the first account
+    request:
+      method: GET
+      path: "v2/accounts/{{accountId}}/balances"
+      headersTemplate: basic
+      headers: { Consent-ID: "{{consentId}}" }
+      auth: "{{token}}"
+    expect:
+      status: 200
+      exists: [$.balances]
+
+cleanup:
+  - name: Delete consent
+    runIf: [consentId]
+    request:
+      method: DELETE
+      path: "v2/consents/account-access/{{consentId}}"
+      headersTemplate: basic
+      auth: "{{token}}"
+      authOptional: true
+    expect:
+      status: 204

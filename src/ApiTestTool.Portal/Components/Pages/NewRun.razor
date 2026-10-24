@@ -1,0 +1,176 @@
+@page "/run/new"
+@inject CatalogService Catalog
+@inject RunService RunService
+@inject NavigationManager Nav
+
+<PageTitle>New run · API Test Portal</PageTitle>
+
+<h1>New run</h1>
+
+@if (_loadError is not null)
+{
+    <div class="alert alert-fail">@_loadError</div>
+    return;
+}
+
+<div class="form">
+    <label class="field">
+        <span>Bank</span>
+        <select @bind="Bank" @bind:after="OnBankChanged">
+            @foreach (var b in _banks.Where(b => b.Profile is not null))
+            {
+                <option value="@b.Key">@b.Key — @b.Name</option>
+            }
+        </select>
+        @if (_profile is not null)
+        {
+            <span class="hint">@_profile.Endpoints.Xs2a</span>
+        }
+    </label>
+
+    <fieldset class="field">
+        <legend>Suites <span class="hint">(none selected = all)</span></legend>
+        <div class="checks">
+            @foreach (var suite in _suites)
+            {
+                <label class="check">
+                    <input type="checkbox" checked="@_request.Suites.Contains(suite)" @onchange="e => Toggle(_request.Suites, suite, (bool)e.Value!)" />
+                    @suite <span class="muted small">(@_scenarios.Count(s => s.Suite == suite))</span>
+                </label>
+            }
+        </div>
+    </fieldset>
+
+    <details class="field">
+        <summary>Pick individual scenarios <span class="hint">@(_request.ScenarioIds.Count > 0 ? $"({_request.ScenarioIds.Count} selected)" : "(optional)")</span></summary>
+        <div class="checks checks-list">
+            @foreach (var s in VisibleScenarios)
+            {
+                <label class="check">
+                    <input type="checkbox" checked="@_request.ScenarioIds.Contains(s.Id)" @onchange="e => Toggle(_request.ScenarioIds, s.Id, (bool)e.Value!)" />
+                    <code>@s.Id</code> @s.Title <span class="muted small">@s.Severity</span>
+                </label>
+            }
+        </div>
+    </details>
+
+    <fieldset class="field">
+        <legend>Options</legend>
+        @if (_isLocal)
+        {
+            <label class="check">
+                <input type="checkbox" @bind="_request.UseMockBank" />
+                Start the built-in MockBank if it is not running
+            </label>
+        }
+        @if (_headlessSca)
+        {
+            <label class="check">
+                <input type="checkbox" @bind="_request.AutoSca" />
+                Complete SCA automatically (clicks "approve" on the sandbox consent page; test servers only)
+            </label>
+        }
+        else
+        {
+            <p class="hint">SCA (bank login) is manual for this bank: the run page shows a link to the bank's login page when a scenario needs it.</p>
+        }
+        <label class="check">
+            <input type="checkbox" @bind="_request.PreflightGate" />
+            Preflight gate: block other scenarios when a critical preflight check fails
+        </label>
+    </fieldset>
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-fail">@_error</div>
+    }
+
+    <div class="actions">
+        <button class="btn btn-primary" @onclick="Start" disabled="@(_profile is null)">Start run</button>
+        <span class="hint">@PlannedCount scenario(s) will run</span>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "bank")] public string? BankQuery { get; set; }
+
+    private List<BankEntry> _banks = [];
+    private List<Scenario> _scenarios = [];
+    private List<string> _suites = [];
+    private readonly RunRequest _request = new();
+    private Engine.Profiles.BankProfile? _profile;
+    private bool _isLocal;
+    private bool _headlessSca;
+    private string? _error;
+    private string? _loadError;
+
+    private string Bank { get; set; } = string.Empty;
+
+    private IEnumerable<Scenario> VisibleScenarios =>
+        _scenarios.Where(s => _request.Suites.Count == 0 || _request.Suites.Contains(s.Suite)).OrderBy(s => s.Suite).ThenBy(s => s.Id);
+
+    private int PlannedCount => _scenarios.Count(s =>
+        (_request.Suites.Count == 0 || _request.Suites.Contains(s.Suite)) &&
+        (_request.ScenarioIds.Count == 0 || _request.ScenarioIds.Contains(s.Id)));
+
+    protected override void OnInitialized()
+    {
+        try
+        {
+            _banks = Catalog.GetBanks();
+            _scenarios = Catalog.GetScenarios();
+        }
+        catch (ConfigurationException ex)
+        {
+            _loadError = ex.Message;
+            return;
+        }
+
+        _suites = _scenarios.Select(s => s.Suite).Distinct().OrderBy(s => s == ScenarioRunner.PreflightSuite ? 0 : 1).ThenBy(s => s).ToList();
+        var valid = _banks.Where(b => b.Profile is not null).ToList();
+        Bank = valid.FirstOrDefault(b => b.Key.Equals(BankQuery, StringComparison.OrdinalIgnoreCase))?.Key
+               ?? valid.FirstOrDefault(b => b.Key == "MOCK")?.Key
+               ?? valid.FirstOrDefault()?.Key
+               ?? string.Empty;
+        OnBankChanged();
+    }
+
+    private void OnBankChanged()
+    {
+        _profile = _banks.FirstOrDefault(b => b.Key == Bank)?.Profile;
+        _isLocal = _profile is not null && CatalogService.IsLocal(_profile);
+        _headlessSca = _profile is not null && CatalogService.AllowsHeadlessSca(_profile);
+        _request.UseMockBank = _isLocal;
+        _request.AutoSca = _headlessSca;
+    }
+
+    private static void Toggle(List<string> list, string value, bool on)
+    {
+        list.Remove(value);
+        if (on)
+            list.Add(value);
+    }
+
+    private void Start()
+    {
+        _error = null;
+        try
+        {
+            _request.Bank = Bank;
+            var run = RunService.Enqueue(new RunRequest
+            {
+                Bank = Bank,
+                Suites = [.. _request.Suites],
+                ScenarioIds = [.. _request.ScenarioIds],
+                UseMockBank = _isLocal && _request.UseMockBank,
+                AutoSca = _headlessSca && _request.AutoSca,
+                PreflightGate = _request.PreflightGate,
+            });
+            Nav.NavigateTo($"/runs/{run.Id}");
+        }
+        catch (ConfigurationException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+}

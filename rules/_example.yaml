@@ -1,0 +1,42 @@
+# Example rule — documents every field. Not loaded (file name starts with "_").
+id: GE-CON-003                      # <STANDARD>-<AREA>-<NNN>; AREA: CON consent, SIG signature, AUTH oauth, ACC accounts, ERR errors, PIS, PST, PCN, SBK
+title: validUntil in the past is rejected
+status: draft                       # draft | approved | rejected | retired
+level: MUST                         # MUST | SHOULD | MAY  (RFC 2119 keyword in the source)
+service: AIS                        # AIS | PIS | COMMON
+
+source:
+  standard: GE-XS2A                 # GE-XS2A (openfinance.ge XS2A IG) | GE-JWS | GE-IAA | NBG-80-04 | BG-IG (NextGenPSD2 IG) | BG-OAS
+  version: "0.8.RC3"
+  clause: "6.3.1"
+  quote: "<verbatim sentence(s) from the clause; checked against the index>"
+  documentSha256: "<hash of the ingested source file>"
+
+appliesTo:
+  operation: POST v2/consents/account-access
+  features: [consents]              # profile features this depends on (become the scenario's `requires`)
+
+requirement: >
+  When the TPP requests a consent with validUntil earlier than today, the ASPSP rejects it with
+  HTTP 400 and error code FORMAT_ERROR (or PERIOD_INVALID).
+
+# How the rule is verified, in the scenario DSL's terms. Used as the brief for scenario drafting.
+check:
+  kind: negative                    # negative | positive | header | signature | flow
+  expect:
+    status: 400
+    errorCode: [FORMAT_ERROR, PERIOD_INVALID]
+
+scenarios: [NEG-CON-003]            # scenarios that verify this rule (filled in when they are written)
+
+drafted:
+  by: ai                            # ai | human
+  model: claude-opus-5-5
+  at: 2026-10-24T10:00:00Z
+  callId: "<ai_calls row id in the store>"
+
+review:                             # written only by the portal review action
+  by: null
+  at: null
+  decision: null                    # approved | rejected
+  note: null

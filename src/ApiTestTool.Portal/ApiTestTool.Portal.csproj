@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Web portal on top of ApiTestTool.Engine: start runs, watch them live, browse results. -->
+  <PropertyGroup>
+    <RootNamespace>ApiTestTool.Portal</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ApiTestTool.Engine\ApiTestTool.Engine.csproj" />
+    <ProjectReference Include="..\ApiTestTool.MockBank\ApiTestTool.MockBank.csproj" />
+  </ItemGroup>
+
+  <!-- Bank profiles and scenarios next to the published portal (overridable with ApiTestTool:Root). -->
+  <ItemGroup>
+    <Content Include="..\..\banks\**\*.yaml" LinkBase="banks" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\scenarios\**\*.yaml" LinkBase="scenarios" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

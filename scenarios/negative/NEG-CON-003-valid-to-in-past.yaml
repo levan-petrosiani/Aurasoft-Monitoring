@@ -1,0 +1,20 @@
+id: NEG-CON-003
+title: Create consent with validTo in the past is rejected
+suite: negative
+severity: Major
+specRef: "NextGenPSD2 IG (ENG) 6.3.1 Account Information Consent Request (p. 127, 133, 140, 143-145, 148, 149)"
+origin: TPP/Blazor/BadRequests/CreateConsentBadRequests.cs#InvalidValidUntil
+
+steps:
+  - name: POST consent with validTo = today - 5 days
+    request:
+      method: POST
+      path: v2/consents/account-access
+      headersTemplate: consent
+      bodyTemplate: consent.aspspManaged
+      body:
+        validTo: "{{date.today-5d}}"
+    expect:
+      status: 400
+      errorCode: FORMAT_ERROR
+      echoRequestId: true

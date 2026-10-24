@@ -1,0 +1,15 @@
+id: TBC-NEG-005
+title: TBC account list without a valid consent and token is refused
+suite: tbc
+severity: Critical
+specRef: "Berlin Group 1.3 IG 6.5.1 (Consent-ID and OAuth token required)"
+requires: [features.tbcApi]
+steps:
+  - request:
+      method: GET
+      path: v1/accounts
+      headersTemplate: tbc.basic
+      headers: { Consent-ID: "{{uuid}}" }
+    expect:
+      status: [401, 403, 404]
+      errorCode: "*"

@@ -1,0 +1,16 @@
+id: TBC-NEG-002
+title: TBC v1 consent with frequencyPerDay above 4 is rejected
+suite: tbc
+severity: Major
+specRef: "Berlin Group 1.3 IG 6.3.1 (frequencyPerDay); TBC allows 1 to 4"
+requires: [features.tbcApi]
+steps:
+  - request:
+      method: POST
+      path: v1/consents
+      headersTemplate: tbc.consent
+      bodyTemplate: tbc.v1.bankOffered
+      body: { frequencyPerDay: 5 }
+    expect:
+      status: 400
+      errorCode: FORMAT_ERROR

@@ -1,0 +1,14 @@
+id: PRE-001
+title: Our TPP certificates (QWAC, QSealC) are usable
+suite: preflight
+severity: Critical
+description: >
+  Checks our own certificates before anything is sent to the bank: private key present, currently valid,
+  organizationIdentifier (TPP id) present and the same in QWAC and QSealC.
+  A failure here means the problem is on our side, not the bank's.
+
+steps:
+  - name: Check local certificates
+    localCertificates:
+      warnDaysBeforeExpiry: 30
+      requireQsealc: true

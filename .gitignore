@@ -1,0 +1,20 @@
+bin/
+obj/
+reports/
+data/
+publish/
+
+# Never commit certificates or private keys
+certs/*
+!certs/README.md
+*.pfx
+*.p12
+*.key
+
+# IDE state
+.vs/
+.idea/
+
+# Local AI/dev data
+standards/index/
+.env

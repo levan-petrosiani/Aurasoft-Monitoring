@@ -1,0 +1,21 @@
+@page "/runs"
+@implements IDisposable
+@inject RunService RunService
+
+<PageTitle>Runs · API Test Portal</PageTitle>
+
+<div class="title-row">
+    <h1>Runs</h1>
+    <a class="btn btn-primary" href="/run/new">New run</a>
+</div>
+<p class="muted small">Stored in <code>@RunService.DataDirectory</code>.</p>
+
+<RunTable Runs="RunService.Runs.ToList()" />
+
+@code {
+    protected override void OnInitialized() => RunService.RunsChanged += OnChanged;
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => RunService.RunsChanged -= OnChanged;
+}

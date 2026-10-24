@@ -1,0 +1,19 @@
+<Project>
+  <!--
+    ApiTestTool is a standalone solution. This file intentionally stops MSBuild from
+    importing the repository-level Directory.Build.props, so the tool builds the same way
+    whether it lives inside B7.PSD2 or is moved to its own repository.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <Version>0.1.0</Version>
+    <Company>AltaSoft</Company>
+    <Product>ApiTestTool</Product>
+    <Description>Standalone XS2A API test tool for bank sandboxes</Description>
+  </PropertyGroup>
+</Project>

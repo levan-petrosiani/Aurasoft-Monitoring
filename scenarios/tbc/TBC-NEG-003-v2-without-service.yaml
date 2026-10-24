@@ -1,0 +1,16 @@
+id: TBC-NEG-003
+title: TBC v2 consent without savings or loans access is rejected
+suite: tbc
+severity: Minor
+specRef: "TBC AIS v2 consent: access must contain at least one service (savings, loans)"
+requires: [features.tbcApi]
+steps:
+  - request:
+      method: POST
+      path: v2/consents/account-access
+      headersTemplate: tbc.consent
+      bodyTemplate: tbc.v2.savingsAndLoans
+      bodyRemove: [access.savings, access.loans]
+    expect:
+      status: 400
+      errorCode: FORMAT_ERROR

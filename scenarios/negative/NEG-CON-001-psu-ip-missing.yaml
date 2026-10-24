@@ -1,0 +1,20 @@
+id: NEG-CON-001
+title: Create consent without PSU-IP-Address is rejected
+suite: negative
+severity: Major
+specRef: "NextGenPSD2 IG (ENG) 6.2 Data Overview AIS; 14.11.1 Service Unspecific HTTP Error Codes (p. 126, 274)"
+# The TestTool posted to v2/consents; the current API path is v2/consents/account-access.
+origin: TPP/Blazor/BadRequests/CreateConsentBadRequests.cs#PsuIpAddressHeaderNull
+
+steps:
+  - name: POST consent without PSU-IP-Address
+    request:
+      method: POST
+      path: v2/consents/account-access
+      headersTemplate: consent
+      removeHeaders: [PSU-IP-Address]
+      bodyTemplate: consent.accountList
+    expect:
+      status: 400
+      errorCode: FORMAT_ERROR
+      echoRequestId: true
