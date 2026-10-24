@@ -24,6 +24,9 @@ class MockBankOptions:
     bank_organization_id: str = "PSDGE-NBG-MOCKBANK"
     # Highest accepted frequencyPerDay, like AspspSettings.MaxFrequencyPerDay.
     max_frequency_per_day: int = 4
+    # Longest consent in days (GE-XS2A 9.1.1.10): a later validTo is rejected with PERIOD_INVALID, except 9999-12-31,
+    # which means "as long as allowed" and is shortened to this many days.
+    max_consent_days: int = 90
     access_token_lifetime_seconds: int = 900
 
     @property

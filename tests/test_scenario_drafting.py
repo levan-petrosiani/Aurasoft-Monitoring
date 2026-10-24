@@ -36,7 +36,8 @@ steps:
     expect: { status: 400, errorCode: FORMAT_ERROR, echoRequestId: true }
 ```"""
 
-LONG_CONSENT = FREQUENCY_SCENARIO.replace("{ frequencyPerDay: 7 }", "{ validTo: '{{date.today+91d}}' }") \
+# MockBank accepts a 30-day consent; a scenario expecting it to be rejected fails on an expectation (a "gap" claim).
+LONG_CONSENT = FREQUENCY_SCENARIO.replace("{ frequencyPerDay: 7 }", "{ validTo: '{{date.today+30d}}' }") \
                                  .replace("FORMAT_ERROR", "PERIOD_INVALID")
 
 
@@ -134,10 +135,10 @@ def test_a_draft_is_fixed_from_engine_errors_and_passes_on_mockbank(env):
 def test_a_mockbank_gap_is_recorded_for_the_reviewer(env):
     store, chat, drafter, _, book, _ = env
     book.approve("TS-CON-001", "Ana")
-    chat.answers += [LONG_CONSENT, "MOCK_GAP: MockBank does not check the 90-day limit\n" + LONG_CONSENT]
+    chat.answers += [LONG_CONSENT, "MOCK_GAP: MockBank does not check the limit\n" + LONG_CONSENT]
     draft = drafter.draft("TS-CON-001")
     assert (draft.status, draft.dry_run_outcome) == ("draft", "Failed")
-    assert draft.mock_gap == "MockBank does not check the 90-day limit"
+    assert draft.mock_gap == "MockBank does not check the limit"
     assert "Status 201, expected 400" in chat.prompts[1][1][-1]["content"]
     assert any("PERIOD_INVALID" not in n and "FORMAT_ERROR" in n for n in draft.check_notes)  # rule expects FORMAT_ERROR
 

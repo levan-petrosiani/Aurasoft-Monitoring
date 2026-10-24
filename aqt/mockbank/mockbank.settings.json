@@ -7,6 +7,7 @@
     "SignResponses": true,
     "BankOrganizationId": "PSDGE-NBG-MOCKBANK",
     "MaxFrequencyPerDay": 4,
+    "MaxConsentDays": 90,
     "AccessTokenLifetimeSeconds": 900
   }
 }

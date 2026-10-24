@@ -90,7 +90,7 @@ instead of starting a second one.
   automatically, such as MockBank. Never use it against a real bank. Without it, the login page opens in your
   browser so you can click **Approve**/**Deny**.
 - MockBank settings are in `aqt/mockbank/mockbank.settings.json`: ports 7443/7080,
-  `AutoApprove` (`headless` | `always` | `never`), `VerifySignatures`, `SignResponses`, `MaxFrequencyPerDay`.
+  `AutoApprove` (`headless` | `always` | `never`), `VerifySignatures`, `SignResponses`, `MaxFrequencyPerDay`, `MaxConsentDays` (validTo beyond it → 400 PERIOD_INVALID; 9999-12-31 is shortened to it).
   Environment variables override them, e.g. `MockBank__AutoApprove=never`.
 - MockBank enforces what a real ASPSP checks (client certificate, X-Request-ID, signature and Digest,
   QSealC/QWAC organisation match, consent validation, PKCE, token-to-consent binding). So when a

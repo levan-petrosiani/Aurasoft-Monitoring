@@ -603,3 +603,13 @@ dropped from local `main` (it only ever existed locally).
 - Tests: 104 passed with `AQT_TEST_DB`; 81 passed and 23 skipped without it. The C#-baseline migration test now also expects the later migrations.
 
 **Not done:** no scenario files were approved. That needs the user to approve AIS rules first, and the real DB has only PIS/COMMON approved rules.
+
+## 2026-10-25 · 45. MockBank: 90-day consent limit (GE-XS2A 9.1.1.10)
+
+**What:** MockBank now rejects a `validTo` more than `MaxConsentDays` (90) from today with 400 `PERIOD_INVALID`, and
+shortens `9999-12-31` to today+90 (`aqt/mockbank/app.py`, option in `options.py`/`mockbank.settings.json`). There is a new
+end-to-end test for 91 days, 90 days and 9999-12-31. The scenario-drafting "MockBank gap" test now uses a case MockBank
+still accepts.
+**Why:** step 44's live draft for GE-CON-001 found this gap (plan decision 6: MockBank grows with the approved rules).
+**Result:** a re-run of the live local-model draft for GE-CON-001 passes on MockBank on the first attempt (39 s). Tests: 105 with
+`AQT_TEST_DB`, 82 + 23 skipped without. The MOCK run is still 16/16.

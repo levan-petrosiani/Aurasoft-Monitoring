@@ -281,6 +281,12 @@ class MockBankApp:
             return format_error("'validTo' must be a date (yyyy-MM-dd)")
         if valid_to < utc_today():
             return format_error("'validTo' is in the past")
+        # GE-XS2A 9.1.1.10: at most max_consent_days from the request (PERIOD_INVALID); 9999-12-31 is shortened to the maximum.
+        latest = utc_today() + timedelta(days=self.options.max_consent_days)
+        if valid_to == date(9999, 12, 31):
+            valid_to = latest
+        elif valid_to > latest:
+            return xs2a_problem(400, "PERIOD_INVALID", f"'validTo' is more than {self.options.max_consent_days} days from today")
 
         frequency = body.get("frequencyPerDay")
         if isinstance(frequency, bool) or not isinstance(frequency, int) or frequency < 1:
