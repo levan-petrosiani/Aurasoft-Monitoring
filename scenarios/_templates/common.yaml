@@ -25,6 +25,16 @@ headers:
     PSU-Geo-Location: "GEO:52.506931;13.144558"
     PSU-Accept-Language: ka
 
+  # Payment initiation (GE-XS2A 8.3): like `consent`; the redirect URI must also be sent when authorisation starts.
+  payment:
+    X-Request-ID: "{{uuid}}"
+    PSU-IP-Address: 192.168.1.1
+    Client-Redirect-URI: "{{tpp.redirectUri}}"
+    PSU-User-Agent: ApiTestTool
+    PSU-Device-ID: "{{uuid}}"
+    PSU-Geo-Location: "GEO:52.506931;13.144558"
+    PSU-Accept-Language: ka
+
 bodies:
   # ConsentTemplates.GetConsentRequestBodyAccountList (defaults from ConsentRequestBasicElements)
   consent.accountList:
@@ -55,3 +65,28 @@ bodies:
     recurringIndicator: true
     validTo: "{{date.today+2d}}"
     frequencyPerDay: 4
+
+  # Payments (GE-XS2A 8.1-8.2.1). Accounts come from the profile's `variables.pis` (the bank's sandbox test accounts);
+  # amounts are small and fixed. Fields marked "never" for a product in table 4 are left out.
+  payment.domestic:
+    instructedAmount: { currency: GEL, amount: "1.00" }
+    debtorAccount: { iban: "{{vars.pis.debtorIban}}" }
+    creditorAccount: { iban: "{{vars.pis.creditorIban}}" }
+    creditorName: "{{vars.pis.creditorName}}"
+    creditorAgent: "{{vars.pis.creditorAgent}}"
+    remittanceInformationUnstructured: ApiTestTool PIS test
+
+  payment.aspsp:
+    instructedAmount: { currency: GEL, amount: "1.00" }
+    debtorAccount: { iban: "{{vars.pis.debtorIban}}" }
+    creditorAccount: { iban: "{{vars.pis.aspspCreditorIban}}" }
+    remittanceInformationUnstructured: ApiTestTool PIS test
+
+  payment.foreign:
+    instructedAmount: { currency: USD, amount: "1.00" }
+    debtorAccount: { iban: "{{vars.pis.foreignDebtorIban}}" }
+    creditorAccount: { iban: "{{vars.pis.foreignCreditorIban}}" }
+    creditorName: "{{vars.pis.foreignCreditorName}}"
+    creditorAgent: "{{vars.pis.foreignCreditorAgent}}"
+    chargeBearer: SHAR
+    remittanceInformationUnstructured: ApiTestTool PIS test

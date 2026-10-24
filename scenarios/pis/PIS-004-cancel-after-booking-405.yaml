@@ -1,0 +1,57 @@
+id: PIS-004
+title: Cancelling a booked payment is refused with 405
+suite: pis
+severity: Major
+specRef: "GE-XS2A 0.8.RC3 — 8.7 payment cancellation: 405 when the status no longer allows it; BG IG 1.3.16 14.11.2 CANCELLATION_INVALID"
+requires: [features.payments=aspsp, variables.pis.aspspCreditorIban]
+
+steps:
+  - name: Initiate aspsp payment
+    request:
+      method: POST
+      path: v1/payments/aspsp
+      headersTemplate: payment
+      bodyTemplate: payment.aspsp
+    expect:
+      status: 201
+    save:
+      paymentId: $.paymentId
+      startAuthorisationUrl: $._links.startAuthorisation.href
+
+  - name: Start payment authorisation
+    request:
+      method: POST
+      path: "{{startAuthorisationUrl}}"
+      headersTemplate: payment
+    expect:
+      status: 201
+    save:
+      scaOAuthUrl: $._links.scaOAuth.href
+
+  - name: SCA via OAuth (manual login)
+    sca:
+      mode: manual
+      discovery: "{{scaOAuthUrl}}"
+      scope: "PIS:{{paymentId}}"
+
+  - name: Wait until booked
+    request:
+      method: GET
+      path: "v1/payments/aspsp/{{paymentId}}/status"
+      headersTemplate: basic
+      auth: "{{token}}"
+      poll: { path: $.transactionStatus, until: [ACCC, ACSC, RJCT, CANC], intervalSeconds: 1, timeoutSeconds: 60 }
+    expect:
+      status: 200
+      jsonOneOf: { $.transactionStatus: [ACCC, ACSC] }
+
+  - name: Cancel the booked payment
+    request:
+      method: DELETE
+      path: "v1/payments/aspsp/{{paymentId}}"
+      headersTemplate: basic
+      auth: "{{token}}"
+    expect:
+      status: 405
+      errorCode: CANCELLATION_INVALID
+      echoRequestId: true

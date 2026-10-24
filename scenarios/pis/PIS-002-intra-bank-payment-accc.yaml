@@ -1,0 +1,52 @@
+id: PIS-002
+title: Intra-bank (aspsp) payment ends in ACCC after authorisation
+suite: pis
+severity: Major
+specRef: "GE-XS2A 0.8.RC3 — 8.1 payment products (aspsp); 8.10 lifecycle: intra-bank transfers must reach ACCC"
+description: >
+  An aspsp payment (within the bank) must get status ACCC once the money is on the creditor's account;
+  ACSC is not recommended for intra-bank transfers (8.10).
+requires: [features.payments=aspsp, variables.pis.aspspCreditorIban]
+
+steps:
+  - name: Initiate aspsp payment
+    request:
+      method: POST
+      path: v1/payments/aspsp
+      headersTemplate: payment
+      bodyTemplate: payment.aspsp
+    expect:
+      status: 201
+      echoRequestId: true
+      exists: [$.paymentId, $._links.startAuthorisation.href]
+    save:
+      paymentId: $.paymentId
+      startAuthorisationUrl: $._links.startAuthorisation.href
+
+  - name: Start payment authorisation
+    request:
+      method: POST
+      path: "{{startAuthorisationUrl}}"
+      headersTemplate: payment
+    expect:
+      status: 201
+      exists: [$._links.scaOAuth.href]
+    save:
+      scaOAuthUrl: $._links.scaOAuth.href
+
+  - name: SCA via OAuth (manual login)
+    sca:
+      mode: manual
+      discovery: "{{scaOAuthUrl}}"
+      scope: "PIS:{{paymentId}}"
+
+  - name: Status reaches ACCC
+    request:
+      method: GET
+      path: "v1/payments/aspsp/{{paymentId}}/status"
+      headersTemplate: basic
+      auth: "{{token}}"
+      poll: { path: $.transactionStatus, until: [ACCC, ACSC, RJCT, CANC], intervalSeconds: 1, timeoutSeconds: 60 }
+    expect:
+      status: 200
+      json: { $.transactionStatus: ACCC }

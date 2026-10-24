@@ -3,7 +3,7 @@
 Snapshot of the system as it is **now**. Update this file at the end of every phase (see `docs/ai/PLAN.md`).
 Diagrams are Mermaid (render in GitHub, GitLab, Rider, VS Code).
 
-**Last updated:** 2026-10-25, after Phase 4 (the ask-agent: read-only tools, its own database login, Ask page).
+**Last updated:** 2026-10-25, after Phase 5 (payment initiation: MockBank payments, `pis` suite, polling). Phase 4 (the ask-agent: read-only tools, its own database login, Ask page) was finished earlier the same day.
 Phase 3 (scenarios drafted from approved rules, MockBank dry runs, Drafts and Coverage pages) was finished earlier the same day. Before that (2026-10-24) the Store, Standards and AI layers were ported to Python. Everything is
 Python now: engine, CLI, MockBank, portal, and the optional store/AI layer (`aqt/store`, `aqt/standards`, `aqt/ai`,
 `aqt/cli_ai.py`, `aqt/portal/ai_services.py`). The C# implementation is in git history (last C# commit `8abf9f6`).
@@ -33,7 +33,7 @@ flowchart LR
     Ollama["Ollama (local)<br/>qwen3:8b · bge-m3"]
 
     Engine["aqt (engine)<br/>loader · runner · steps · signing · OAuth · reports<br/>(no AI, no DB)"]
-    Mock["aqt/mockbank<br/>fake ASPSP :7443 (mTLS) / :7080"]
+    Mock["aqt/mockbank<br/>fake ASPSP :7443 (mTLS) / :7080<br/>AIS /v2 · PIS /v1/payments"]
     Dry["aqt/dryrun.py<br/>MockDryRun: in-process MockBank<br/>on free ports, MOCK profile only"]
     Reports[("reports/&lt;BIC&gt;-&lt;time&gt;/<br/>report.html · summary.json · junit.xml")]
 
@@ -118,6 +118,29 @@ sequenceDiagram
     R->>B: GET consent status / accounts / balances (Bearer + Consent-ID)
     R->>B: DELETE consent (cleanup)
 ```
+
+## 3b. One payment at runtime (PIS-001)
+
+```mermaid
+sequenceDiagram
+    participant T as aqt (TPP)
+    participant B as Bank XS2A (/v1)
+    participant A as Bank OAuth
+    T->>B: POST /v1/payments/domestic (signed, Client-Redirect-URI)
+    B-->>T: 201 ACTC, paymentId, _links.startAuthorisation
+    T->>B: GET …/status
+    B-->>T: ACTC + fundsAvailable (never RCVD)
+    T->>B: POST …/authorisations
+    B-->>T: 201 scaOAuth link
+    T->>A: authorize (PKCE, scope PIS:paymentId) → PSU confirms → token
+    loop poll until final (ACSC / ACCC / RJCT)
+        T->>B: GET …/status (Bearer token)
+        B-->>T: ACSP … then ACSC
+    end
+    T->>B: GET …/{paymentId} (details)
+```
+
+Payment scenarios require `variables.pis.*` (the bank's sandbox test accounts) in the profile; without it they are skipped.
 
 ## 4. AI run summary
 
@@ -212,6 +235,6 @@ tool created; a database created by the C# tool is recognised (its EF Core histo
   pdfplumber (Ollama is called over HTTP).
 - Ports: portal 5280, MockBank 7443 (HTTPS, mTLS) and 7080 (HTTP pages), OAuth callback 5199, PostgreSQL 5435,
   Ollama 11434.
-- Tests: 114 with `AQT_TEST_DB`; without a database 86 pass and the 28 database tests are skipped.
+- Tests: 117 with `AQT_TEST_DB`; without a database 89 pass and the 28 database tests are skipped. MOCK run: 28 passed, 7 skipped (TBC-only).
 - Reports keep the C# `summary.json` shape (camelCase, nulls omitted); interop with the C# client and MockBank was
   verified in both directions before the C# code was removed.

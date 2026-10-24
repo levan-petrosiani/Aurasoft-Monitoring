@@ -39,6 +39,20 @@ class RequestSpec:
     auth: str | None = None
     # Send the request without Authorization when `auth` refers to a variable that was never saved.
     auth_optional: bool = False
+    # Repeat the request until a response field reaches a final value (e.g. a payment's transactionStatus).
+    poll: "PollSpec | None" = None
+
+
+@dataclass
+class PollSpec:
+    """Repeats a request (new X-Request-ID each time) until `path` in the JSON response is one of `until`, or the
+    timeout passes; the expectations are then checked on the last response."""
+    # JSON path read from each response, e.g. $.transactionStatus.
+    path: str = required()
+    # Final values, e.g. [ACCC, ACSC, RJCT, CANC].
+    until: list[str] = required()
+    interval_seconds: int = 2
+    timeout_seconds: int = 60
 
 
 @dataclass
@@ -92,6 +106,8 @@ class Expectation:
     echo_request_id: bool = False
     # JSON path -> expected value (compared as text, case-sensitive).
     json: dict[str, Any] | None = None
+    # JSON path -> list of accepted values, e.g. {$.transactionStatus: [ACCC, ACSC]}.
+    json_one_of: dict[str, list[Any]] | None = None
     exists: list[str] | None = None
     not_exists: list[str] | None = None
     # Paths whose absence is reported as a warning, not a failure.
@@ -274,6 +290,9 @@ def _validate(scenario: Scenario, file: str):
                 raise ConfigurationError(f"{file}: step {index + 1}: signing must be normal, none, corruptSignature or wrongDigest")
             if step.request.target not in ("xs2a", "discovery", "absolute"):
                 raise ConfigurationError(f"{file}: step {index + 1}: target must be xs2a, discovery or absolute")
+            poll = step.request.poll
+            if poll is not None and (not poll.until or not 1 <= poll.interval_seconds <= 300 or not 1 <= poll.timeout_seconds <= 3600):
+                raise ConfigurationError(f"{file}: step {index + 1}: poll needs `until` values, intervalSeconds 1-300 and timeoutSeconds 1-3600")
 
         rs = step.expect.response_signature if step.expect else None
         if rs is not None and rs not in ("required", "optional", "ignore"):

@@ -14,6 +14,9 @@
 <div class="tiles">
     <div class="tile"><div class="label">Approved rules</div><div class="lead">{{ c.approved_count }}</div></div>
     <div class="tile"><div class="label">With a scenario</div><div class="lead">{{ c.covered_count }}</div></div>
+    {% for service, counts in c.by_service.items() %}
+    <div class="tile"><div class="label">{{ service }}</div><div class="lead">{{ counts[1] }} / {{ counts[0] }}</div></div>
+    {% endfor %}
     <div class="tile"><div class="label">Banks with results</div><div class="lead">{{ c.banks | length }}</div></div>
 </div>
 <form class="filter-row" method="get" action="/coverage">

@@ -26,13 +26,17 @@ steps: list; each step has a name and exactly one of `request` or `sca`, plus op
       bodyRemove: [field] removes fields; a value of null sends JSON null.
     signing: normal (default) | none | corruptSignature | wrongDigest  (only for signature rules)
     auth: "{{token}}" sends the OAuth access token as Bearer (only after an sca step); authOptional: true.
+    poll: { path: $.transactionStatus, until: [ACSC, ACCC, RJCT], intervalSeconds: 1, timeoutSeconds: 60 }
+          repeats the request until the field has a final value (payments settle asynchronously).
   sca: { mode: manual, discovery: "{{scaOAuthUrl}}", scope: "AIS:{{consentId}}" }  OAuth login; saves {{token}}.
+       For a payment the scope is "PIS:{{paymentId}}".
   expect:
     status: 400            (a number or a list [400, 403])
     errorCode: FORMAT_ERROR  (tppMessages[].code; "*" accepts any code)
     echoRequestId: true    (response X-Request-ID equals the request's)
     headers: [Location]    (must be present)
     json: { $.consentStatus: received }   exists: [$.consentId]   notExists: [$.x]
+    jsonOneOf: { $.transactionStatus: [ACTC, ACWC, ACCP] }   (any of the listed values)
     contentType: application/json
   save: { consentId: $.consentId }  later steps use "{{consentId}}".
 cleanup: optional steps that always run at the end (e.g. delete a created consent), with runIf: [consentId].
@@ -45,4 +49,8 @@ GUIDANCE
   rule describes, then expect the status and error code from the rule. Add echoRequestId: true.
 - A positive rule: the shortest flow that reaches the behaviour, with expectations on the fields the rule names.
 - If something is created (a consent), delete it in cleanup.
+- Payments (PIS): POST v1/payments/{aspsp|domestic|foreign} with headersTemplate payment and bodyTemplate
+  payment.<product>; then _links.startAuthorisation, the sca step with scope PIS:{{paymentId}}, and status reads with
+  auth "{{token}}". Payment scenarios need `requires: [features.payments=<product>, variables.pis.creditorIban]` (or
+  aspspCreditorIban / foreignCreditorIban for those products) so they only run where test accounts are configured.
 - Do not test anything the rule does not state. Do not invent endpoints, headers, template names or error codes.

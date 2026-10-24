@@ -30,7 +30,10 @@ MAX_ATTEMPTS = 3
 
 SYSTEM_PROMPT = _prompt("scenario_drafting.txt")
 EXAMPLES = ("negative/NEG-CON-004-frequency-per-day.yaml", "ais/AIS-001-account-list-consent.yaml")
+# For payment rules the flow example is a payment instead of a consent.
+PIS_EXAMPLES = ("negative/NEG-PIS-001-forbidden-field.yaml", "pis/PIS-001-domestic-payment.yaml")
 
+_PAYMENT_PATH = re.compile(r"(^|/)(v\d+/)?((bulk-|periodic-)?payments|signing-baskets)(/|$)", re.I)
 _FENCE = re.compile(r"```(?:ya?ml)?\s*\n(.*?)```", re.S | re.I)
 _GAP = re.compile(r"^\s*MOCK_GAP:\s*(.+)$", re.M)
 _SEVERITY = {"MUST": "Major", "SHOULD": "Minor", "MAY": "Info"}
@@ -107,6 +110,13 @@ def check_scenario(text: str, source: str, templates: engine.TemplateLibrary) ->
         if r is not None and (r.target != "xs2a" or "://" in r.path):
             # The scenario will later run against real banks: it must only talk to the bank's own XS2A endpoint.
             raise ConfigurationError(f"{source}: step {index + 1}: requests must go to the bank's XS2A API (a relative path or a saved link), not '{r.path}'")
+    requests = [st.request for st in scenario.steps + (scenario.cleanup or []) if st.request is not None]
+    moves_money = "vars.pis." in text or any(_PAYMENT_PATH.search(r.path) or (r.body_template or "").lower().startswith("payment.")
+                                             for r in requests)
+    if moves_money and not any(req.startswith("variables.pis.") for req in scenario.requires or []):
+        # A payment moves money: it may only run where the profile names the bank's sandbox test accounts.
+        raise ConfigurationError(f"{source}: payment scenarios need `requires:` with a variables.pis.* test account "
+                                 "(e.g. variables.pis.creditorIban), so they only run where test accounts are configured")
     return scenario
 
 
@@ -179,7 +189,7 @@ class ScenarioDrafter:
                             origin=f"ai:{model} from rule {rule.id}", rule_id=rule.id)
         covering = [s for s in existing if rule.id in (s.rules or [])]
 
-        system = SYSTEM_PROMPT + "\n" + self._reference_material()
+        system = SYSTEM_PROMPT + "\n" + self._reference_material(PIS_EXAMPLES if rule.service == "PIS" else EXAMPLES)
         messages = [{"role": "user", "content": self._user_message(rule, clause, covering)}]
         started = time.monotonic()
         notes: list[str] = []
@@ -247,14 +257,14 @@ class ScenarioDrafter:
         self._store.add_scenario_draft(draft)
         return draft
 
-    def _reference_material(self) -> str:
+    def _reference_material(self, examples=EXAMPLES) -> str:
         parts = ["TEMPLATES (scenarios/_templates):"]
         templates_dir = os.path.join(self._dir, engine.TEMPLATES_FOLDER)
         for name in sorted(os.listdir(templates_dir)):
             if name.endswith(".yaml"):
                 with open(os.path.join(templates_dir, name), encoding="utf-8") as f:
                     parts += [f"--- {name}", f.read()]
-        for example in EXAMPLES:
+        for example in examples:
             with open(os.path.join(self._dir, example), encoding="utf-8") as f:
                 parts += [f"EXAMPLE SCENARIO {example}:", f.read()]
         return "\n".join(parts)

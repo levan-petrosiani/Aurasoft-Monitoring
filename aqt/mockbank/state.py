@@ -1,4 +1,7 @@
-"""Everything the mock bank remembers, in memory. Restarting MockBank starts from scratch."""
+"""Everything the mock bank remembers, in memory. Restarting MockBank starts from scratch.
+
+Authorisations, codes and tokens carry a `consent_id`: the consent (scope AIS:<id>) or the payment (scope PIS:<id>)
+they belong to; the scope says which."""
 
 import secrets
 import threading
@@ -46,8 +49,29 @@ class Consent:
 
 
 @dataclass
+class Payment:
+    """A payment initiation (Georgian XS2A 8): /v1/{service}/{product}/{id}."""
+    id: str
+    tpp_id: str
+    service: str                 # payments
+    product: str                 # aspsp | domestic | foreign
+    body: dict
+    amount: Decimal
+    currency: str
+    debtor_iban: str | None
+    redirect_uri: str | None = None
+    # ACTC on receipt (never RCVD, GE-XS2A 8.10); after SCA: aspsp -> ACCC, domestic/foreign -> ACSP, then ACSC.
+    status: str = "ACTC"
+    funds_available: bool | None = None
+    authorised_utc: datetime | None = None
+    psu_authenticated: bool = False
+    created_utc: datetime = field(default_factory=utc_now)
+
+
+@dataclass
 class Authorisation:
     id: str
+    # The consent (AIS) or payment (PIS) this authorisation is for.
     consent_id: str
     sca_status: str = "received"
 
@@ -95,6 +119,7 @@ class MockState:
     def __init__(self):
         self.lock = threading.RLock()
         self.consents: dict[str, Consent] = {}
+        self.payments: dict[str, Payment] = {}
         self.authorisations: dict[str, Authorisation] = {}
         self.codes: dict[str, AuthorizationCode] = {}
         self.access_tokens: dict[str, AccessToken] = {}
@@ -102,8 +127,8 @@ class MockState:
 
         # The sandbox PSU's accounts (every consent sees the same test customer).
         self.accounts = [
-            MockAccount("3dc3d5b3-7023-4848-9853-f5400a64e80f", "GE29MK0000000000000001", "GEL", "Main account", "Current account", Decimal("1540.25")),
-            MockAccount("3dc3d5b3-7023-4848-9853-f5400a64e81f", "GE02MK0000000000000002", "USD", "Savings in USD", "Current account", Decimal("820.00")),
+            MockAccount("3dc3d5b3-7023-4848-9853-f5400a64e80f", "GE63MK0000000000000001", "GEL", "Main account", "Current account", Decimal("1540.25")),
+            MockAccount("3dc3d5b3-7023-4848-9853-f5400a64e81f", "GE36MK0000000000000002", "USD", "Savings in USD", "Current account", Decimal("820.00")),
         ]
 
     @staticmethod

@@ -25,15 +25,27 @@ features:
   consents: [accountList, aspspManaged]
   scaOAuth: true
   accounts: [current]
-  payments: []
+  payments: [aspsp, domestic, foreign]   # payment products for /v1/payments/{product} (GE-XS2A 8.1)
   piis: false
 
 variables:
   psu1:
     username: testuser1
   accounts:
-    gel: GE29MK0000000000000001
-    usd: GE02MK0000000000000002
+    gel: GE63MK0000000000000001
+    usd: GE36MK0000000000000002
+  # Payment initiation test accounts. PIS scenarios run only when these are set: a real bank's profile must use the
+  # bank's sandbox test accounts here, never real ones.
+  pis:
+    debtorIban: GE63MK0000000000000001        # MockBank's GEL account
+    creditorIban: GE24NB0000000000009999      # an account at another bank (RTGS)
+    creditorName: Test Creditor
+    creditorAgent: NBGEGE22
+    aspspCreditorIban: GE09MK0000000000000003 # another account at the same bank
+    foreignDebtorIban: GE36MK0000000000000002 # MockBank's USD account
+    foreignCreditorIban: DE89370400440532013000
+    foreignCreditorName: Test Creditor GmbH
+    foreignCreditorAgent: COBADEFFXXX
 
 limits:
   timeoutSeconds: 15

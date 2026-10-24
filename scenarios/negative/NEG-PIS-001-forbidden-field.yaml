@@ -1,0 +1,19 @@
+id: NEG-PIS-001
+title: Payment with a field the product never allows (purposeCode) is rejected
+suite: negative
+severity: Major
+specRef: "GE-XS2A 0.8.RC3 — 8.2.1 table 4: fields marked \"-\" must be rejected with FORMAT_ERROR"
+requires: [features.payments=domestic, variables.pis.creditorIban]
+
+steps:
+  - name: POST domestic payment with purposeCode
+    request:
+      method: POST
+      path: v1/payments/domestic
+      headersTemplate: payment
+      bodyTemplate: payment.domestic
+      body: { purposeCode: EDUC }
+    expect:
+      status: 400
+      errorCode: FORMAT_ERROR
+      echoRequestId: true

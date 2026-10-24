@@ -22,7 +22,7 @@ features:
   consents: [accountList, aspspManaged, detailed]   # requires: features.consents=aspspManaged
   scaOAuth: true                                     # redirect/OAuth SCA approach (needed by the ais suite)
   accounts: [current, card]
-  payments: [single, bulk, periodic]
+  payments: [domestic, foreign, aspsp]   # payment products (GE-XS2A 8.1); requires: features.payments=domestic
   piis: false
 
 # Test data provided by the bank; available in scenarios as {{vars.*}}.
@@ -34,7 +34,18 @@ variables:
   accounts:
     gel: GE00XX0000000000000001
     usd: GE00XX0000000000000002
-  creditorIban: GE00XX0000000000000099
+  # Payment initiation (pis suite): the bank's SANDBOX test accounts only. PIS scenarios are skipped when these are
+  # not set. Use manual SCA (no --sca-auto) against real sandboxes.
+  pis:
+    debtorIban: GE00XX0000000000000001
+    creditorIban: GE00YY0000000000000099          # at another bank (domestic, RTGS)
+    creditorName: Test Creditor
+    creditorAgent: YYYYGE22
+    aspspCreditorIban: GE00XX0000000000000003     # at the same bank (aspsp)
+    foreignDebtorIban: GE00XX0000000000000002     # USD account
+    foreignCreditorIban: DE89370400440532013000
+    foreignCreditorName: Test Creditor GmbH
+    foreignCreditorAgent: COBADEFFXXX
 
 # Bank-specific deviations from the standard flow.
 quirks: {}

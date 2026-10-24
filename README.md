@@ -91,7 +91,8 @@ instead of starting a second one.
   automatically, such as MockBank. Never use it against a real bank. Without it, the login page opens in your
   browser so you can click **Approve**/**Deny**.
 - MockBank settings are in `aqt/mockbank/mockbank.settings.json`: ports 7443/7080,
-  `AutoApprove` (`headless` | `always` | `never`), `VerifySignatures`, `SignResponses`, `MaxFrequencyPerDay`, `MaxConsentDays` (validTo beyond it → 400 PERIOD_INVALID; 9999-12-31 is shortened to it).
+  `AutoApprove` (`headless` | `always` | `never`), `VerifySignatures`, `SignResponses`, `MaxFrequencyPerDay`, `MaxConsentDays` (validTo beyond it → 400 PERIOD_INVALID; 9999-12-31 is shortened to it), `SettlementSeconds`
+  (how long an authorised domestic/foreign payment stays ACSP before ACSC; intra-bank payments become ACCC at once).
   Environment variables override them, e.g. `MockBank__AutoApprove=never`.
 - MockBank enforces what a real ASPSP checks (client certificate, X-Request-ID, signature and Digest,
   QSealC/QWAC organisation match, consent validation, PKCE, token-to-consent binding). So when a
@@ -207,6 +208,11 @@ Other step kinds: `tls:` (handshake, protocol, server certificate), `localCertif
 step saved that variable; a request can use `authOptional: true` to go without `Authorization` when no
 token was obtained (used to delete a consent in cleanup even if SCA failed).
 
+A request can **poll**: `poll: { path: $.transactionStatus, until: [ACSC, ACCC, RJCT], intervalSeconds: 1, timeoutSeconds: 60 }`
+repeats it (new `X-Request-ID` and signature each time) until the field has one of the final values, then checks
+`expect` on the last response; a timeout is a failure that names the last value. `expect.jsonOneOf: { path: [values] }`
+accepts any of several values (e.g. the accepted payment statuses a bank may return).
+
 ### SCA step (OAuth, manual)
 
 ```yaml
@@ -239,9 +245,15 @@ Variables: `{{uuid}}`, `{{date.today+2d}}`, `{{datetime.now}}`, `{{bank.bic}}`, 
 | Suite | Scenarios |
 |---|---|
 | `preflight` | PRE-001 local certificates · PRE-002 mutual TLS · PRE-003 OAuth discovery document · PRE-004 signed request gets a standard error |
-| `negative` | NEG-CON-001…008, ported from the TestTool `CreateConsentBadRequests` · NEG-SIG-001/002 broken signature and digest |
+| `negative` | NEG-CON-001…008, ported from the TestTool `CreateConsentBadRequests` · NEG-SIG-001/002 broken signature and digest · NEG-PIS-001…007 payment initiation: forbidden field (`purposeCode`), invalid IBAN, missing amount, unknown product (PRODUCT_UNKNOWN), status without the token after SCA, insufficient funds, foreign payment without `creditorName` |
 | `ais` | AIS-001 account-list consent → start authorisation → OAuth SCA (+ refresh) → status `valid` → accounts, balances · AIS-002 ASPSP-managed consent → … → accounts, balances, booked transactions. Both delete the consent in cleanup. Need `features.scaOAuth` and the consent type in the profile. |
+| `pis` | PIS-001 domestic payment → start authorisation → OAuth SCA (`PIS:<paymentId>`) → status polled until ACSC/ACCC → details · PIS-002 intra-bank (`aspsp`) payment ends in ACCC · PIS-003 cancel before authorisation (204/202) · PIS-004 cancel a booked payment → 405 CANCELLATION_INVALID · PIS-005 foreign payment accepted, `fundsAvailable` in the status |
 | `tbc` | TBC-AIS-001/002, TBC-NEG-001…005 (see above) |
+
+**Payment initiation (PIS)** follows the Georgian guide, chapter 8: `POST /v1/payments/{aspsp|domestic|foreign}`, status,
+details, cancellation, OAuth SCA with scope `PIS:<paymentId>`. PIS scenarios run only when the profile declares
+`features.payments` **and** sandbox test accounts in `variables.pis` (see `banks/_example.yaml`); otherwise they are
+skipped. Use manual SCA against real sandboxes: a payment needs the PSU's confirmation.
 
 Running only some suites (`--suite ais`) still runs `preflight` first unless `--no-preflight-gate` is given,
 so a bank that is down fails once, at preflight, and the rest is marked Blocked.

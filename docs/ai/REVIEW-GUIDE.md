@@ -115,6 +115,11 @@ You check four things (the Drafts page's "How to review" box says the same):
 | Small fix (a value, a step name, an extra expectation) | **Edit** the YAML; it is checked and dry-run again on save |
 | Tests something else, or the request is wrong in more than one way | **Reject** with the reason |
 
+**Payment scenarios (PIS).** A payment moves money, so every payment scenario must only run where a bank's profile
+names its *sandbox* test accounts: the tool refuses drafts that send payment data without
+`requires: [..., variables.pis.<account>]`. You still check that the `requires` fit the feature tested (e.g. a
+signing-basket test should also require a signing-basket feature, not only `features.payments`).
+
 Example (2026-10-25, local qwen3:8b): for GE-CON-001 it drafted *"Create consent with validTo beyond 90 days is
 rejected"* — `validTo: {{date.today+91d}}`, expect 400 `PERIOD_INVALID`. MockBank answered 201 (it has no 90-day limit),
 and the model reported that as a MockBank gap. Right call: approve, and add the 90-day check to MockBank.

@@ -47,6 +47,15 @@ class Coverage:
     def approved_count(self) -> int:
         return sum(r.status == "approved" for r in self.rules)
 
+    @property
+    def by_service(self) -> dict[str, tuple[int, int]]:
+        """AIS / PIS / COMMON -> (approved rules, approved rules with a scenario)."""
+        result = {}
+        for service in ("AIS", "PIS", "COMMON"):
+            approved = [r for r in self.rules if r.status == "approved" and r.service == service]
+            result[service] = (len(approved), sum(r.covered for r in approved))
+        return result
+
 
 def scenario_rule_problems(store, loaded: list[engine.Scenario]) -> list[str]:
     """Scenarios whose `rules:` name a rule that is not in the store or not approved (used by validate and coverage)."""

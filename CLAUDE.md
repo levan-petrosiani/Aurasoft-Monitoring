@@ -71,6 +71,8 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
 - **`--sca-auto` is for MockBank / public mocks only** — never add it to a real bank's flow.
 - Codes, tokens and other secrets are masked in reports; any new output or store must mask them too.
 - Every scenario needs a `specRef` naming the clause it tests.
+- Payment (PIS) scenarios must `require` a `variables.pis.*` test account, so they only run where a profile names the
+  bank's sandbox test accounts; AI drafts that send payment data without it are refused in code (`check_scenario`).
 
 ## AI layer rules (see docs/ai/PLAN.md)
 

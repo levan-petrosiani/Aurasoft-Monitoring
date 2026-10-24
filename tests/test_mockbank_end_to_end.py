@@ -50,7 +50,7 @@ def test_all_mock_suites_pass(mock):
 
     problems = [(s.id, s.reason) for s in run.scenarios if s.outcome not in (Outcome.PASSED, Outcome.SKIPPED)]
     assert problems == [] and errors == []
-    assert run.count(Outcome.PASSED) == 16
+    assert run.count(Outcome.PASSED) == 28
     assert all(s.suite == "tbc" for s in run.scenarios if s.outcome == Outcome.SKIPPED)
 
 
@@ -101,3 +101,46 @@ steps:
     assert [(r.outcome, r.reason) for r in results] == [(Outcome.PASSED, None)] * 3
     newest = max(mock.app.state.consents.values(), key=lambda c: c.created_utc)
     assert newest.valid_to == utc_today() + timedelta(days=90)  # the 9999-12-31 one, shortened
+
+
+def test_payment_rules_of_the_georgian_guide():
+    """GE-XS2A 8.2.1 checks MockBank enforces (the pis scenarios rely on them)."""
+    from aqt.mockbank.app import valid_iban, validate_payment
+    good = {"instructedAmount": {"currency": "GEL", "amount": "1.00"}, "creditorAccount": {"iban": "GE24NB0000000000009999"}}
+    assert valid_iban("GE63MK0000000000000001") and valid_iban("DE89370400440532013000") and not valid_iban("GE00NB0000000000009999")
+    assert validate_payment("domestic", good) is None
+    assert "purposeCode" in validate_payment("domestic", {**good, "purposeCode": "EDUC"})
+    assert "creditorName" in validate_payment("aspsp", {**good, "creditorName": "X"})          # never for aspsp
+    assert "creditorAgent" in validate_payment("foreign", {**good, "creditorName": "X"})       # mandatory for foreign
+    assert "amount" in validate_payment("domestic", {**good, "instructedAmount": {"currency": "GEL", "amount": "1,00"}})
+    assert "instructedAmount" in validate_payment("domestic", {"creditorAccount": good["creditorAccount"]})
+
+
+def test_polling_gives_up_after_the_timeout_and_one_of_lists_the_accepted_values(mock):
+    """A payment that is never authorised stays ACTC: polling for a final status fails after the timeout."""
+    scenario = scenarios.load_text("""id: T-002
+title: t
+suite: t
+steps:
+  - request:
+      method: POST
+      path: v1/payments/domestic
+      headersTemplate: payment
+      bodyTemplate: payment.domestic
+    save: { paymentId: $.paymentId }
+  - request:
+      method: GET
+      path: "v1/payments/domestic/{{paymentId}}/status"
+      headersTemplate: basic
+      poll: { path: $.transactionStatus, until: [ACSC, ACCC], intervalSeconds: 1, timeoutSeconds: 2 }
+    expect:
+      status: 200
+      jsonOneOf: { $.transactionStatus: [ACSC, ACCC] }
+""", "t")
+    ctx, _ = make_context(mock)
+    with ctx:
+        result = ScenarioRunner(ctx).run_scenario(scenario)
+    step = result.steps[1]
+    assert result.outcome == Outcome.FAILED and len(step.all_exchanges()) >= 2
+    assert any("still ACTC after 2 s" in f for f in step.failures)
+    assert "$.transactionStatus is 'ACTC', expected one of ACSC, ACCC" in step.failures

@@ -55,7 +55,7 @@ def test_variables():
 
     assert v.resolve("{{date.today+2d}}|{{date.today-30d}}|{{date.today}}") == "2026-02-01|2025-12-31|2026-01-30"
     assert v.resolve("{{datetime.now}}") == "2026-01-30T12:00:00Z"
-    assert v.resolve("{{bank.bic}} {{tpp.id}} {{ consentId }} {{vars.accounts.gel}}") == "MOCKGE22 TPP-1 abc GE29MK0000000000000001"
+    assert v.resolve("{{bank.bic}} {{tpp.id}} {{ consentId }} {{vars.accounts.gel}}") == "MOCKGE22 TPP-1 abc GE63MK0000000000000001"
     assert re.fullmatch(r"[0-9a-f-]{36}", v.resolve("{{uuid}}"))
     assert v.resolve_node({"a": ["{{consentId}}", 4]}) == {"a": ["abc", 4]}
 

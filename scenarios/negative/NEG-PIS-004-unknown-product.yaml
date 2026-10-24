@@ -1,0 +1,18 @@
+id: NEG-PIS-004
+title: Payment with an unknown payment product is rejected with PRODUCT_UNKNOWN
+suite: negative
+severity: Minor
+specRef: "GE-XS2A 0.8.RC3 — 8.1 payment products; BG IG 1.3.16 14.11.2 PRODUCT_UNKNOWN (404)"
+requires: [features.payments=domestic, variables.pis.creditorIban]
+
+steps:
+  - name: POST to /v1/payments/sepa-credit-transfers
+    request:
+      method: POST
+      path: v1/payments/sepa-credit-transfers
+      headersTemplate: payment
+      bodyTemplate: payment.domestic
+    expect:
+      status: 404
+      errorCode: PRODUCT_UNKNOWN
+      echoRequestId: true

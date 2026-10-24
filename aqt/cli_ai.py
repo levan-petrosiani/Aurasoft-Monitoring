@@ -463,7 +463,8 @@ def cmd_coverage(cli) -> int:
             Out.muted(f"        {r.open_drafts} scenario draft(s) waiting for review")
     for p in result.problems:
         Out.error(p)
-    Out.muted(f"{result.covered_count} of {result.approved_count} approved rule(s) have a scenario.")
+    per_service = " · ".join(f"{s} {covered}/{approved}" for s, (approved, covered) in result.by_service.items() if approved)
+    Out.muted(f"{result.covered_count} of {result.approved_count} approved rule(s) have a scenario" + (f" ({per_service})." if per_service else "."))
     return SUCCESS
 
 

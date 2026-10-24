@@ -642,3 +642,29 @@ still accepts.
   - 45–60 s per answer locally.
 - Claude is untested live (no API key); the request shape, including tools, `tool_use` parsing and `tool_result` turns, is tested with the fake server.
 - Tests: 114 passed with `AQT_TEST_DB`; 86 passed and 28 skipped without it.
+
+## 2026-10-25 · 47. Phase 5: payment initiation (PIS)
+
+**What:**
+- **Read the standard first.** Georgian XS2A 0.8.RC3 chapter 8: 8.1 products (`aspsp` recommended, `domestic`/`foreign` mandatory), 8.2.1 table 4 (fields per product: never/mandatory → FORMAT_ERROR), 8.3 initiation (TPP-Rejection-NoFunds-Preferred), 8.5 status (fundsAvailable), 8.7 cancellation (204/202/405) and 8.10 lifecycle (RCVD must never be returned; intra-bank must reach ACCC). Error codes come from BG IG 14.11.2 (PRODUCT_UNKNOWN 404, CANCELLATION_INVALID 405, PAYMENT_FAILED 400).
+- **MockBank:** `/v1/{service}/{product}` initiation, status, details, cancel and authorisations.
+  - Lifecycle: ACTC → (SCA) ACCC for `aspsp`, or ACSP → ACSC after `SettlementSeconds` (2) for domestic/foreign.
+  - Validation: the table-4 field checks, an IBAN check digit test, the amount format, and the insufficient-funds rejection.
+  - Once the PSU has authenticated for a payment, its token is required.
+  - OAuth now accepts `PIS:<paymentId>` (approve/deny on a payment page).
+  - Its sandbox IBANs had wrong check digits; they are fixed (GE63…01, GE36…02).
+- **Engine:** `poll:` on request steps (a new X-Request-ID and signature per attempt, cancellable; a timeout is a failure naming the last value) and `expect.jsonOneOf`. `execute_request` is split into one send per attempt.
+- **Scenarios:** header set `payment`; bodies `payment.domestic|aspsp|foreign`, which take their accounts from the profile's `variables.pis`; suite `pis` (PIS-001…005); NEG-PIS-001…007. MOCK and `_example` declare `features.payments: [aspsp, domestic, foreign]` and `variables.pis`.
+- **AI layer:**
+  - The scenario-drafting prompt knows payments, `poll` and `jsonOneOf`, and uses PIS examples for PIS rules.
+  - Coverage counts rules per service.
+  - Code refuses AI drafts that move money without `requires: variables.pis.*`.
+
+**Why:** this is the plan's Phase 5. Payments are the half of open banking that moves money, so they are gated twice: PIS scenarios run only where a profile names the bank's sandbox test accounts, and AI drafts are held to that in code.
+
+**Found on the way:** the live PIS draft from BG-AUTH-004 (signing baskets) sent payment data to `signing-baskets`, so my first payment-path check missed it. The check now also triggers on `vars.pis` in the text and on `payment.*` body templates; tests cover all three cases. The model also correctly reported that MockBank has no signing baskets (404); that is now a documented non-goal.
+
+**Result:**
+- MockBank run: 28 passed, 0 failed (was 16). All 12 PIS scenarios passed on the first run, and PIS-001 polls through the settlement.
+- TBC-MOCK skips the whole `pis` suite because it has no test accounts.
+- Tests: 117 passed with `AQT_TEST_DB`; 89 passed and 28 skipped without it.

@@ -8,6 +8,7 @@
     "BankOrganizationId": "PSDGE-NBG-MOCKBANK",
     "MaxFrequencyPerDay": 4,
     "MaxConsentDays": 90,
+    "SettlementSeconds": 2,
     "AccessTokenLifetimeSeconds": 900
   }
 }

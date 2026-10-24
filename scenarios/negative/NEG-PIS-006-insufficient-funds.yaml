@@ -1,0 +1,20 @@
+id: NEG-PIS-006
+title: Payment above the available balance is rejected at initiation
+suite: negative
+severity: Major
+specRef: "GE-XS2A 0.8.RC3 — 8.3: with TPP-Rejection-NoFunds-Preferred true (or absent) the ASPSP must reject an underfunded payment at initiation"
+requires: [features.payments=domestic, variables.pis.creditorIban]
+
+steps:
+  - name: POST domestic payment of 99,999,999 GEL
+    request:
+      method: POST
+      path: v1/payments/domestic
+      headersTemplate: payment
+      headers: { TPP-Rejection-NoFunds-Preferred: "true" }
+      bodyTemplate: payment.domestic
+      body: { instructedAmount: { currency: GEL, amount: "99999999.00" } }
+    expect:
+      status: 400
+      errorCode: "*"
+      echoRequestId: true

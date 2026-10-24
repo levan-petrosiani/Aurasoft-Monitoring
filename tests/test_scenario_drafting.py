@@ -86,6 +86,21 @@ def test_drafts_must_only_talk_to_the_banks_xs2a_api():
             check_scenario(bad, "x", templates)
 
 
+def test_payment_drafts_must_be_limited_to_profiles_with_test_accounts():
+    templates = engine.TemplateLibrary.load(SCENARIOS)
+    payment = ("id: X-002\ntitle: t\nsuite: pis\nREQUIRES\nsteps:\n  - request: { method: POST, path: v1/payments/domestic, "
+               "headersTemplate: payment, bodyTemplate: payment.domestic }\n")
+    with pytest.raises(ConfigurationError, match="variables.pis"):
+        check_scenario(payment.replace("REQUIRES", "requires: [features.payments=domestic]"), "x", templates)
+    assert check_scenario(payment.replace("REQUIRES", "requires: [features.payments=domestic, variables.pis.creditorIban]"), "x", templates)
+    basket = payment.replace("v1/payments/domestic", "signing-baskets").replace("REQUIRES", "requires: [features.payments=domestic]")
+    with pytest.raises(ConfigurationError, match="variables.pis"):
+        check_scenario(basket, "x", templates)  # uses the payment template (vars.pis) on another path
+    elsewhere = payment.replace("v1/payments/domestic", "v1/other").replace("REQUIRES", "requires: [features.payments=domestic]")
+    with pytest.raises(ConfigurationError, match="variables.pis"):
+        check_scenario(elsewhere, "x", templates)  # a payment.* body template carries the test accounts
+
+
 def test_expectations_are_compared_with_the_rule():
     scenario = engine.load_text(extract(FREQUENCY_SCENARIO)[0].replace("XX-YY-999", "TS-CON-001") + "suite: negative\n", "x")
     assert expectation_notes(scenario, rule()) == []

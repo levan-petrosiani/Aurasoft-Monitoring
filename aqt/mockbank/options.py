@@ -27,6 +27,9 @@ class MockBankOptions:
     # Longest consent in days (GE-XS2A 9.1.1.10): a later validTo is rejected with PERIOD_INVALID, except 9999-12-31,
     # which means "as long as allowed" and is shortened to this many days.
     max_consent_days: int = 90
+    # Seconds an authorised domestic/foreign payment stays ACSP before it becomes ACSC (interbank settlement), so
+    # scenarios can exercise polling. aspsp (intra-bank) payments become ACCC at once.
+    settlement_seconds: int = 2
     access_token_lifetime_seconds: int = 900
 
     @property

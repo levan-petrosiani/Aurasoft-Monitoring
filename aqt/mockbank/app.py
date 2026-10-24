@@ -16,7 +16,7 @@ from cryptography import x509
 from ..certificates import Certificate, organization_id
 from ..signing import JwsSigner, b64url_encode, verify_response
 from .options import MockBankOptions
-from .state import (AccessToken, Authorisation, AuthorizationCode, Consent, MockAccount, MockState, RefreshToken,
+from .state import (AccessToken, Authorisation, AuthorizationCode, Consent, MockAccount, MockState, Payment, RefreshToken,
                     utc_now, utc_today)
 
 HEADLESS_USER_AGENT = "ApiTestTool-HeadlessSca"
@@ -141,6 +141,51 @@ def _amount(currency: str, amount: Decimal) -> dict:
     return {"currency": currency, "amount": f"{amount:.2f}"}
 
 
+PAYMENT_SERVICES = ("payments",)
+PAYMENT_PRODUCTS = ("aspsp", "domestic", "foreign")
+# GE-XS2A 8.2.1, table 4: fields marked "-" (never) for every product; sending one is a FORMAT_ERROR.
+_NEVER = ("debtorId", "currencyOfTransfer", "exchangeRateInformation", "creditorId", "creditorNameAndAddress",
+          "ultimateCreditor", "ultimateCreditorIdentification", "purposeCode", "serviceLevel",
+          "remittanceInformationStructured", "remittanceInformationStructuredArray", "requestedExecutionTime")
+# Per product (only the columns that are unambiguous in the table): never / mandatory.
+_NEVER_FOR = {"aspsp": ("creditorName", "creditorAgentName", "chargeBearer", "additionalInformation", "instructionPriority"),
+              "foreign": ("requestedExecutionDate",)}
+_MANDATORY_FOR = {"foreign": ("creditorAgent", "creditorName")}
+_AMOUNT = re.compile(r"^-?[0-9]{1,14}(\.[0-9]{1,3})?$")
+
+
+def valid_iban(value) -> bool:
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}", value):
+        return False
+    rearranged = value[4:] + value[:4]
+    return int("".join(str(int(c, 36)) for c in rearranged)) % 97 == 1
+
+
+def validate_payment(product: str, body: dict) -> str | None:
+    """The FORMAT_ERROR checks of GE-XS2A 8.2.1 that MockBank enforces; None when the body is acceptable."""
+    for name in _NEVER + _NEVER_FOR.get(product, ()):
+        if name in body:
+            return f"'{name}' must not be sent for {product} payments (GE-XS2A 8.2.1)"
+    for name in ("instructedAmount", "creditorAccount") + _MANDATORY_FOR.get(product, ()):
+        if body.get(name) in (None, "", {}):
+            return f"'{name}' is required for {product} payments"
+    amount = body["instructedAmount"]
+    if not isinstance(amount, dict) or not isinstance(amount.get("currency"), str) or not re.fullmatch(r"[A-Z]{3}", amount["currency"]):
+        return "'instructedAmount.currency' must be an ISO 4217 code"
+    if not isinstance(amount.get("amount"), str) or not _AMOUNT.match(amount["amount"]) or Decimal(amount["amount"]) <= 0:
+        return "'instructedAmount.amount' must be a positive decimal string like \"10.50\""
+    for name in ("creditorAccount", "debtorAccount"):
+        account = body.get(name)
+        if account is None and name == "debtorAccount":
+            continue
+        if not isinstance(account, dict) or not valid_iban(account.get("iban")):
+            return f"'{name}.iban' is not a valid IBAN"
+    remittance = body.get("remittanceInformationUnstructured")
+    if remittance is not None and (not isinstance(remittance, str) or len(remittance) > 140):
+        return "'remittanceInformationUnstructured' must be text of at most 140 characters"
+    return None
+
+
 class MockBankApp:
     def __init__(self, options: MockBankOptions, server_certificate: Certificate, qsealc: Certificate):
         self.options = options
@@ -158,6 +203,13 @@ class MockBankApp:
             ("GET", r"/v2/accounts/(?P<account_id>[^/]+)", self.get_account),
             ("GET", r"/v2/accounts/(?P<account_id>[^/]+)/balances", self.get_balances),
             ("GET", r"/v2/accounts/(?P<account_id>[^/]+)/transactions", self.get_transactions),
+            ("POST", r"/v1/(?P<service>[^/]+)/(?P<product>[^/]+)", self.initiate_payment),
+            ("GET", r"/v1/(?P<service>[^/]+)/(?P<product>[^/]+)/(?P<payment_id>[^/]+)/status", self.get_payment_status),
+            ("POST", r"/v1/(?P<service>[^/]+)/(?P<product>[^/]+)/(?P<payment_id>[^/]+)/authorisations", self.start_payment_authorisation),
+            ("GET", r"/v1/(?P<service>[^/]+)/(?P<product>[^/]+)/(?P<payment_id>[^/]+)/authorisations/(?P<authorisation_id>[^/]+)",
+             self.get_payment_sca_status),
+            ("GET", r"/v1/(?P<service>[^/]+)/(?P<product>[^/]+)/(?P<payment_id>[^/]+)", self.get_payment),
+            ("DELETE", r"/v1/(?P<service>[^/]+)/(?P<product>[^/]+)/(?P<payment_id>[^/]+)", self.cancel_payment),
             ("GET", r"/\.well-known/oauth-authorization-server", self.discovery),
             ("GET", r"/\.well-known/openid-configuration", self.discovery),
             ("GET", r"/oauth/authorize", self.authorize),
@@ -171,7 +223,8 @@ class MockBankApp:
 
     def handle(self, request: Request) -> Response:
         path = request.path
-        if path.lower() == "/v2" or path.lower().startswith("/v2/"):
+        lower = path.lower()
+        if lower in ("/v1", "/v2") or lower.startswith(("/v1/", "/v2/")):
             return self._xs2a(request)
         return self._route(request)
 
@@ -399,6 +452,147 @@ class MockBankApp:
         token = self.state.access_tokens.get(header[7:].strip())
         return token if token is not None and token.expires_utc > utc_now() else None
 
+    # ---- payments (Georgian XS2A 8: /v1/{payment-service}/{payment-product}) -----------------------------------------
+
+    def initiate_payment(self, request: Request, service: str, product: str) -> Response:
+        if service not in PAYMENT_SERVICES:
+            return xs2a_problem(404, "SERVICE_INVALID" if service in ("bulk-payments", "periodic-payments") else "RESOURCE_UNKNOWN",
+                                f"Payment service '{service}' is not supported by MockBank (supported: {', '.join(PAYMENT_SERVICES)})")
+        if product not in PAYMENT_PRODUCTS:
+            return xs2a_problem(404, "PRODUCT_UNKNOWN", f"Payment product '{product}' is not supported (aspsp, domestic, foreign)")
+        if not request.header("PSU-IP-Address"):
+            return format_error("PSU-IP-Address header is required")
+        if request.header("Authorization") and self._token(request) is None:
+            return token_unknown()  # GE-XS2A 8.3: a token is optional; if one is sent it must be valid
+        try:
+            body = json.loads(request.body or b"")
+        except ValueError:
+            return format_error("The body is not valid JSON")
+        if not isinstance(body, dict):
+            return format_error("The body must be a JSON object")
+
+        problem = validate_payment(product, body)
+        if problem is not None:
+            return format_error(problem)
+
+        amount = Decimal(body["instructedAmount"]["amount"])
+        currency = body["instructedAmount"]["currency"]
+        debtor_iban = (body.get("debtorAccount") or {}).get("iban")
+        debtor = next((a for a in self.state.accounts if debtor_iban and a.iban == debtor_iban), None)
+        funds = None if debtor is None else (debtor.currency == currency and debtor.balance >= amount)
+        # GE-XS2A 8.3: with TPP-Rejection-NoFunds-Preferred true or absent, insufficient funds are rejected at once.
+        if funds is False and request.header("TPP-Rejection-NoFunds-Preferred").lower() != "false":
+            return xs2a_problem(400, "PAYMENT_FAILED", f"Insufficient funds on {debtor_iban} for {amount} {currency}")
+
+        payment = Payment(id=str(uuid.uuid4()), tpp_id=request.tpp_id, service=service, product=product, body=body,
+                          amount=amount, currency=currency, debtor_iban=debtor_iban, redirect_uri=self._redirect_uri(request),
+                          funds_available=funds)
+        if funds is False:
+            payment.status = "ACCP"  # waits for funds (TPP-Rejection-NoFunds-Preferred: false)
+        with self.state.lock:
+            self.state.payments[payment.id] = payment
+
+        self_link = f"/v1/{service}/{product}/{payment.id}"
+        response = json_response({
+            "transactionStatus": payment.status,
+            "paymentId": payment.id,
+            "_links": {
+                "self": link(self_link),
+                "status": link(f"{self_link}/status"),
+                "startAuthorisation": link(f"{self_link}/authorisations"),
+            },
+        }, 201)
+        response.set_header("Location", self_link)
+        response.set_header("ASPSP-SCA-Approach", "REDIRECT")
+        return response
+
+    def _payment(self, request: Request, service: str, product: str, payment_id: str) -> tuple[Payment | None, Response | None]:
+        """The TPP's payment at this path; once the PSU has authenticated for it, a token for it is required (GE-XS2A 8.5-8.7)."""
+        payment = self.state.payments.get(payment_id)
+        if payment is None or payment.tpp_id != request.tpp_id or payment.service != service or payment.product != product:
+            return None, xs2a_problem(403, "RESOURCE_UNKNOWN", "Payment not found")
+        token = self._token(request)
+        if request.header("Authorization") and token is None:
+            return None, token_unknown()
+        if token is not None and token.consent_id != payment.id:
+            return None, xs2a_problem(401, "TOKEN_INVALID", "The access token was not issued for this payment")
+        if payment.psu_authenticated and token is None:
+            return None, xs2a_problem(401, "TOKEN_INVALID", "The PSU authenticated for this payment: the Authorization header is required")
+        self._settle(payment)
+        return payment, None
+
+    def _settle(self, payment: Payment):
+        if payment.status == "ACSP" and payment.authorised_utc is not None and \
+                (utc_now() - payment.authorised_utc).total_seconds() >= self.options.settlement_seconds:
+            payment.status = "ACSC"
+
+    def get_payment_status(self, request: Request, service: str, product: str, payment_id: str) -> Response:
+        payment, error = self._payment(request, service, product, payment_id)
+        if error is not None:
+            return error
+        body = {"transactionStatus": payment.status}
+        if payment.status in ("ACTC", "ACWC", "ACCP"):
+            # GE-XS2A 8.5: fundsAvailable is required for these statuses.
+            body["fundsAvailable"] = payment.funds_available if payment.funds_available is not None else True
+        return json_response(body)
+
+    def get_payment(self, request: Request, service: str, product: str, payment_id: str) -> Response:
+        payment, error = self._payment(request, service, product, payment_id)
+        if error is not None:
+            return error
+        return json_response({**payment.body, "transactionStatus": payment.status})
+
+    def cancel_payment(self, request: Request, service: str, product: str, payment_id: str) -> Response:
+        payment, error = self._payment(request, service, product, payment_id)
+        if error is not None:
+            return error
+        if payment.status not in ("ACTC", "ACCP"):
+            # GE-XS2A 8.7: 405 when the status no longer allows cancellation.
+            return xs2a_problem(405, "CANCELLATION_INVALID", f"The payment is '{payment.status}' and can no longer be cancelled")
+        payment.status = "CANC"
+        return Response(204)
+
+    def start_payment_authorisation(self, request: Request, service: str, product: str, payment_id: str) -> Response:
+        payment, error = self._payment(request, service, product, payment_id)
+        if error is not None:
+            return error
+        if payment.status not in ("ACTC", "ACCP"):
+            return xs2a_problem(409, "STATUS_INVALID", f"Payment is '{payment.status}', authorisation needs ACTC")
+        redirect_uri = self._redirect_uri(request)
+        if payment.redirect_uri is not None and redirect_uri is not None and redirect_uri != payment.redirect_uri:
+            return format_error("Client-Redirect-URI differs from the one sent when the payment was initiated")
+
+        authorisation = Authorisation(id=str(uuid.uuid4()), consent_id=payment.id)
+        with self.state.lock:
+            self.state.authorisations[authorisation.id] = authorisation
+        self_link = f"/v1/{service}/{product}/{payment.id}/authorisations/{authorisation.id}"
+        response = json_response({
+            "authorisationId": authorisation.id,
+            "scaStatus": authorisation.sca_status,
+            "_links": {
+                "scaOAuth": link(f"{self.options.https_base_url}/.well-known/oauth-authorization-server"),
+                "scaStatus": link(self_link),
+            },
+        }, 201)
+        response.set_header("Location", self_link)
+        return response
+
+    def get_payment_sca_status(self, request: Request, service: str, product: str, payment_id: str, authorisation_id: str) -> Response:
+        payment, error = self._payment(request, service, product, payment_id)
+        if error is not None:
+            return error
+        authorisation = self.state.authorisations.get(authorisation_id)
+        if authorisation is None or authorisation.consent_id != payment.id:
+            return xs2a_problem(403, "RESOURCE_UNKNOWN", "Authorisation not found")
+        return json_response({"scaStatus": authorisation.sca_status})
+
+    def _authorise_payment(self, payment: Payment):
+        """The PSU confirmed the payment (token issued): intra-bank is booked at once, interbank settles later."""
+        payment.psu_authenticated = True
+        if payment.status in ("ACTC", "ACCP"):
+            payment.authorised_utc = utc_now()
+            payment.status = "ACCC" if payment.product == "aspsp" else "ACSP"
+
     # ---- accounts (XSA2 AccountsController, fixed sandbox data) ----------------------------------------------------
 
     def _authorize(self, request: Request, right: str | None, handler) -> Response:
@@ -572,6 +766,9 @@ class MockBankApp:
             return self._redirect_with_error(r, "invalid_request", error)
 
         if (form.get("decision") or [None])[0] != "approve":
+            if isinstance(consent, Payment):
+                consent.status = "RJCT"
+                return self._redirect_with_error(r, "access_denied", "The PSU rejected the payment")
             consent.status = "rejected"
             return self._redirect_with_error(r, "access_denied", "The PSU rejected the consent")
 
@@ -585,10 +782,20 @@ class MockBankApp:
         if not r["code_challenge"] or r["code_challenge_method"] != "S256":
             return None, "PKCE with code_challenge_method=S256 is required"
 
-        consent_id = self._consent_id_from_scope(r["scope"])
-        if consent_id is None:
-            return None, f"scope '{r['scope'] or ''}' must be AIS:<consentId>"
-        consent = self.state.consents.get(consent_id)
+        kind, resource_id = self._resource_from_scope(r["scope"])
+        if resource_id is None:
+            return None, f"scope '{r['scope'] or ''}' must be AIS:<consentId> or PIS:<paymentId>"
+        if kind == "PIS":
+            payment = self.state.payments.get(resource_id)
+            if payment is None or payment.tpp_id != r["client_id"]:
+                return None, "the payment in the scope is unknown for this client"
+            if payment.status not in ("ACTC", "ACCP"):
+                return None, f"payment is '{payment.status}', expected ACTC"
+            if payment.redirect_uri is not None and payment.redirect_uri != r["redirect_uri"]:
+                return None, "redirect_uri differs from the Client-Redirect-URI sent with the payment"
+            return payment, None
+
+        consent = self.state.consents.get(resource_id)
         if consent is None or consent.tpp_id != r["client_id"]:
             return None, "the consent in the scope is unknown for this client"
         if consent.status != "received":
@@ -598,7 +805,7 @@ class MockBankApp:
 
         return consent, None
 
-    def _approve(self, r: dict, consent: Consent) -> Response:
+    def _approve(self, r: dict, consent: Consent | Payment) -> Response:
         code = MockState.new_token()
         with self.state.lock:
             self.state.codes[code] = AuthorizationCode(code, r["client_id"], r["redirect_uri"], self._normalize_scope(r["scope"]),
@@ -637,6 +844,9 @@ class MockBankApp:
                 consent = self.state.consents.get(code.consent_id)
                 if consent is not None and consent.status == "received":
                     consent.status = "valid"
+                payment = self.state.payments.get(code.consent_id)
+                if payment is not None:
+                    self._authorise_payment(payment)
                 for a in self.state.authorisations.values():
                     if a.consent_id == code.consent_id:
                         a.sca_status = "finalised"
@@ -648,7 +858,7 @@ class MockBankApp:
                 if refresh is None or refresh.client_id != cert_tpp_id:
                     return oauth_problem("invalid_grant", "Refresh token is unknown or belongs to another client")
                 consent = self.state.consents.get(refresh.consent_id)
-                if consent is None or consent.status != "valid":
+                if refresh.consent_id not in self.state.payments and (consent is None or consent.status != "valid"):
                     return oauth_problem("invalid_grant", "The consent is no longer valid")
 
                 return self._issue_tokens(cert_tpp_id, refresh.consent_id, refresh.scope)
@@ -676,9 +886,12 @@ class MockBankApp:
         parts = (scope or "").split()
         return parts[0] if parts else ""
 
-    def _consent_id_from_scope(self, scope: str | None) -> str | None:
+    def _resource_from_scope(self, scope: str | None) -> tuple[str | None, str | None]:
+        """("AIS", consent id) or ("PIS", payment id) from the scope; (None, None) if it is neither."""
         parts = self._normalize_scope(scope).split(":", 1)
-        return parts[1] if len(parts) == 2 and parts[0] in ("AIS", "ais") and _is_guid(parts[1]) else None
+        if len(parts) == 2 and parts[0].upper() in ("AIS", "PIS") and _is_guid(parts[1]):
+            return parts[0].upper(), parts[1]
+        return None, None
 
     @staticmethod
     def _pkce(verifier: str) -> str:
@@ -699,12 +912,19 @@ class MockBankApp:
         return html_response('<!doctype html><meta charset=utf-8><title>MockBank error</title><body style="font-family:system-ui;margin:40px">'
                              f"<h2>MockBank: authorization error</h2><p>{html.escape(message)}</p></body>", 400)
 
-    def _login_page(self, r: dict, consent: Consent) -> Response:
+    def _login_page(self, r: dict, consent: Consent | Payment) -> Response:
         e = html.escape
+        if isinstance(consent, Payment):
+            creditor = consent.body.get("creditorAccount", {}).get("iban", "")
+            what = (f"<p><b>{e(r['client_id'] or '')}</b> asks you to pay <b>{consent.amount} {e(consent.currency)}</b> "
+                    f"({e(consent.product)}) to <code>{e(creditor)}</code> {e(consent.body.get('creditorName') or '')}"
+                    f" from <code>{e(consent.debtor_iban or 'an account you choose')}</code>.</p>")
+        else:
+            accounts = "".join(f"<li>{e(a.name)} — {e(a.iban)} ({e(a.currency)})</li>" for a in self.state.accounts)
+            what = (f"<p><b>{e(r['client_id'] or '')}</b> asks for <code>{e(consent.consent_type)}</code> access "
+                    f"({e(', '.join(consent.rights))}) until {consent.valid_to.isoformat()} to:</p><ul>{accounts}</ul>")
         hidden = "".join(f'<input type=hidden name="{name}" value="{e(r[name] or "")}">'
                          for name in ("response_type", "client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method"))
-        accounts = "".join(f"<li>{e(a.name)} — {e(a.iban)} ({e(a.currency)})</li>" for a in self.state.accounts)
-
         return html_response(f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MockBank login</title>
 <style>
@@ -715,11 +935,9 @@ class MockBankApp:
   .approve {{ background: #1a7f37; color: #fff; }} .deny {{ background: #e5e5ea; }}
   code {{ background: #f0f0f3; padding: 1px 4px; border-radius: 4px; }}
 </style></head><body><div class="card">
-<h1>MockBank — confirm access</h1>
+<h1>MockBank — {'confirm payment' if isinstance(consent, Payment) else 'confirm access'}</h1>
 <p class="muted">Sandbox PSU <b>testuser1</b> is logged in (no password needed in the mock).</p>
-<p><b>{e(r["client_id"] or "")}</b> asks for <code>{e(consent.consent_type)}</code> access
-   ({e(", ".join(consent.rights))}) until {consent.valid_to.isoformat()} to:</p>
-<ul>{accounts}</ul>
+{what}
 <form method="post" action="/oauth/authorize">{hidden}
   <button class="approve" name="decision" value="approve">Approve</button>
   <button class="deny" name="decision" value="deny">Deny</button>
