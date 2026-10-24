@@ -40,6 +40,35 @@ Then open http://localhost:5280/.
   the machine running the portal, so use the portal on the same machine (it is a local tool; it has no
   login of its own and listens on localhost only).
 
+## Store and AI layer (PostgreSQL, Claude / Ollama)
+
+Every run can also be written to PostgreSQL: runs, scenario and step results, HTTP exchanges and events. The
+AI features use that data (see [docs/ai/PLAN.md](docs/ai/PLAN.md)). Before anything is stored, secrets are masked:
+`Authorization`/`PSU-ID` headers, OAuth codes and tokens in JSON, form bodies and query strings, and IBANs
+(only the country, check digits and last 4 characters are kept). Bodies over 64 KB are cut.
+
+```bash
+docker compose up -d                                        # PostgreSQL 17 + pgvector on localhost:5435
+dotnet run --project src/ApiTestTool.Cli -- db migrate      # create/upgrade the schema
+dotnet run --project src/ApiTestTool.Cli -- db import reports   # load existing report folders
+dotnet run --project src/ApiTestTool.Cli -- db status
+```
+
+- **CLI:** `aqt run` saves the run when `--db <connection>` or `AQT_DB` is set. If the database is down,
+  the run still passes or fails on its own merits, prints a notice, and the folder can be imported later.
+- **Portal:** in Development it uses `ConnectionStrings:Aqt` (the docker-compose database), migrates on
+  startup, and writes runs plus events (`run.queued/started/completed/...`, `scenario.completed`,
+  `run.deleted`) in the background.
+- Tables (snake_case, easy to query): `runs`, `scenario_results`, `step_results`, `exchanges` (headers as
+  `jsonb`), `events`, `ai_calls`. Migrations: `dotnet tool restore` then `dotnet ef migrations add <Name>
+  --project src/ApiTestTool.Store --output-dir Migrations`.
+- **AI providers:** `aqt ai check` sends a one-line prompt to Claude and to local Ollama, and every call
+  (including failed ones) goes to `ai_calls`. Claude needs `ANTHROPIC_API_KEY` (or `ant auth login`). Never put
+  the key in `appsettings.json`. Provider and model per feature (read by the portal from Phase 1 on):
+  `ApiTestTool:AI:Features:<summary|ask|ruleDrafting|scenarioDrafting>:{Provider,Model}`.
+- Database tests run when `AQT_TEST_DB` is set (e.g. `Host=localhost;Port=5435;Username=aqt;Password=aqt_dev`);
+  each test class creates and drops its own database.
+
 ## Try it without any bank (MockBank)
 
 `src/ApiTestTool.MockBank` is a fake bank on your machine: XS2A v2 consents and accounts, an OAuth2
@@ -148,6 +177,9 @@ Reports go to `reports/<BIC>-<timestamp>/`: `report.html`, `summary.json`, `juni
 | `aqt run --bank <BIC\|file> [--suite a,b] [--scenario ID,..] [--report html,json,junit] [--out dir] [--verbose] [--no-preflight-gate]` | Runs scenarios against one bank |
 | `aqt list banks` / `aqt list scenarios [--suite x]` | Lists profiles / scenarios |
 | `aqt validate` | Loads every profile, template and scenario and reports mistakes |
+| `aqt db migrate\|status` | Creates/upgrades the PostgreSQL store; shows row counts and pending migrations |
+| `aqt db import [folder...] [--replace]` | Loads existing report folders (default `./reports`) into the store |
+| `aqt ai check [--provider anthropic\|ollama] [--model x]` | One-line call to each AI provider, recorded in `ai_calls` |
 | `aqt version` | Prints the version |
 
 Exit codes: `0` all passed, `1` failures or errors in the run, `2` invalid input or configuration.
@@ -250,7 +282,8 @@ The TestTool posted some bad requests to `v2/consents`; the ported scenarios use
 
 ## Verification
 
-- `dotnet test` runs 47 unit tests: signing/verification, YAML typing, variables, JSON paths, the
+- `dotnet test` runs 75 tests (store and AI tests: masking, run mapping, import, the AI audit client and
+  provider choice; with `AQT_TEST_DB`, also PostgreSQL round trips). The 53 engine tests cover signing/verification, YAML typing, variables, JSON paths, the
   runner against an in-memory bank, preflight gating, loading of every shipped YAML file, PKCE (RFC 7636
   vector), authorize URL and TBC quirks, the callback listener (callback, auth-server error, timeout,
   busy port), and the shipped AIS-001/AIS-002 scenarios end to end against an in-memory XS2A + OAuth

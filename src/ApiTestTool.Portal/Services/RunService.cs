@@ -29,12 +29,15 @@ public sealed class RunService : BackgroundService
     private readonly CatalogService _catalog;
     private readonly MockBankService _mockBank;
     private readonly ILogger<RunService> _logger;
+    private readonly StoreRecorder? _store;
 
-    public RunService(CatalogService catalog, MockBankService mockBank, IOptions<PortalOptions> options, IWebHostEnvironment env, ILogger<RunService> logger)
+    /// <param name="store">Set when a database is configured (<c>ConnectionStrings:Aqt</c>); runs are then also written to PostgreSQL.</param>
+    public RunService(CatalogService catalog, MockBankService mockBank, IOptions<PortalOptions> options, IWebHostEnvironment env, ILogger<RunService> logger, StoreRecorder? store = null)
     {
         _catalog = catalog;
         _mockBank = mockBank;
         _logger = logger;
+        _store = store;
         DataDirectory = Path.GetFullPath(Path.Combine(env.ContentRootPath, options.Value.DataDirectory));
         Directory.CreateDirectory(DataDirectory);
         LoadHistory();
@@ -66,6 +69,8 @@ public sealed class RunService : BackgroundService
         var run = new PortalRun(record);
         _runs[run.Id] = run;
         Save(run);
+        _store?.SaveRun(run, RunDirectory(run.Id));
+        _store?.Event("run.queued", $"{record.BankName} ({profile.Bank.Bic}) queued", run.Id, data: request);
         _queue.Writer.TryWrite(run);
         RunsChanged?.Invoke();
         return run;
@@ -86,6 +91,8 @@ public sealed class RunService : BackgroundService
         var dir = RunDirectory(id);
         if (Directory.Exists(dir))
             Directory.Delete(dir, recursive: true);
+        _store?.DeleteRun(id);
+        _store?.Event("run.deleted", $"Run {id} deleted by the user", id);
         RunsChanged?.Invoke();
         return true;
     }
@@ -129,6 +136,8 @@ public sealed class RunService : BackgroundService
         run.Record.Status = RunStatus.Running;
         run.Record.StartedUtc = DateTime.UtcNow;
         Save(run);
+        _store?.SaveRun(run, RunDirectory(run.Id));
+        _store?.Event("run.started", $"Run started ({run.Record.Request.Bank})", run.Id);
         RunsChanged?.Invoke();
 
         var profile = _catalog.LoadBank(request.Bank);
@@ -179,6 +188,8 @@ public sealed class RunService : BackgroundService
         {
             run.LoginUrl = null;
             run.AddCompleted(s);
+            _store?.Event("scenario.completed", $"{s.Id} {s.Outcome}{(s.Reason is null ? "" : ": " + s.Reason)}", run.Id, StoreRecorder.Level(s.Outcome),
+                new { scenario = s.Id, outcome = s.Outcome.ToString(), s.DurationMs });
         };
 
         var result = await runner.RunAsync(scenarios, cancellationToken);
@@ -210,6 +221,10 @@ public sealed class RunService : BackgroundService
         }
 
         Save(run);
+        _store?.SaveRun(run, RunDirectory(run.Id));
+        _store?.Event($"run.{status.ToString().ToLowerInvariant()}",
+            error ?? $"{record.Passed} passed, {record.Failed} failed, {record.Errors} errors, {record.Skipped} skipped",
+            run.Id, status == RunStatus.Completed && record.Failed + record.Errors == 0 ? "Info" : status == RunStatus.Failed ? "Error" : "Warning");
         run.NotifyChanged();
         RunsChanged?.Invoke();
     }

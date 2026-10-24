@@ -1,6 +1,6 @@
 # AI layer — plan
 
-Status: approved direction (2026-10-24), nothing implemented yet. Hackathon project — each phase ends in
+Status: Phase 0 done (2026-10-24) — see NOTE.md steps 8–13; Phase 1 next. Hackathon project — each phase ends in
 something demoable. Progress is logged in `NOTE.md`; `ARCHITECTURE.md` is updated at the end of each phase.
 
 ## 1. Goals
@@ -52,7 +52,7 @@ New projects (public NuGet packages only):
 | `ApiTestTool.AI` | Features: `RunSummarizer`, `RuleDrafter`, `ScenarioDrafter`, `OpsAgent`; provider selection; masking; audit | `Anthropic`, `Microsoft.Extensions.AI`, `OllamaSharp` |
 | Portal additions | Run summary panel; pages: Standards, Rules (review queue), Drafts, Ask, Coverage | — |
 | CLI additions | `aqt db migrate`, `aqt db import`, `aqt ai summarize <run>`, `aqt standards ingest`, `aqt ai draft-rules`, `aqt ai draft-scenarios`, `aqt ask "..."` | — |
-| `docker-compose.yml` | `pgvector/pgvector:pg17` on 5432; connection string `ConnectionStrings:Aqt` / env `AQT_DB` | — |
+| `docker-compose.yml` | `pgvector/pgvector:pg17` on localhost:5435; connection string `ConnectionStrings:Aqt` / env `AQT_DB` | — |
 
 The engine gets only small changes with no AI in them: `rules:` and `service:` on `Scenario`, and a result
 sink so finished runs go to the store. Without a database configured, CLI runs keep working (files only),
@@ -100,7 +100,7 @@ DSL reference, templates).
 
 | Phase | Deliverable | Demo |
 |---|---|---|
-| 0. Foundations | .NET SDK on the Mac; baseline commit; `docker-compose` Postgres; `ApiTestTool.Store` + migrations + import; runs written to the store; `ApiTestTool.AI` skeleton (config, providers, masking, audit) | Runs from CLI/portal appear in Postgres |
+| 0. Foundations ✅ | .NET SDK on the Mac; baseline commit; `docker-compose` Postgres; `ApiTestTool.Store` + migrations + import; runs written to the store; `ApiTestTool.AI` skeleton (config, providers, masking, audit) | Runs from CLI/portal appear in Postgres |
 | 1. Run summaries | Summary panel on the Run page, `aqt ai summarize` | Run TBC-MOCK → one-click triage of failures, Claude vs local |
 | 2. Standards + rules | Ingest BG 1.3.16 + Georgian guides; clause search; rule drafting; review queue | Pick a clause → AI drafts rules with quotes → approve in the portal |
 | 3. Scenario drafting | Draft → validate → MockBank loop; drafts page; coverage matrix | Approved rule → generated scenario → green on MockBank → coverage goes up |

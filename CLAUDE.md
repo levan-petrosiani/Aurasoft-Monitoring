@@ -16,9 +16,15 @@ dotnet test                                                          # engine un
 dotnet run --project src/ApiTestTool.Cli -- validate                 # load and check every YAML file
 dotnet run --project src/ApiTestTool.Cli -- run --bank MOCK --with-mock --sca-auto   # full run, no real bank
 dotnet run --project src/ApiTestTool.Portal --launch-profile Portal  # web UI on http://localhost:5280/
+docker compose up -d                                                 # PostgreSQL on localhost:5435
+dotnet run --project src/ApiTestTool.Cli -- db migrate|import|status # store
+dotnet run --project src/ApiTestTool.Cli -- ai check                 # Claude + Ollama reachable, audited
+AQT_TEST_DB="Host=localhost;Port=5435;Username=aqt;Password=aqt_dev" dotnet test   # include database tests
+dotnet tool restore && dotnet ef migrations add <Name> --project src/ApiTestTool.Store --output-dir Migrations
 ```
 
 After changing YAML, run `validate`. After changing engine code, run `dotnet test` and a MOCK run.
+After changing store entities, add a migration. Run `dotnet` from the repo root (the CLI finds `banks/` there).
 
 ## Layout
 
@@ -27,8 +33,10 @@ After changing YAML, run `validate`. After changing engine code, run `dotnet tes
 | `src/ApiTestTool.Engine` | Core library: YAML loading, scenario runner, HTTP/TLS/SCA steps, JWS signing, OAuth, reports. No UI, no AI |
 | `src/ApiTestTool.Cli` | `aqt` executable (`run`, `list`, `validate`, `mock`) |
 | `src/ApiTestTool.MockBank` | In-memory fake ASPSP enforcing real XS2A checks; the reference target for new scenarios |
-| `src/ApiTestTool.Portal` | Blazor Server UI; `Services/RunService.cs` queues and stores runs |
-| `tests/ApiTestTool.Engine.Tests` | xUnit tests, including every shipped YAML file end to end |
+| `src/ApiTestTool.Portal` | Blazor Server UI; `Services/RunService.cs` queues runs, `StoreRecorder.cs` writes them to PostgreSQL |
+| `src/ApiTestTool.Store` | EF Core + Npgsql store (`AqtStore`), `SensitiveDataMasker`, `RunImporter`, migrations |
+| `src/ApiTestTool.AI` | `ChatClientFactory` (Claude / Ollama per feature), `AuditingChatClient` (mask + audit every call) |
+| `tests/ApiTestTool.*.Tests` | xUnit: engine (every shipped YAML end to end), store (masking, import, DB with `AQT_TEST_DB`), AI |
 | `banks/<BIC>.yaml` | Bank profiles; `extends: _shared.yaml`; `_`-prefixed files are not run |
 | `scenarios/<suite>/*.yaml` | Test cases; reusable headers/bodies in `scenarios/_templates` |
 | `rules/` | (planned) Normative rules drafted from the standards, human-approved — see `rules/README.md` |
@@ -59,8 +67,9 @@ After changing YAML, run `validate`. After changing engine code, run `dotnet tes
 - Providers: rule and scenario drafting use the official `Anthropic` SDK (`claude-opus-5-5`). Run summaries
   and the ask-agent go through `Microsoft.Extensions.AI` `IChatClient`, Claude or Ollama chosen by config.
   Embeddings come from local Ollama `bge-m3`. Models and providers come from config, never hard-coded.
-- Store: PostgreSQL (`docker compose up -d`, connection `ConnectionStrings:Aqt` / env `AQT_DB`). CLI runs
-  must still work without a database (files only).
+- Store: PostgreSQL (`docker compose up -d`, port 5435; connection `ConnectionStrings:Aqt` / env `AQT_DB`).
+  CLI and portal runs must still work without a database — a store failure is a notice, never a failed run.
+- Everything written to the store or sent to a model goes through `SensitiveDataMasker` first.
 - AIS first; PIS is designed in (`service: AIS | PIS | COMMON`) — don't add anything AIS-only to shared code.
 
 ## Style

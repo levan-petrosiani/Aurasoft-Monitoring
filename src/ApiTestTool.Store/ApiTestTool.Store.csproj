@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    PostgreSQL store: an index of every run (results, steps, masked HTTP exchanges), run events and the AI audit log.
+    Reports on disk stay the source for report.html/junit.xml; the store makes the history queryable.
+  -->
+  <PropertyGroup>
+    <RootNamespace>ApiTestTool.Store</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+    <PackageReference Include="EFCore.NamingConventions" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ApiTestTool.Engine\ApiTestTool.Engine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ApiTestTool.Store.Tests" />
+  </ItemGroup>
+
+</Project>

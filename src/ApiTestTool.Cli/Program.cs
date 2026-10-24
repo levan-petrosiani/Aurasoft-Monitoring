@@ -23,6 +23,8 @@ try
     {
         "run" => await Commands.RunAsync(cli, cts.Token),
         "mock" => await Commands.MockAsync(cts.Token),
+        "db" => await StoreCommands.DbAsync(cli, cts.Token),
+        "ai" => await AiCommands.AiAsync(cli, cts.Token),
         "list" => Commands.List(cli),
         "validate" => Commands.Validate(cli),
         "version" or "--version" => Commands.Version(),
@@ -100,13 +102,17 @@ namespace ApiTestTool.Cli
             var run = await runner.RunAsync(scenarios, cancellationToken);
 
             var outDir = cli.Get("out") ?? Path.Combine(Directory.GetCurrentDirectory(), "reports");
-            var runDir = Path.Combine(outDir, $"{profile.Bank.Bic}-{run.StartedAtUtc:yyyyMMdd-HHmmss}");
+            var runId = $"{profile.Bank.Bic}-{run.StartedAtUtc:yyyyMMdd-HHmmss}";
+            var runDir = Path.Combine(outDir, runId);
             var files = ReportWriter.Write(run, runDir, formats);
 
             Console.WriteLine();
             Out.Summary(run);
             foreach (var file in files)
                 Out.Muted($"  {file}");
+
+            if (StoreCommands.RunConnection(cli) is { } db)
+                await StoreCommands.SaveRunAsync(db, runId, runDir, run, cli.GetList("suite"), cancellationToken);
 
             return run.Count(Outcome.Failed) + run.Count(Outcome.Error) > 0 ? ExitCodes.TestsFailed : ExitCodes.Success;
         }
@@ -233,6 +239,9 @@ namespace ApiTestTool.Cli
                   aqt run --bank <BIC|profile.yaml> [--suite a,b] [--scenario ID,ID] [--report html,json,junit] [--out dir] [--verbose] [--no-preflight-gate]
                           [--sca-auto] [--wait <seconds>] [--with-mock]
                   aqt mock                     run MockBank (a fake bank) until Ctrl+C
+                  aqt db migrate|status        create/upgrade the PostgreSQL store, show row counts
+                  aqt db import [folder...] [--replace]   load existing report folders (default: ./reports) into the store
+                  aqt ai check [--provider anthropic|ollama] [--model name]   one-line call to each AI provider
                   aqt list banks|scenarios [--suite name]
                   aqt validate
                   aqt version
@@ -241,6 +250,8 @@ namespace ApiTestTool.Cli
                   --root <dir>        folder containing banks/ and scenarios/ (default: current folder, then the tool folder; env AQT_HOME)
                   --banks <dir>       override the bank profiles folder
                   --scenarios <dir>   override the scenarios folder
+                  --db <connection>   PostgreSQL store (env AQT_DB); 'run' saves results there when set.
+                                      'db' commands default to the docker-compose database (localhost:5435)
 
                 Testing without a bank:
                   aqt run --bank MOCK --with-mock --sca-auto

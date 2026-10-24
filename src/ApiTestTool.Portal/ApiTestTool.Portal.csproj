@@ -8,6 +8,7 @@
   <ItemGroup>
     <ProjectReference Include="..\ApiTestTool.Engine\ApiTestTool.Engine.csproj" />
     <ProjectReference Include="..\ApiTestTool.MockBank\ApiTestTool.MockBank.csproj" />
+    <ProjectReference Include="..\ApiTestTool.Store\ApiTestTool.Store.csproj" />
   </ItemGroup>
 
   <!-- Bank profiles and scenarios next to the published portal (overridable with ApiTestTool:Root). -->

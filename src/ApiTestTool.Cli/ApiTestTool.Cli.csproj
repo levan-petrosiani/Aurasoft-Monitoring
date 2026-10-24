@@ -11,6 +11,8 @@
     <ProjectReference Include="..\ApiTestTool.Engine\ApiTestTool.Engine.csproj" />
     <!-- Lets "aqt mock" and "aqt run with-mock" host MockBank in-process (one IDE launch is enough). -->
     <ProjectReference Include="..\ApiTestTool.MockBank\ApiTestTool.MockBank.csproj" />
+    <ProjectReference Include="..\ApiTestTool.Store\ApiTestTool.Store.csproj" />
+    <ProjectReference Include="..\ApiTestTool.AI\ApiTestTool.AI.csproj" />
   </ItemGroup>
 
   <ItemGroup>

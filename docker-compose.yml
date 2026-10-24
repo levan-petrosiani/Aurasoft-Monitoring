@@ -1,0 +1,25 @@
+# Local PostgreSQL for ApiTestTool (event store, AI audit log; pgvector for clause search in Phase 2).
+#   docker compose up -d
+# Port 5435 on localhost only (5432-5434 are often taken by other local databases).
+# The password is a local development default — never reuse it outside your machine.
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: aqt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aqt
+      POSTGRES_USER: aqt
+      POSTGRES_PASSWORD: aqt_dev
+    ports:
+      - "127.0.0.1:5435:5432"
+    volumes:
+      - aqt-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aqt -d aqt"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  aqt-pgdata:

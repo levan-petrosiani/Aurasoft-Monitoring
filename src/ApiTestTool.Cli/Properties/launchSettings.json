@@ -5,6 +5,11 @@
       "commandName": "Project",
       "commandLineArgs": "run --bank MOCK --with-mock --sca-auto --verbose"
     },
+    "aqt: MOCK - all suites (save to store)": {
+      "commandName": "Project",
+      "commandLineArgs": "run --bank MOCK --with-mock --sca-auto --verbose",
+      "environmentVariables": { "AQT_DB": "Host=localhost;Port=5435;Database=aqt;Username=aqt;Password=aqt_dev" }
+    },
     "aqt: MOCK - preflight": {
       "commandName": "Project",
       "commandLineArgs": "run --bank MOCK --with-mock --suite preflight --verbose"
@@ -24,6 +29,23 @@
     "aqt: mock bank only": {
       "commandName": "Project",
       "commandLineArgs": "mock"
+    },
+    "aqt: db migrate": {
+      "commandName": "Project",
+      "commandLineArgs": "db migrate"
+    },
+    "aqt: db import reports": {
+      "commandName": "Project",
+      "commandLineArgs": "db import reports"
+    },
+    "aqt: db status": {
+      "commandName": "Project",
+      "commandLineArgs": "db status"
+    },
+    "aqt: ai check": {
+      "commandName": "Project",
+      "commandLineArgs": "ai check",
+      "environmentVariables": { "AQT_DB": "Host=localhost;Port=5435;Database=aqt;Username=aqt;Password=aqt_dev" }
     },
     "aqt: validate": {
       "commandName": "Project",
