@@ -247,6 +247,11 @@ class OAuthCallbackListener:
             try:
                 if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
                     s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                else:
+                    # macOS/Linux: the previous SCA step's connection may still be in TIME_WAIT on this port; without
+                    # SO_REUSEADDR the next scenario's listener fails with "Address already in use". It still does not
+                    # allow two active listeners (unlike SO_REUSEPORT).
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.bind((address, port))
                 s.listen(8)
                 self._sockets.append(s)

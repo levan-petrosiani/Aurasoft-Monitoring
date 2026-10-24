@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["headline", "health", "findings", "attention"],
+  "properties": {
+    "headline": { "type": "string" },
+    "health": { "type": "string", "enum": ["healthy", "degraded", "broken", "inconclusive"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "side", "severity", "scenarios", "explanation", "evidence", "specRef", "nextStep"],
+        "properties": {
+          "title": { "type": "string" },
+          "side": { "type": "string", "enum": ["bank", "our-side", "environment", "unclear"] },
+          "severity": { "type": "string", "enum": ["Critical", "Major", "Minor", "Info"] },
+          "scenarios": { "type": "array", "items": { "type": "string" } },
+          "explanation": { "type": "string" },
+          "evidence": { "type": "string" },
+          "specRef": { "type": "string" },
+          "nextStep": { "type": "string" }
+        }
+      }
+    },
+    "attention": { "type": "array", "items": { "type": "string" } }
+  }
+}

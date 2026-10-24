@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rules", "skipped"],
+  "properties": {
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "level", "service", "area", "requirement", "quote", "quoteEnglish", "operation", "check", "notes"],
+        "properties": {
+          "title": { "type": "string" },
+          "level": { "type": "string", "enum": ["MUST", "SHOULD", "MAY"] },
+          "service": { "type": "string", "enum": ["AIS", "PIS", "COMMON"] },
+          "area": { "type": "string", "enum": ["CON", "ACC", "TRX", "PIS", "PST", "PCN", "SBK", "AUTH", "SIG", "TLS", "ERR", "HDR", "GEN"] },
+          "requirement": { "type": "string" },
+          "quote": { "type": "string" },
+          "quoteEnglish": { "type": "string" },
+          "operation": { "type": "string" },
+          "check": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "description", "expectStatus", "expectErrorCodes"],
+            "properties": {
+              "kind": { "type": "string", "enum": ["negative", "positive", "header", "signature", "flow", "manual"] },
+              "description": { "type": "string" },
+              "expectStatus": { "type": "array", "items": { "type": "integer" } },
+              "expectErrorCodes": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "skipped": { "type": "string" }
+  }
+}
