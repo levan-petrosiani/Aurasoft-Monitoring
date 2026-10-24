@@ -253,3 +253,7 @@ details.log pre { margin-top: 8px; }
 .rule-edit .row { display: grid; grid-template-columns: 1fr 160px; gap: 12px; }
 .reject-row { display: inline-flex; gap: 6px; align-items: center; }
 .rule-foot { margin: 6px 0 0; }
+.review-help { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; margin: 8px 0 12px; }
+.review-help summary { cursor: pointer; font-weight: 600; }
+.review-help ol { margin: 6px 0; padding-left: 20px; }
+.review-help li { margin: 3px 0; }

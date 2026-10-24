@@ -6,6 +6,8 @@ every response checked against the standard. .NET 10, C#, data-driven by YAML. H
 
 - `README.md` — user manual · `docs/ai/PLAN.md` — AI layer plan and decisions
 - `ARCHITECTURE.md` — Mermaid snapshot of the current system; **update it at the end of every phase**
+- `docs/ai/REVIEW-GUIDE.md` — how reviewers approve/edit/reject rules; keep it in sync with the rule checks and the
+  Rules page's "How to review" box
 - `NOTE.md` — work journal; **append an entry for every step**: what was done and why (newest at the bottom)
 
 ## Commands

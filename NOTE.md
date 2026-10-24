@@ -388,3 +388,12 @@ review workflow and guards, stale review, export as valid YAML. Store test: hybr
 - The rule edit form uses the same `label.field` layout as New run.
 - Clause text in the normal font (the monospace font made Georgian hard to read).
 **Verified:** headless-Chrome screenshots of Rules, Standards and New run in dark mode, and Rules in light mode.
+
+## 2026-10-24 · 30. Review guide for non-specialist reviewers
+
+**What:** `docs/ai/REVIEW-GUIDE.md` (glossary, what the tool already checked, five questions, decision table, worked
+examples from the first five drafts) and a collapsible **How to review** box on the Rules page. Linked from the README,
+`rules/README.md` and `CLAUDE.md`.
+**Why:** the user, who reviews for now, asked how to decide. Staff will review later, and the checklist should sit where
+the decision is made. Writing it down also corrected my earlier advice: BG-CON-001 and 002 have the same flaw as
+003 (they describe request formats, not duties of the bank), so all three should be rejected, not just 003.

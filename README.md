@@ -85,7 +85,7 @@ dotnet run --project src/ApiTestTool.Cli -- db status
   is stored as `invalid`), a level not backed by the quote's wording is flagged, and near-duplicates (same meaning
   *and* same fields/codes) are flagged. A person approves, edits or rejects each draft in the portal (**Standards** and
   **Rules** pages, with the reviewer's name recorded) or with `aqt rules approve|reject`; `aqt rules export` writes
-  approved rules to `rules/` for git.
+  approved rules to `rules/` for git. How to decide: [docs/ai/REVIEW-GUIDE.md](docs/ai/REVIEW-GUIDE.md).
 
   ```bash
   dotnet run --project src/ApiTestTool.Cli -- standards fetch      # download + verify SHA-256 (files are not committed)
