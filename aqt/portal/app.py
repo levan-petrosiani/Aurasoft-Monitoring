@@ -5,7 +5,10 @@ Live progress is polled by the run page; everything else is plain server-rendere
 
 import os
 
-from flask import Flask, abort, redirect, render_template, request, send_file, url_for
+from types import SimpleNamespace
+from urllib.parse import urlencode, urlsplit
+
+from flask import Flask, abort, make_response, redirect, render_template, request, send_file, url_for
 
 from ..errors import ConfigurationError
 from ..reporting import pretty_json
@@ -42,15 +45,39 @@ def local_time(dt, fmt="%Y-%m-%d %H:%M:%S") -> str:
     return dt.astimezone().strftime(fmt) if dt else ""
 
 
-def create_app(root: str | None = None, data_directory: str | None = None, mock_xs2a_url: str = "https://localhost:7443/") -> Flask:
+_REVIEWER_COOKIE = "aqt_reviewer"
+
+
+def _local_path(url: str | None, default: str) -> str:
+    """Only redirect back to a path on this portal."""
+    if not url:
+        return default
+    parts = urlsplit(url)
+    return url if not parts.scheme and not parts.netloc and url.startswith("/") else default
+
+
+def create_app(root: str | None = None, data_directory: str | None = None, mock_xs2a_url: str = "https://localhost:7443/",
+               database: str | None = None, use_database: bool = True, auto_summarize: bool = False) -> Flask:
     root = root or os.environ.get("AQT_HOME") or _REPO_ROOT
     data_directory = data_directory or os.path.join(root, "reports", "portal-python")
 
     app = Flask(__name__)
     catalog = CatalogService(root)
     mock_bank = MockBankService(mock_xs2a_url)
-    runs = RunService(catalog, mock_bank, data_directory)
-    app.config.update(catalog=catalog, mock_bank=mock_bank, runs=runs)
+
+    # Store and AI layer (optional): runs are also written to PostgreSQL; AI summary, Standards and Rules pages.
+    ai, ai_problem = None, "The store and AI pages are off (the portal was started with --no-db)."
+    if use_database:
+        from .ai_services import try_create
+        recorder, summaries, rules, ai_problem = try_create(database or os.environ.get("AQT_DB"), root, auto_summarize)
+        if recorder is not None:
+            ai = SimpleNamespace(recorder=recorder, summaries=summaries, rules=rules, store=recorder.store)
+    runs = RunService(catalog, mock_bank, data_directory, ai.recorder if ai else None, ai.summaries if ai else None)
+    app.config.update(catalog=catalog, mock_bank=mock_bank, runs=runs, ai=ai, ai_problem=ai_problem)
+
+    @app.context_processor
+    def ai_context():
+        return {"ai": ai, "ai_problem": ai_problem, "reviewer": request.cookies.get(_REVIEWER_COOKIE, "")}
 
     app.jinja_env.globals.update(badge_css=badge_css, local_time=local_time, format_rate=format_rate,
                                  Outcome=Outcome, COMPLETED=COMPLETED, pretty_json=pretty_json)
@@ -129,8 +156,157 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
         shown = [s for s in completed if filter_ == "All" or s.outcome != Outcome.PASSED]
         template = "run_live.html" if request.args.get("fragment") else "run_detail.html"
         progress = 3 if run.total_scenarios == 0 else max(3, 100 * len(completed) // run.total_scenarios)
+        summary_row = summary = None
+        if ai is not None and not run.is_active:
+            from ..ai.summaries import RunSummary
+            summary_row = ai.summaries.latest(run_id)
+            summary = RunSummary.from_json(summary_row.summary_json) if summary_row and summary_row.summary_json else None
         return render_template(template, page="runs", run=run, r=run.record, completed=completed, shown=shown,
-                               filter=filter_, rate=format_rate(pass_rate(completed)), progress=progress)
+                               filter=filter_, rate=format_rate(pass_rate(completed)), progress=progress,
+                               summary_row=summary_row, summary=summary)
+
+    @app.post("/runs/<run_id>/summarize")
+    def run_summarize(run_id):
+        if ai is None or runs.get(run_id) is None:
+            abort(404)
+        provider = request.form.get("provider", "anthropic")
+        if provider not in ("anthropic", "ollama"):
+            abort(400)
+        ai.summaries.start(run_id, provider, f"{request.cookies.get(_REVIEWER_COOKIE) or 'someone'} (portal)")
+        return redirect(url_for("run_detail", run_id=run_id) + "#ai-summary")
+
+    # ---- reviewer, standards, rules (store + AI layer) ----------------------------------------------------------
+
+    @app.post("/reviewer")
+    def set_reviewer():
+        response = make_response(redirect(_local_path(request.form.get("next"), "/rules")))
+        name = (request.form.get("name") or "").strip()
+        if name:
+            response.set_cookie(_REVIEWER_COOKIE, name, max_age=365 * 24 * 3600, samesite="Lax")
+        else:
+            response.delete_cookie(_REVIEWER_COOKIE)
+        return response
+
+    def _errors():
+        return {request.args.get("rule"): request.args.get("error")} if request.args.get("error") else {}
+
+    @app.get("/standards")
+    def standards_page():
+        context = {"page": "standards", "docs": [], "doc": None, "outline": [], "rule_counts": {}, "clause": None,
+                   "ancestors": [], "clause_rules": [], "hits": None, "q": request.args.get("q"), "drafting": None,
+                   "last": None, "errors": _errors(), "edit": request.args.get("edit")}
+        if ai is None:
+            return render_template("standards.html", **context)
+        store = ai.store
+        docs = store.list_standards()
+        key = request.args.get("clause")
+        wanted = request.args.get("doc") or (key.rsplit(":", 1)[0] if key else None)
+        doc = next((d for d in docs if wanted == f"{d.id}:{d.version}"), docs[0] if docs else None)
+        counts = {}
+        for r in store.list_rules():
+            if r.status in ("draft", "approved"):
+                counts[r.clause_key] = counts.get(r.clause_key, 0) + 1
+        context.update(docs=docs, doc=doc, rule_counts=counts, outline=store.get_outline(doc.id, doc.version) if doc else [])
+        if context["q"]:
+            context["hits"] = ai.rules.search(context["q"])
+        if key:
+            clause = store.get_clause(key)
+            if clause:
+                context.update(clause=clause, ancestors=store.get_ancestors(clause), clause_rules=store.list_rules(clause_key=key),
+                               drafting=ai.rules.drafting_provider(key), last=ai.rules.last_draft(key))
+        return render_template("standards.html", **context)
+
+    @app.post("/standards/draft")
+    def standards_draft():
+        if ai is None:
+            abort(404)
+        key, provider = request.form.get("clause", ""), request.form.get("provider", "anthropic")
+        reviewer = request.cookies.get(_REVIEWER_COOKIE)
+        if provider in ("anthropic", "ollama") and reviewer and ai.store.get_clause(key):
+            ai.rules.start_draft(key, provider, f"{reviewer} (portal)")
+        return redirect("/standards?" + urlencode({"clause": key}) + "#std-main")
+
+    @app.get("/rules")
+    def rules_page():
+        status, standard = request.args.get("status", "draft"), request.args.get("standard", "")
+        context = {"page": "rules", "shown": [], "counts": {}, "standards": [], "status": status, "standard": standard,
+                   "message": request.args.get("message"), "errors": _errors(), "edit": request.args.get("edit"),
+                   "rules_directory": ""}
+        if ai is None:
+            return render_template("rules.html", **context)
+        every = ai.store.list_rules()
+        counts = {s: sum(r.status == s for r in every) for s in ("draft", "approved", "rejected", "invalid", "retired")}
+        counts["all"] = len(every)
+        context.update(counts=counts, standards=sorted({r.standard for r in every}), rules_directory=ai.rules.rules_directory,
+                       shown=[r for r in every if (status == "all" or r.status == status) and (not standard or r.standard == standard)])
+        return render_template("rules.html", **context)
+
+    def _review(rule_id: str, action, back: str):
+        reviewer = request.cookies.get(_REVIEWER_COOKIE)
+        error = "Enter your name at the top to review." if not reviewer else ai.rules.review(lambda book: action(book, reviewer))
+        back = back.split("#")[0]
+        # Back to the list without the edit/error state of the previous action.
+        base, _, query = back.partition("?")
+        kept = [p for p in query.split("&") if p and p.split("=")[0] not in ("edit", "rule", "error")]
+        if error:
+            kept.append(urlencode({"rule": rule_id, "error": error}))
+        return redirect(base + ("?" + "&".join(kept) if kept else "") + f"#rule-{rule_id}")
+
+    def _back():
+        return _local_path(request.form.get("back"), "/rules")
+
+    @app.post("/rules/<rule_id>/approve")
+    def rule_approve(rule_id):
+        if ai is None:
+            abort(404)
+        return _review(rule_id, lambda book, who: book.approve(rule_id, who), _back())
+
+    @app.post("/rules/<rule_id>/reject")
+    def rule_reject(rule_id):
+        if ai is None:
+            abort(404)
+        return _review(rule_id, lambda book, who: book.reject(rule_id, who, request.form.get("note", "")), _back())
+
+    @app.post("/rules/<rule_id>/reopen")
+    def rule_reopen(rule_id):
+        if ai is None:
+            abort(404)
+        return _review(rule_id, lambda book, who: book.reopen(rule_id, who), _back())
+
+    @app.post("/rules/<rule_id>/edit")
+    def rule_edit(rule_id):
+        if ai is None:
+            abort(404)
+        from ..ai.rules import RuleEdit
+        rule = ai.store.get_rule(rule_id)
+        if rule is None:
+            abort(404)
+        f = request.form
+
+        def changed(name, current):
+            value = f.get(name)
+            return None if value is None or value.strip() == (current or "").strip() else value.strip()
+
+        check = dict(rule.check_json or {})
+        statuses = [int(x) for x in (f.get("expect_status") or "").replace(" ", "").split(",") if x.isdigit()]
+        codes = [x.strip() for x in (f.get("expect_codes") or "").split(",") if x.strip()]
+        check_changed = statuses != check.get("expectStatus", []) or codes != check.get("expectErrorCodes", [])
+        check.update(expectStatus=statuses, expectErrorCodes=codes)
+        edit = RuleEdit(title=changed("title", rule.title), level=changed("level", rule.level),
+                        service=changed("service", rule.service), area=changed("area", rule.area),
+                        requirement=changed("requirement", rule.requirement), quote=changed("quote", rule.quote),
+                        quote_english=changed("quote_english", rule.quote_english), operation=changed("operation", rule.operation),
+                        check_json=check if check_changed else None)
+        return _review(rule_id, lambda book, who: book.edit(rule_id, who, edit), _back())
+
+    @app.post("/rules/export")
+    def rules_export():
+        if ai is None:
+            abort(404)
+        written, removed = ai.rules.export()
+        return redirect("/rules?" + urlencode({"message": f"{written} approved rule(s) written to {ai.rules.rules_directory}, "
+                                                          f"{removed} stale file(s) removed. Commit them to keep the history in git."}))
+
 
     @app.post("/runs/<run_id>/cancel")
     def run_cancel(run_id):
@@ -183,13 +359,15 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
 
 
 def run_portal(cli) -> int:
-    """aqt portal [--port 5280] [--root dir] [--data dir]"""
+    """aqt portal [--port 5280] [--root dir] [--data dir] [--db connection | --no-db] [--auto-summarize]"""
     port = int(cli.get("port") or 5280)
-    app = create_app(cli.get("root"), cli.get("data"))
+    app = create_app(cli.get("root"), cli.get("data"), database=cli.get("db"), use_database=not cli.has("no-db"),
+                     auto_summarize=cli.has("auto-summarize"))
     runs: RunService = app.config["runs"]
     print(f"API Test Portal (Python): http://localhost:{port}/")
     print(f"  banks/scenarios from {app.config['catalog'].root_directory}")
     print(f"  runs stored in {runs.data_directory}")
+    print(f"  store and AI pages: {'on' if app.config['ai'] else 'off - ' + app.config['ai_problem']}")
     print("  Press Ctrl+C to stop.", flush=True)
     try:
         # Local tool: listens on the loopback interface only and has no login of its own.

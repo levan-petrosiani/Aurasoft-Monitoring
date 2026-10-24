@@ -21,7 +21,7 @@ SUCCESS = 0
 TESTS_FAILED = 1
 CONFIGURATION_ERROR = 2
 
-_FLAGS = {"verbose", "no-preflight-gate", "sca-auto", "with-mock", "replace", "show-input", "no-embed"}
+_FLAGS = {"verbose", "no-preflight-gate", "sca-auto", "with-mock", "replace", "show-input", "no-embed", "no-db", "auto-summarize"}
 
 # Folder that holds banks/ and scenarios/ next to this Python package (the repository root).
 _TOOL_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -372,7 +372,7 @@ Usage:
   aqt run --bank <BIC|profile.yaml> [--suite a,b] [--scenario ID,ID] [--report html,json,junit] [--out dir] [--verbose] [--no-preflight-gate]
           [--sca-auto] [--wait <seconds>] [--with-mock]
   aqt mock                     run MockBank (a fake bank) until Ctrl+C
-  aqt portal [--port 5280]     run the web portal
+  aqt portal [--port 5280] [--db conn | --no-db] [--auto-summarize]   run the web portal (store/AI pages need the database)
   aqt list banks|scenarios [--suite name]
   aqt validate
   aqt version

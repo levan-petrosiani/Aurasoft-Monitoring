@@ -33,8 +33,8 @@ class StandardSource:
     @staticmethod
     def from_dict(d: dict) -> "StandardSource":
         return StandardSource(
-            id=d["id"], title=d.get("title", ""), version=str(d["version"]), url=d.get("url", ""), file=d["file"],
-            sha256=d.get("sha256", ""), language=d.get("language", "en"), format=d.get("format", "pdf"),
+            id=str(d["id"]), title=d.get("title", ""), version=str(d["version"]), url=d.get("url", ""), file=str(d["file"]),
+            sha256=str(d.get("sha256", "")),  # YAML reads an all-digit hash as a number language=d.get("language", "en"), format=d.get("format", "pdf"),
             publisher=d.get("publisher"), published=str(d["published"]) if d.get("published") else None,
             page=d.get("page"), license=d.get("license"), page_furniture=list(d.get("pageFurniture") or []),
             titles={str(k): v for k, v in (d.get("titles") or {}).items()})

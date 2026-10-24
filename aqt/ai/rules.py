@@ -42,8 +42,8 @@ SYSTEM_PROMPT = _prompt("rule_drafting.txt") + _prompt("rule_drafts.schema.json"
 # ---- normative level -------------------------------------------------------------------------------------------
 
 # RFC 2119 keywords in English and their usual equivalents in the Georgian guides. "MUST NOT"/"is not allowed" are MUST.
-# (?<!არა) keeps "არასავალდებულო" (optional) from counting as "სავალდებულო" (mandatory).
-_MUST = re.compile(r"\b(must|shall|required|mandatory|has to|have to|is not allowed|not permitted)\b|აუცილებელ|უნდა|(?<!არა)სავალდებულო|ვალდებულ|დაუშვებელ|აკრძალულ", re.I)
+# The lookbehinds keep "არასავალდებულო" (optional) from counting as "სავალდებულო"/"ვალდებულ" (mandatory/obliged).
+_MUST = re.compile(r"\b(must|shall|required|mandatory|has to|have to|is not allowed|not permitted)\b|აუცილებელ|უნდა|(?<!არა)სავალდებულო|(?<!არასა)ვალდებულ|დაუშვებელ|აკრძალულ", re.I)
 _SHOULD = re.compile(r"\b(should|recommended)\b|უმჯობესია|რეკომენდებ|სასურველია", re.I)
 _MAY = re.compile(r"\b(may|optional|optionally|can)\b|შეიძლება|შესაძლებელ|უფლება აქვს|არასავალდებულო", re.I)
 

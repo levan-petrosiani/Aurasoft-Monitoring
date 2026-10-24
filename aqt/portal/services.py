@@ -246,9 +246,12 @@ class PortalRun:
 
 
 class RunService:
-    def __init__(self, catalog: CatalogService, mock_bank: MockBankService, data_directory: str):
+    def __init__(self, catalog: CatalogService, mock_bank: MockBankService, data_directory: str, recorder=None, summaries=None):
         self._catalog = catalog
         self._mock_bank = mock_bank
+        # Optional (ai_services): runs and events are also written to PostgreSQL; completed runs can be summarized.
+        self._recorder = recorder
+        self._summaries = summaries
         self.data_directory = os.path.abspath(data_directory)
         os.makedirs(self.data_directory, exist_ok=True)
         self._runs: dict[str, PortalRun] = {}
@@ -279,6 +282,9 @@ class RunService:
         with self._lock:
             self._runs[run.id] = run
         self._save(run)
+        if self._recorder:
+            self._recorder.save_run(run, self.run_directory(run.id))
+            self._recorder.event("run.queued", f"{record.bank_name} ({profile.bank.bic}) queued", run.id, data=request.to_dict())
         self._queue.put(run)
         return run
 
@@ -294,6 +300,9 @@ class RunService:
         with self._lock:
             self._runs.pop(run_id, None)
         shutil.rmtree(self.run_directory(run_id), ignore_errors=True)
+        if self._recorder:
+            self._recorder.delete_run(run_id)
+            self._recorder.event("run.deleted", f"Run {run_id} deleted by the user", run_id)
         return True
 
     def _worker(self):
@@ -319,6 +328,9 @@ class RunService:
         run.record.status = RUNNING
         run.record.started_utc = utc_now()
         self._save(run)
+        if self._recorder:
+            self._recorder.save_run(run, self.run_directory(run.id))
+            self._recorder.event("run.started", f"Run started ({request.bank})", run.id)
 
         profile = self._catalog.load_bank(request.bank)
         all_scenarios = self._catalog.get_scenarios()
@@ -362,6 +374,10 @@ class RunService:
             def completed(s):
                 run.login_url = None
                 run.add_completed(s)
+                if self._recorder:
+                    self._recorder.event("scenario.completed", f"{s.id} {s.outcome.value}{'' if s.reason is None else ': ' + s.reason}",
+                                         run.id, self._recorder.level(s.outcome),
+                                         {"scenario": s.id, "outcome": s.outcome.value, "durationMs": s.duration_ms})
 
             runner.scenario_started.append(started)
             runner.scenario_completed.append(completed)
@@ -390,6 +406,15 @@ class RunService:
             record.blocked, record.skipped, record.pass_rate = r.count(Outcome.BLOCKED), r.count(Outcome.SKIPPED), r.pass_rate
 
         self._save(run)
+        if self._recorder:
+            self._recorder.save_run(run, self.run_directory(run.id))
+            ok = status == COMPLETED and record.failed + record.errors == 0
+            self._recorder.event(f"run.{status.lower()}", error or f"{record.passed} passed, {record.failed} failed, "
+                                 f"{record.errors} errors, {record.skipped} skipped", run.id,
+                                 "Info" if ok else ("Error" if status == FAILED else "Warning"))
+            if status == COMPLETED and self._summaries is not None and self._summaries.auto_summarize:
+                summaries = self._summaries
+                self._recorder.then(f"auto-summary {run.id}", lambda: summaries.start(run.id, summaries.auto_provider, "auto (portal)"))
 
     def _save(self, run: PortalRun):
         directory = self.run_directory(run.id)

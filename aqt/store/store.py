@@ -232,6 +232,7 @@ class AqtStore:
     def replace_standard(self, document: StandardDocumentRow, clauses: list[ClauseRow]) -> list[int]:
         """Replaces a document's clauses (rules reference clauses by key, so they survive a re-ingest). Returns ids."""
         ids = []
+        document.ingested_utc = document.ingested_utc or utc_now()
         with self.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM clauses WHERE standard = %s AND version = %s", (document.id, document.version))

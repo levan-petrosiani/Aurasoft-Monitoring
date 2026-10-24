@@ -264,10 +264,15 @@ class RunSummary:
                     notes.append(f'Cleared clause "{f.spec_ref}" in "{f.title}": no scenario in this run references it.')
                     f.spec_ref = ""
 
-        # Findings are for problems. One that only names passed/skipped scenarios is a warning: move it to attention.
+        # Findings are for problems. One that only names skipped scenarios is dropped (a skip is expected, never a
+        # problem); one that names passed (and skipped) scenarios is a warning: moved to attention.
         for f in [f for f in self.findings if f.scenarios and all(digest.outcomes.get(s.lower()) in ("Passed", "Skipped") for s in f.scenarios)]:
             self.findings.remove(f)
-            self.attention.append(f"{', '.join(f.scenarios)}: {f.title}")
+            if all(digest.outcomes.get(s.lower()) == "Skipped" for s in f.scenarios):
+                notes.append(f'Removed "{f.title}": it is only about skipped scenarios, which are expected.')
+                continue
+            passed = [s for s in f.scenarios if digest.outcomes.get(s.lower()) == "Passed"]
+            self.attention.append(f"{', '.join(passed)}: {f.title}")
             notes.append(f'Moved "{f.title}" to warnings: its scenarios passed.')
 
         self.comparison = digest.comparison

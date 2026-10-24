@@ -1,0 +1,120 @@
+{# Shared markup of the Standards and Rules pages. #}
+
+{% macro reviewer_field(reviewer, next_url) %}
+{# The portal has no login yet: reviewers type their name once; it is kept in a cookie and recorded with every review. #}
+<form class="reviewer" method="post" action="/reviewer">
+    <label class="label" for="reviewer">Reviewing as</label>
+    <input id="reviewer" name="name" class="input-inline" placeholder="Your name" value="{{ reviewer or '' }}" onchange="this.form.submit()" />
+    <input type="hidden" name="next" value="{{ next_url }}" />
+</form>
+{% endmacro %}
+
+{% macro rule_card(rule, reviewer, back, error=None, editing=False) %}
+{% set status_css = {'approved': 'pass', 'rejected': 'fail', 'invalid': 'fail', 'draft': 'queued'}.get(rule.status, 'error') %}
+<div class="rule-card rule-{{ rule.status }}" id="rule-{{ rule.id }}">
+    <div class="rule-head">
+        <code class="rule-id">{{ rule.id }}</code>
+        <span class="badge badge-{{ status_css }}">{{ rule.status }}</span>
+        <span class="chip">{{ rule.level }}</span>
+        <span class="chip">{{ rule.service }}</span>
+        <span class="chip">{{ rule.area }}</span>
+        <b>{{ rule.title }}</b>
+    </div>
+
+    {% if editing %}
+    <form class="form rule-edit" method="post" action="/rules/{{ rule.id }}/edit">
+        <input type="hidden" name="back" value="{{ back }}" />
+        <div class="row">
+            <label class="field"><span>Title</span><input class="input" name="title" value="{{ rule.title }}" /></label>
+            <label class="field"><span>Level</span>
+                <select class="input" name="level">{% for l in ['MUST', 'SHOULD', 'MAY'] %}<option {{ 'selected' if l == rule.level }}>{{ l }}</option>{% endfor %}</select>
+            </label>
+        </div>
+        <div class="row">
+            <label class="field"><span>Service</span>
+                <select class="input" name="service">{% for v in ['AIS', 'PIS', 'COMMON'] %}<option {{ 'selected' if v == rule.service }}>{{ v }}</option>{% endfor %}</select>
+            </label>
+            <label class="field"><span>Area</span>
+                <select class="input" name="area">{% for v in ['CON', 'ACC', 'TRX', 'PIS', 'PST', 'PCN', 'SBK', 'AUTH', 'SIG', 'TLS', 'ERR', 'HDR', 'GEN'] %}<option {{ 'selected' if v == rule.area }}>{{ v }}</option>{% endfor %}</select>
+            </label>
+        </div>
+        <label class="field"><span>Requirement <span class="hint">what the bank's API does</span></span>
+            <textarea rows="3" name="requirement">{{ rule.requirement }}</textarea></label>
+        <label class="field"><span>Quote <span class="hint">verbatim from the clause; checked again on save</span></span>
+            <textarea rows="4" name="quote">{{ rule.quote }}</textarea></label>
+        {% if rule.quote_english %}
+        <label class="field"><span>Quote in English <span class="hint">AI translation</span></span>
+            <textarea rows="3" name="quote_english">{{ rule.quote_english }}</textarea></label>
+        {% endif %}
+        <label class="field"><span>Operation</span><input class="input" name="operation" placeholder="e.g. POST /v2/consents/account-access" value="{{ rule.operation or '' }}" /></label>
+        <div class="row">
+            <label class="field"><span>Expected status <span class="hint">comma-separated</span></span>
+                <input class="input" name="expect_status" value="{{ (rule.check_json or {}).get('expectStatus', []) | join(', ') }}" /></label>
+            <label class="field"><span>Expected error codes</span>
+                <input class="input" name="expect_codes" value="{{ (rule.check_json or {}).get('expectErrorCodes', []) | join(', ') }}" /></label>
+        </div>
+        <div class="actions">
+            <button class="btn btn-small btn-primary">Save</button>
+            <a class="btn btn-small btn-ghost" href="{{ back }}#rule-{{ rule.id }}">Cancel</a>
+        </div>
+    </form>
+    {% else %}
+    <p class="rule-req">{{ rule.requirement }}</p>
+    <blockquote class="rule-quote">
+        <div>“{{ rule.quote }}”</div>
+        {% if rule.quote_english %}<div class="muted small">EN (AI translation): “{{ rule.quote_english }}”</div>{% endif %}
+        <div class="small"><a href="/standards?clause={{ rule.clause_key | urlencode }}">{{ rule.standard }} {{ rule.version }} · {{ rule.clause_number }}</a></div>
+    </blockquote>
+    {% set check = rule.check_json or {} %}
+    <div class="small">
+        {% if rule.operation %}<span><span class="label">Operation</span> <code>{{ rule.operation }}</code></span>{% endif %}
+        {% if check %}
+        <div><span class="label">Check</span> {{ check.get('kind') }}: {{ check.get('description') }}
+            {% if check.get('expectStatus') %}<code>{{ check.get('expectStatus') | join('/') }}</code>{% endif %}
+            {% for c in check.get('expectErrorCodes') or [] %}<code>{{ c }}</code> {% endfor %}
+        </div>
+        {% endif %}
+        {% if rule.notes %}<div><span class="label">Model's notes</span> {{ rule.notes }}</div>{% endif %}
+    </div>
+    <ul class="rule-checks small">
+        {% for n in rule.check_notes %}
+        <li class="{{ 'note-ok' if n.startswith('Quote found') or n.startswith('Quote fixed') else ('note-fail' if n.startswith('Quote check failed') else 'note-warn') }}">{{ n }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if error %}<div class="alert alert-fail small">{{ error }}</div>{% endif %}
+
+    {% if not editing %}
+    <div class="actions">
+        {% set disabled = '' if reviewer else 'disabled' %}
+        {% if rule.status == 'draft' %}
+        <form method="post" action="/rules/{{ rule.id }}/approve" style="display:inline"><input type="hidden" name="back" value="{{ back }}" />
+            <button class="btn btn-small btn-primary" {{ disabled }}>Approve</button></form>
+        {% endif %}
+        {% if rule.status in ['draft', 'invalid'] %}
+        {% if reviewer %}
+        <a class="btn btn-small btn-ghost" href="{{ back.split('#')[0] }}{{ '&' if '?' in back else '?' }}edit={{ rule.id }}#rule-{{ rule.id }}">Edit</a>
+        {% else %}
+        <button class="btn btn-small btn-ghost" disabled>Edit</button>
+        {% endif %}
+        {% endif %}
+        {% if rule.status in ['draft', 'approved'] %}
+        <form class="reject-row" method="post" action="/rules/{{ rule.id }}/reject"><input type="hidden" name="back" value="{{ back }}" />
+            <input class="input-inline" name="note" placeholder="Reason for rejecting" />
+            <button class="btn btn-small btn-ghost btn-danger" {{ disabled }}>Reject</button></form>
+        {% endif %}
+        {% if rule.status in ['approved', 'rejected'] %}
+        <form method="post" action="/rules/{{ rule.id }}/reopen" style="display:inline"><input type="hidden" name="back" value="{{ back }}" />
+            <button class="btn btn-small btn-ghost" {{ disabled }}>Reopen</button></form>
+        {% endif %}
+        {% if not reviewer %}<span class="muted small">Enter your name at the top to review.</span>{% endif %}
+    </div>
+    {% endif %}
+
+    <p class="muted small rule-foot">
+        drafted by {{ rule.drafted_by }}{{ ' (' ~ rule.model ~ ')' if rule.model }} · {{ local_time(rule.created_utc, '%Y-%m-%d %H:%M') }}
+        {% if rule.reviewed_by %}<span> · {{ rule.status }} by <b>{{ rule.reviewed_by }}</b> {{ local_time(rule.reviewed_utc, '%Y-%m-%d %H:%M') }}{{ ': ' ~ rule.review_note if rule.review_note }}</span>{% endif %}
+    </p>
+</div>
+{% endmacro %}

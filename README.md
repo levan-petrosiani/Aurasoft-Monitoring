@@ -7,7 +7,8 @@ and every response checked against what the standard expects.
 - **Python:** Python 3.11+, only public PyPI packages (PyYAML, cryptography, pyOpenSSL, Flask; pytest for tests).
   The tool was first written in C#/.NET; this repository now holds the Python implementation (see
   [Moved from C#](#moved-from-c) for what changed).
-- **Standalone:** no database, no AltaSoft server models.
+- **Standalone:** no AltaSoft server models. The core tool needs no database; the optional store/AI layer
+  (`pip install -e .[ai]`) adds PostgreSQL, AI run summaries and rules drafted from the standards.
 - **Data-driven:** banks are YAML profiles in `banks/`, tests are YAML scenarios in `scenarios/`.
 
 ## Setup
@@ -16,6 +17,7 @@ and every response checked against what the standard expects.
 python -m venv .venv
 .venv\Scripts\activate            # Linux/macOS: source .venv/bin/activate
 pip install -e .[test]
+pip install -e .[ai]               # optional: store (PostgreSQL), standards, AI (Claude / local Ollama)
 ```
 
 This installs the `aqt` command (`python -m aqt` works too). Run it from the repository root: it finds `banks/` and
@@ -26,7 +28,11 @@ This installs the `aqt` command (`python -m aqt` works too). Run it from the rep
 | `aqt/` | Engine: YAML loading (`yamljson`, `binding`, `profiles`, `scenarios`), runner (`runner`, `steps`, `variables`, `jsonpath`), `signing`, `certificates`, `oauth`, `httpclient`, `reporting` |
 | `aqt/cli.py` | `aqt` command line |
 | `aqt/mockbank/` | In-memory fake ASPSP enforcing real XS2A checks |
-| `aqt/portal/` | Web portal (Flask) |
+| `aqt/portal/` | Web portal (Flask); `ai_services.py` adds the store writes, AI summary, Standards and Rules pages |
+| `aqt/store/` | PostgreSQL store: schema migrations, `masking` (secrets/IBANs), run import, clause and rule queries |
+| `aqt/standards/` | Standards → clauses: PDF reader (table of contents driven), Word reader, quote verifier, `sources.yaml` |
+| `aqt/ai/` | Model providers + audit (`chat`), run summaries, standards ingest, rule drafting and review (`rules`); prompts in `ai/prompts/` |
+| `aqt/cli_ai.py` | `aqt db`, `aqt ai`, `aqt standards`, `aqt rules` |
 | `tests/` | pytest, including every shipped YAML file and an end-to-end run against MockBank |
 
 ## Web portal (`aqt/portal`)
@@ -256,28 +262,52 @@ aqt run --bank TBC-MOCK --suite preflight,tbc --sca-auto   # 11/11
   against the C# MockBank and the C# client against the Python MockBank both passed 16/16, so signatures, digests,
   mTLS and the OAuth flow are compatible. Reports keep the C# `summary.json` shape.
 
+## Store and AI layer
+
+Optional, installed with `pip install -e .[ai]`; PostgreSQL runs in Docker (`docker compose up -d`, localhost:5435).
+Everything is masked before it is stored or sent to a model (`Authorization`/`PSU-ID` headers, OAuth codes and tokens
+in JSON, forms and URLs, IBANs), and every model call is a row in `ai_calls`.
+
+```bash
+aqt db migrate                          # create/upgrade the schema (a database created by the C# tool is kept)
+aqt db import reports                   # load existing report folders
+aqt run --bank MOCK --with-mock --sca-auto --db "Host=localhost;Port=5435;Database=aqt;Username=aqt;Password=aqt_dev"
+aqt ai check                            # Claude (ANTHROPIC_API_KEY) and local Ollama reachable, audited
+aqt ai summarize latest --provider ollama --show-input
+aqt standards fetch && aqt standards ingest
+aqt standards search "consent validity"
+aqt rules draft GE-XS2A:0.8.RC3:9.2.2 --provider ollama
+aqt rules approve GE-AUTH-001 --by "Your Name"
+aqt portal                              # store/AI pages on when the database is reachable (--no-db turns them off)
+```
+
+- **Run summary:** problems grouped by root cause, bank vs our side vs environment, evidence, clause, next step and
+  what changed since the bank's previous run. Facts are computed in code; the answer is checked in code (unknown
+  scenarios dropped, clauses must come from the run, warnings and skips are not findings) and saved in `run_summaries`.
+- **Rules:** the standards in [standards/sources.yaml](standards/sources.yaml) (Berlin Group IG 1.3.16; Georgian XS2A,
+  JWS, IAA guides) are split into clauses with full-text and bge-m3 (local) search. The AI drafts rules from a clause;
+  the quote must occur in the clause (else `invalid`), the level must match the wording, duplicates are flagged. A
+  person approves, edits or rejects on the portal's **Rules** page or with `aqt rules`; how to decide:
+  [docs/ai/REVIEW-GUIDE.md](docs/ai/REVIEW-GUIDE.md).
+- **Providers:** Claude (`claude-opus-5-5`, refusal fallback, effort per feature) by default; switch a feature to the
+  local model with `--provider ollama` or `AQT_AI_<FEATURE>_PROVIDER=ollama` (e.g. `AQT_AI_SUMMARY_PROVIDER`).
+- Database tests run when `AQT_TEST_DB` is set (`host=localhost port=5435 user=aqt password=aqt_dev`); each test
+  module creates and drops its own database.
+
 ## Moved from C#
 
 The C# solution (`src/`, `tests/`, `ApiTestTool.sln`, `Directory.*.props`, `nuget.config`, `dotnet-tools.json`) was
-replaced by this Python implementation. It is in the git history (last C# commit: `8abf9f6`).
-
-Ported: the engine, the CLI (`run`, `mock`, `list`, `validate`, `version`, plus `portal`), MockBank and the portal
-pages above. **Not ported yet** — these existed only in C# and are not available now:
-
-- `ApiTestTool.Store`: PostgreSQL store (`aqt db migrate|import|status`), `SensitiveDataMasker`, run import.
-  `docker-compose.yml` (PostgreSQL + pgvector) is kept for when it is ported.
-- `ApiTestTool.AI`: AI run summaries (`aqt ai check|summarize`), the audit log, rule drafting and the review
-  workflow (`aqt rules ...`).
-- `ApiTestTool.Standards`: standards fetch/ingest/search (`aqt standards ...`); the portal's Standards and Rules pages.
-
-Their design and data stay in the repository: [docs/ai/PLAN.md](docs/ai/PLAN.md),
-[docs/ai/REVIEW-GUIDE.md](docs/ai/REVIEW-GUIDE.md), `standards/sources.yaml`, `rules/`.
+replaced by this Python implementation. It is in the git history (last C# commit: `8abf9f6`). Everything is ported:
+the engine, CLI, MockBank, portal, and the Store, Standards and AI layers (same database schema, same prompts and
+checks; the existing database works unchanged).
 
 Smaller differences: no Windows certificate store (PFX files instead); TLS 1.2 cipher names and untrusted-certificate
-messages use OpenSSL wording; the portal's run page refreshes by polling instead of a Blazor connection.
+messages use OpenSSL wording; the portal's run page refreshes by polling instead of a Blazor connection; the PDF text of
+the Berlin Group guide comes from pdfplumber instead of PdfPig (same 182 clauses; tables and figures differ in places;
+every existing rule quote still verifies).
 
 ## Not done yet
 
-Porting Store, AI and Standards (above); Playwright and decoupled SCA modes, onboarding (client registration), PIS
+Phase 3 (scenarios drafted from approved rules), the ask-agent (Phase 4); Playwright and decoupled SCA modes, onboarding (client registration), PIS
 suite, OpenAPI schema validation, Excel report, `aqt compare`, monitor mode. The AIS suite has been verified against
 MockBank (all 16 scenarios pass); it has not yet been run against a real local XS2A + AuthServer or a bank sandbox.

@@ -1,6 +1,6 @@
 # AI layer — plan
 
-Status: Phases 0–2 done (2026-10-24) — see NOTE.md steps 8–28; Phase 3 next. Live Claude calls are not verified yet (no API key). Hackathon project — each phase ends in
+Status: Phases 0–2 done (2026-10-24), ported from C# to Python (NOTE.md steps 35–42); Phase 3 next. Live Claude calls are not verified yet (no API key).
 something demoable. Progress is logged in `NOTE.md`; `ARCHITECTURE.md` is updated at the end of each phase.
 
 ## 1. Goals
