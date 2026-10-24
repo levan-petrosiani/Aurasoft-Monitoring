@@ -70,7 +70,7 @@ h2 { font-size: 17px; margin: 28px 0 10px; }
 }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 650; color: var(--fg); }
 .brand:hover { text-decoration: none; }
-.brand-logo { display: block; height: 30px; width: auto; filter: var(--logo-filter); }
+.brand-logo { display: block; height: 42px; width: auto; filter: var(--logo-filter); }
 .topbar nav { display: flex; gap: 4px; flex-wrap: wrap; }
 .topbar nav a { padding: 6px 10px; border-radius: 6px; color: var(--muted); }
 .topbar nav a:hover { background: var(--code); text-decoration: none; color: var(--fg); }
