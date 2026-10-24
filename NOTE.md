@@ -613,3 +613,32 @@ still accepts.
 **Why:** step 44's live draft for GE-CON-001 found this gap (plan decision 6: MockBank grows with the approved rules).
 **Result:** a re-run of the live local-model draft for GE-CON-001 passes on MockBank on the first attempt (39 s). Tests: 105 with
 `AQT_TEST_DB`, 82 + 23 skipped without. The MOCK run is still 16/16.
+
+## 2026-10-25 · 46. Phase 4: the ask-agent
+
+**What:**
+- **Chat** (`aqt/ai/chat.py`): tool calling for Claude and Ollama, using one provider-neutral message format (`Tool`, `ToolCall`, `ChatResult.as_message`). Claude's assistant blocks go back as is, because with adaptive thinking a tool loop must return its thinking blocks. The audit records tool calls and results.
+- **Store:** migration `0003_ask_agent.sql`:
+  - schema `agent` with views over runs, scenario/step results, exchanges (no headers or bodies), events, summaries, rules and clauses;
+  - login role `aqt_agent`, which can only SELECT those views;
+  - table `agent_questions`.
+  
+  `migrate()` sets the role's password from `AQT_AGENT_DB_PASSWORD` (dev default `aqt_agent_dev`). New store methods: `agent_query` (logs in as `aqt_agent`, one prepared statement, read-only, 5 s timeout), `list_runs`, `scenario_history` and the question CRUD.
+- **Agent** (`aqt/ai/agent.py`, prompt `ask_agent.txt`): eight tools (list_runs, get_run, get_scenario_details, scenario_history, search_standards, read_clause, find_rules, sql_query) and at most 8 tool rounds. Code also:
+  - gives the model NOW;
+  - masks every tool result;
+  - checks every run, scenario or rule id and clause key in the answer against the tool results (status `unverified` if an id never appeared);
+  - saves each question with its trace.
+- **CLI and portal:** `aqt ask "<question>"` / `aqt ask history`, and the **Ask** page, which answers in the background and shows the history with what was looked up.
+
+**Why:** this is the plan's Phase 4: staff ask about logged events at any time. It uses an agent with query tools rather than vector RAG over logs, because counts, time ranges and "what changed" need queries.
+
+**Security finding:** my first version ran the SQL as the main user with `SET LOCAL ROLE aqt_agent`. Probing showed the agent's SQL could switch back, with `set_config('role','aqt',true)` or with a second statement (`reset role; …`). Switched to a separate login role plus prepared single statements. Re-probed: the database now denies access to raw tables, bodies, `ai_calls`, writes, `pg_read_file`, role switching and multiple statements, and stops `pg_sleep` by timeout. A test covers this.
+
+**Result:**
+- Live with local qwen3:8b:
+  - "Why did TBC fail on October 21, and has it recovered since?" Correct cause: the sandbox returned 503 `STATE_UNAVAILABLE` on PRE-003/004. The first try wrongly said there was no evidence of recovery, because it had limited its own search to before the 22nd. Fixed in code (`get_run` now lists the bank's later runs) and in the prompt ("never claim something did not happen without looking"); the re-run found the 22 October run.
+  - "Which scenarios failed most often?" Two SQL queries; the answer matches the data (NEG-CON-005 2× on TBC).
+  - 45–60 s per answer locally.
+- Claude is untested live (no API key); the request shape, including tools, `tool_use` parsing and `tool_result` turns, is tested with the fake server.
+- Tests: 114 passed with `AQT_TEST_DB`; 86 passed and 28 skipped without it.

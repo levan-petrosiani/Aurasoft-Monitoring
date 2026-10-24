@@ -73,6 +73,31 @@ def pending_migrations(connection: str) -> list[str]:
         return [version for version, _ in _migration_files() if version not in applied]
 
 
+AGENT_ROLE = "aqt_agent"
+AGENT_DEV_PASSWORD = "aqt_agent_dev"
+
+
+def agent_password(env=os.environ) -> str:
+    return env.get("AQT_AGENT_DB_PASSWORD") or AGENT_DEV_PASSWORD
+
+
+def agent_connection(connection: str) -> str:
+    """The main connection string with the ask-agent's read-only login instead of the main user."""
+    from psycopg.conninfo import make_conninfo
+    return make_conninfo(to_libpq(connection), user=AGENT_ROLE, password=agent_password())
+
+
+def _set_agent_password(conn) -> None:
+    from psycopg import sql
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (AGENT_ROLE,))
+        if cur.fetchone() is None:
+            conn.rollback()
+            return
+        cur.execute(sql.SQL("ALTER ROLE {} PASSWORD {}").format(sql.Identifier(AGENT_ROLE), sql.Literal(agent_password())))
+    conn.commit()
+
+
 def migrate(connection: str) -> list[str]:
     """Creates or upgrades the schema; returns the versions applied now."""
     applied_now = []
@@ -96,6 +121,11 @@ def migrate(connection: str) -> list[str]:
                 cur.execute("INSERT INTO aqt_schema_migrations (version) VALUES (%s)", (version,))
             conn.commit()
             applied_now.append(version)
+        try:
+            _set_agent_password(conn)
+        except Exception as ex:  # noqa: BLE001 - no right to change roles: the ask-agent's SQL tool will say it cannot log in
+            conn.rollback()
+            print(f"  store: could not set the ask-agent role's password ({ex}); its SQL tool needs AQT_AGENT_DB_PASSWORD to match")
     return applied_now
 
 

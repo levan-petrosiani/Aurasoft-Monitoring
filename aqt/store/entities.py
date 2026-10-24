@@ -224,3 +224,21 @@ class ScenarioDraftRow:
     reviewed_utc: datetime | None = None
     review_note: str | None = None
     file_path: str | None = None
+
+
+@dataclass
+class AgentQuestionRow:
+    """A question to the ask-agent, its answer, the tool calls behind it and the citation check."""
+    id: UUID
+    asked_utc: datetime
+    question: str
+    status: str                  # ok | unverified | failed
+    provider: str
+    model: str
+    asked_by: str | None = None
+    answer: str | None = None
+    tool_calls: list = field(default_factory=list)
+    citation_notes: list[str] = field(default_factory=list)
+    ai_call_ids: list[UUID] = field(default_factory=list)
+    error: str | None = None
+    duration_ms: int = 0

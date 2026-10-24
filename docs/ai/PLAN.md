@@ -1,6 +1,6 @@
 # AI layer — plan
 
-Status: Phases 0–3 done (Phase 3 on 2026-10-25), ported from C# to Python (NOTE.md steps 35–42); Phase 4 next. Live Claude calls are not verified yet (no API key).
+Status: Phases 0–4 done (Phases 3 and 4 on 2026-10-25), ported from C# to Python (NOTE.md steps 35–42); Phase 5 (PIS) next. Live Claude calls are not verified yet (no API key).
 something demoable. Progress is logged in `NOTE.md`; `ARCHITECTURE.md` is updated at the end of each phase.
 
 ## 1. Goals
@@ -104,7 +104,7 @@ DSL reference, templates).
 | 1. Run summaries ✅ | Summary panel on the Run page, `aqt ai summarize` | Run TBC-MOCK → one-click triage of failures, Claude vs local |
 | 2. Standards + rules ✅ | Ingest BG 1.3.16 + Georgian guides; clause search; rule drafting; review queue | Pick a clause → AI drafts rules with quotes → approve in the portal |
 | 3. Scenario drafting ✅ | Draft → validate → MockBank loop; drafts page; coverage matrix (`aqt scenarios`, `aqt coverage`) | Approved rule → generated scenario → green on MockBank → coverage goes up |
-| 4. Ask-the-agent | Ask page + `aqt ask` | "Why did TBC fail last night?" → answer citing run IDs and clauses |
+| 4. Ask-the-agent ✅ | Ask page + `aqt ask` | "Why did TBC fail last night?" → answer citing run IDs and clauses |
 | 5. PIS | §9 | Payment consent → SCA → status, on MockBank |
 | 6. Monitoring | Scheduled runs, regression alerts, trends | — |
 
@@ -123,6 +123,7 @@ Each AI feature gets a small eval set (inputs + expected outcome) before staff u
 | 5 | Scope | AIS first, PIS designed in now, built in Phase 5 |
 | 6 | MockBank | Grows with the rules: when a rule is approved and MockBank doesn't enforce it, that is a task, so generated scenarios can be proven |
 | 7 | Scenario drafts | Code owns id, suite, severity, `specRef`, `origin`, `rules:`; the model writes title, description, steps. At most 3 attempts with engine errors / dry-run failures fed back. A failed dry run the model calls a MockBank gap (`MOCK_GAP`) is accepted only for a failed expectation (not a tool error) and is shown to the reviewer, who decides. Drafts live in `scenario_drafts`; approval writes the file and links the rule (`rule_reviews` action `linked`) |
+| 8 | Ask-agent safety | Read-only tools in code plus one SQL tool. The SQL tool logs in as `aqt_agent` (own login, member of nothing): SELECT on views in schema `agent` only, no headers/bodies/AI audit, one prepared statement, read-only, 5 s timeout. `SET ROLE` from the main user was tried first and rejected: the SQL could switch back with `set_config('role', …)` or a second statement. Ids in answers are checked against tool results in code |
 
 ## 9. PIS — designed in now, built later
 

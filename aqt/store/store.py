@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from . import connection as conn_mod
-from .entities import (AiCallRow, ClauseRow, ExchangeRow, RuleReviewRow, RuleRow, RunRow, RunSummaryRow, ScenarioDraftRow,
+from .entities import (AgentQuestionRow, AiCallRow, ClauseRow, ExchangeRow, RuleReviewRow, RuleRow, RunRow, RunSummaryRow, ScenarioDraftRow,
                        ScenarioRow, StandardDocumentRow, StepRow)
 from .mapper import RunInfo, to_rows
 from .masking import MaskingOptions, SensitiveDataMasker
@@ -474,6 +474,63 @@ class AqtStore:
                            WHERE s.scenario_id = ANY(%s)
                            ORDER BY s.scenario_id, r.bank_bic, coalesce(r.started_utc, r.created_utc) DESC""", (scenario_ids,))
             return {(row[0], row[1]): (row[2], row[3], row[4]) for row in cur.fetchall()}
+
+    # --- ask-agent (Phase 4)
+
+    def agent_query(self, sql: str, max_rows: int = 200, timeout_ms: int = 5000) -> tuple[list[str], list[tuple], bool]:
+        """Runs the ask-agent's SQL logged in as aqt_agent (SELECT on the `agent` views only), one statement (prepared),
+        read-only, with a statement timeout. Returns (columns, rows, truncated); database errors are raised."""
+        from .connection import agent_connection, connect
+        with connect(agent_connection(self.connection), register_vector=False) as conn:
+            conn.read_only = True
+            with conn.cursor() as cur:
+                cur.execute(f"SET statement_timeout = {int(timeout_ms)}")
+                cur.execute("SET search_path = agent")
+                cur.execute(sql, prepare=True)
+                if cur.description is None:
+                    return [], [], False
+                columns = [d.name for d in cur.description]
+                rows = cur.fetchmany(max_rows + 1)
+            conn.rollback()
+            return columns, rows[:max_rows], len(rows) > max_rows
+
+    def list_runs(self, bank_bic: str | None = None, since=None, until=None, limit: int = 20) -> list[RunRow]:
+        with self.connect() as conn, self._cursor(conn, RunRow) as cur:
+            cur.execute(f"""SELECT {', '.join(_columns(RunRow))} FROM runs
+                            WHERE (%(b)s::text IS NULL OR upper(bank_bic) = upper(%(b)s))
+                              AND (%(s)s::timestamptz IS NULL OR coalesce(started_utc, created_utc) >= %(s)s)
+                              AND (%(u)s::timestamptz IS NULL OR coalesce(started_utc, created_utc) < %(u)s)
+                            ORDER BY coalesce(started_utc, created_utc) DESC LIMIT %(l)s""",
+                        {"b": bank_bic, "s": since, "u": until, "l": limit})
+            return cur.fetchall()
+
+    def scenario_history(self, scenario_id: str, bank_bic: str | None = None, limit: int = 20) -> list[tuple]:
+        """(run id, bank, run start, outcome, reason) for one scenario, newest first."""
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT r.id, r.bank_bic, coalesce(r.started_utc, r.created_utc), s.outcome, s.reason
+                           FROM scenario_results s JOIN runs r ON r.id = s.run_id
+                           WHERE upper(s.scenario_id) = upper(%(s)s) AND (%(b)s::text IS NULL OR upper(r.bank_bic) = upper(%(b)s))
+                           ORDER BY coalesce(r.started_utc, r.created_utc) DESC LIMIT %(l)s""",
+                        {"s": scenario_id, "b": bank_bic, "l": limit})
+            return cur.fetchall()
+
+    def add_agent_question(self, q: AgentQuestionRow) -> None:
+        cols = _columns(AgentQuestionRow)
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"INSERT INTO agent_questions ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))})",
+                            [self._jsonb(q.tool_calls) if c == "tool_calls" else getattr(q, c) for c in cols])
+            conn.commit()
+
+    def list_agent_questions(self, limit: int = 30) -> list[AgentQuestionRow]:
+        with self.connect() as conn, self._cursor(conn, AgentQuestionRow) as cur:
+            cur.execute(f"SELECT {', '.join(_columns(AgentQuestionRow))} FROM agent_questions ORDER BY asked_utc DESC LIMIT %s", (limit,))
+            return cur.fetchall()
+
+    def get_agent_question(self, question_id) -> AgentQuestionRow | None:
+        with self.connect() as conn, self._cursor(conn, AgentQuestionRow) as cur:
+            cur.execute(f"SELECT {', '.join(_columns(AgentQuestionRow))} FROM agent_questions WHERE id::text = %s", (str(question_id),))
+            return cur.fetchone()
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)

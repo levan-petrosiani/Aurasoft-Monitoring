@@ -3,8 +3,8 @@
 Snapshot of the system as it is **now**. Update this file at the end of every phase (see `docs/ai/PLAN.md`).
 Diagrams are Mermaid (render in GitHub, GitLab, Rider, VS Code).
 
-**Last updated:** 2026-10-25, after Phase 3 (scenarios drafted from approved rules, MockBank dry runs, Drafts and
-Coverage pages). Before that (2026-10-24) the Store, Standards and AI layers were ported to Python. Everything is
+**Last updated:** 2026-10-25, after Phase 4 (the ask-agent: read-only tools, its own database login, Ask page).
+Phase 3 (scenarios drafted from approved rules, MockBank dry runs, Drafts and Coverage pages) was finished earlier the same day. Before that (2026-10-24) the Store, Standards and AI layers were ported to Python. Everything is
 Python now: engine, CLI, MockBank, portal, and the optional store/AI layer (`aqt/store`, `aqt/standards`, `aqt/ai`,
 `aqt/cli_ai.py`, `aqt/portal/ai_services.py`). The C# implementation is in git history (last C# commit `8abf9f6`).
 
@@ -19,14 +19,14 @@ flowchart LR
     end
 
     subgraph Hosts["Entry points"]
-        Cli["aqt/cli.py (aqt)<br/>run · mock · portal · list · validate<br/>db · ai · standards · rules<br/>scenarios · coverage (cli_ai.py)"]
-        Portal["aqt/portal (Flask :5280)<br/>RunService → reports/portal-python<br/>AI summary · Standards · Rules<br/>Drafts · Coverage"]
+        Cli["aqt/cli.py (aqt)<br/>run · mock · portal · list · validate<br/>db · ai · standards · rules<br/>scenarios · coverage · ask (cli_ai.py)"]
+        Portal["aqt/portal (Flask :5280)<br/>RunService → reports/portal-python<br/>AI summary · Standards · Rules<br/>Drafts · Coverage · Ask"]
     end
 
     subgraph AiLayer["Optional store + AI layer (pip install -e .[ai])"]
         Store["aqt/store<br/>PostgreSQL · masking · import · search"]
         Std["aqt/standards<br/>PDF/Word clause readers · quote verifier"]
-        AI["aqt/ai<br/>providers + audit · summaries · ingest<br/>rule drafter · RuleBook<br/>scenario drafter · ScenarioReview"]
+        AI["aqt/ai<br/>providers + audit · summaries · ingest<br/>rule drafter · RuleBook<br/>scenario drafter · ScenarioReview<br/>ask-agent + read-only tools"]
     end
     PG[("PostgreSQL 17 + pgvector<br/>docker :5435")]
     Claude["Claude API<br/>claude-opus-5-5"]
@@ -65,6 +65,7 @@ flowchart LR
     AI -- "approved draft → file" --> Scen
     AI --> Store
     Store -- "masked rows" --> PG
+    AI -- "agent SQL as aqt_agent<br/>(views only, read-only)" --> PG
     AI -- "masked prompts" --> Claude
     AI -- "masked prompts" --> Ollama
 ```
@@ -166,6 +167,22 @@ The model writes only the title, description and steps. Whether a failed dry run
 gap is the model's opinion (`MOCK_GAP`). It is accepted only when an expectation failed, never for a tool error, and a
 person decides.
 
+## 5c. Ask-agent (Phase 4)
+
+```mermaid
+flowchart LR
+    Q["question<br/>(portal Ask / aqt ask)"] --> Agent{{"AskAgent<br/>Claude or local model<br/>NOW given in code"}}
+    Agent -- "tool calls (max 8 rounds)" --> Tools["AgentTools (code)<br/>list_runs · get_run · get_scenario_details<br/>scenario_history · search_standards · read_clause<br/>find_rules · sql_query"]
+    Tools --> Store[("store<br/>main login")]
+    Tools -- "sql_query" --> Views[("schema agent: views<br/>login aqt_agent · SELECT only<br/>1 statement · read-only · 5 s")]
+    Tools -- "masked results" --> Agent
+    Agent --> Check["citation check (code)<br/>every id in the answer<br/>must be in a tool result"]
+    Check --> Saved[("agent_questions<br/>ok · unverified · failed<br/>+ tool calls")]
+```
+
+The agent only reads. The database enforces the SQL tool's limits through a separate login. With `SET ROLE` from the
+main user, the agent's SQL could switch back with `set_config('role', …)`; a test checks that it can't now.
+
 ## 6. Store schema
 
 ```mermaid
@@ -181,11 +198,13 @@ erDiagram
     rules ||--o{ rule_reviews : "history"
     rules ||..o{ scenario_drafts : "rule_id"
     ai_calls ||..o{ scenario_drafts : "ai_call_ids"
+    ai_calls ||..o{ agent_questions : "ai_call_ids"
 ```
 
 Migrations are SQL files in `aqt/store/migrations/`, tracked in `aqt_schema_migrations`. `0001` is the schema the C#
 tool created; a database created by the C# tool is recognised (its EF Core history) and kept as it is. `0002` adds
-`scenario_drafts` (Phase 3).
+`scenario_drafts` (Phase 3). `0003` adds the schema `agent` (read-only views), the login role `aqt_agent` and
+`agent_questions` (Phase 4).
 
 ## 7. Tech facts
 
@@ -193,6 +212,6 @@ tool created; a database created by the C# tool is recognised (its EF Core histo
   pdfplumber (Ollama is called over HTTP).
 - Ports: portal 5280, MockBank 7443 (HTTPS, mTLS) and 7080 (HTTP pages), OAuth callback 5199, PostgreSQL 5435,
   Ollama 11434.
-- Tests: 104 with `AQT_TEST_DB`; without a database 81 pass and the 23 database tests are skipped.
+- Tests: 114 with `AQT_TEST_DB`; without a database 86 pass and the 28 database tests are skipped.
 - Reports keep the C# `summary.json` shape (camelCase, nulls omitted); interop with the C# client and MockBank was
   verified in both directions before the C# code was removed.

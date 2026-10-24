@@ -5,6 +5,12 @@ Model providers behind one small interface, and the audit wrapper every call goe
   thinking and per-feature effort; streamed (long outputs would hit request timeouts otherwise).
 - Ollama: plain HTTP to the local server, `num_ctx` set on every call (its default window silently cuts long prompts),
   JSON-schema output when a schema is given.
+- Tools (function calling, used by the ask-agent): one provider-neutral message format —
+    {"role": "user", "content": str}
+    {"role": "assistant", "content": str, "tool_calls": [{"id", "name", "arguments"}], "raw": <provider's own message>}
+    {"role": "tool", "tool_call_id": str, "name": str, "content": str}
+  Claude's assistant turns are sent back as its own content blocks (`raw`): with thinking on, a tool loop must return
+  the thinking blocks unchanged.
 - AuditingChat: masks the text of outgoing messages (last line of defence — features mask their inputs first) and
   records one ai_calls row per call, successful or not.
 """
@@ -26,12 +32,35 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
 @dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict
+
+
+@dataclass
+class Tool:
+    """A function the model may call: name, what it does, and a JSON schema of its arguments."""
+    name: str
+    description: str
+    parameters: dict
+
+
+@dataclass
 class ChatResult:
     text: str
     model: str
-    finish_reason: str              # stop | length | refusal
+    finish_reason: str              # stop | length | refusal | tool_use
     input_tokens: int | None = None
     output_tokens: int | None = None
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    # The provider's own assistant message, sent back as is in the next turn of a tool loop (see the module docstring).
+    raw: object = None
+
+    def as_message(self) -> dict:
+        """The assistant turn in the neutral format, to append to the conversation."""
+        return {"role": "assistant", "content": self.text, "raw": self.raw,
+                "tool_calls": [{"id": c.id, "name": c.name, "arguments": c.arguments} for c in self.tool_calls]}
 
 
 @dataclass
@@ -50,7 +79,8 @@ class ChatClient:
     provider = ""
     model = ""
 
-    def complete(self, system: str, messages: list[dict], json_schema: dict | None = None) -> ChatResult:
+    def complete(self, system: str, messages: list[dict], json_schema: dict | None = None,
+                 tools: list[Tool] | None = None) -> ChatResult:
         raise NotImplementedError
 
 
@@ -71,15 +101,17 @@ class AnthropicChat(ChatClient):
         self.model = settings.model
         self._settings = settings
 
-    def request(self, system: str, messages: list[dict]) -> dict:
+    def request(self, system: str, messages: list[dict], tools: list[Tool] | None = None) -> dict:
         """The request body (also used by tests to check the exact shape)."""
         body = {
             "model": self.model,
             "max_tokens": self._settings.max_output_tokens or 16000,
             "system": system,
-            "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
+            "messages": _anthropic_messages(messages),
             "thinking": {"type": "adaptive"},
         }
+        if tools:
+            body["tools"] = [{"name": t.name, "description": t.description, "input_schema": t.parameters} for t in tools]
         if self._settings.effort:
             body["output_config"] = {"effort": self._settings.effort}
         if self._options.anthropic.refusal_fallback:
@@ -87,18 +119,41 @@ class AnthropicChat(ChatClient):
             body["fallbacks"] = "default"
         return body
 
-    def complete(self, system, messages, json_schema=None) -> ChatResult:
+    def complete(self, system, messages, json_schema=None, tools=None) -> ChatResult:
         # The schema is in the system prompt for Claude; structured output together with the fallback is untested.
-        body = self.request(system, messages)
+        body = self.request(system, messages, tools)
         try:
             with self._client.beta.messages.stream(**body) as stream:
                 message = stream.get_final_message()
         except self._anthropic.APIError as ex:
             raise ProviderError(f"{type(ex).__name__}: {ex}") from ex
         text = "".join(getattr(b, "text", "") for b in message.content if getattr(b, "type", "") == "text")
-        reason = {"end_turn": "stop", "max_tokens": "length", "refusal": "refusal"}.get(message.stop_reason or "", message.stop_reason or "stop")
+        reason = {"end_turn": "stop", "max_tokens": "length", "refusal": "refusal", "tool_use": "tool_use"}.get(
+            message.stop_reason or "", message.stop_reason or "stop")
         usage = message.usage
-        return ChatResult(text, message.model, reason, getattr(usage, "input_tokens", None), getattr(usage, "output_tokens", None))
+        calls = [ToolCall(b.id, b.name, dict(b.input or {})) for b in message.content if getattr(b, "type", "") == "tool_use"]
+        raw = [b.model_dump(exclude_none=True) for b in message.content] if calls else None
+        return ChatResult(text, message.model, reason, getattr(usage, "input_tokens", None), getattr(usage, "output_tokens", None),
+                          calls, raw)
+
+
+def _anthropic_messages(messages: list[dict]) -> list[dict]:
+    """Neutral messages -> Claude messages: tool results are user turns of tool_result blocks (consecutive ones merged)."""
+    out: list[dict] = []
+    for m in messages:
+        if m["role"] == "tool":
+            block = {"type": "tool_result", "tool_use_id": m["tool_call_id"], "content": m["content"]}
+            if out and out[-1]["role"] == "user" and isinstance(out[-1]["content"], list):
+                out[-1]["content"].append(block)
+            else:
+                out.append({"role": "user", "content": [block]})
+        elif m["role"] == "assistant" and m.get("tool_calls"):
+            content = m.get("raw") or ([{"type": "text", "text": m["content"]}] if m.get("content") else []) + [
+                {"type": "tool_use", "id": c["id"], "name": c["name"], "input": c["arguments"]} for c in m["tool_calls"]]
+            out.append({"role": "assistant", "content": content})
+        else:
+            out.append({"role": m["role"], "content": m["content"]})
+    return out
 
 
 class OllamaChat(ChatClient):
@@ -109,20 +164,44 @@ class OllamaChat(ChatClient):
         self.model = settings.model
         self._max_tokens = settings.max_output_tokens
 
-    def complete(self, system, messages, json_schema=None) -> ChatResult:
+    def complete(self, system, messages, json_schema=None, tools=None) -> ChatResult:
         body = {
             "model": self.model,
             "stream": False,
-            "messages": [{"role": "system", "content": system}] + [{"role": m["role"], "content": m["content"]} for m in messages],
+            "messages": [{"role": "system", "content": system}] + [_ollama_message(m) for m in messages],
             "options": {"num_ctx": self._options.context_tokens, **({"num_predict": self._max_tokens} if self._max_tokens else {})},
         }
         if json_schema is not None:
             body["format"] = json_schema
+        if tools:
+            body["tools"] = [{"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.parameters}}
+                             for t in tools]
         data = _post_json(self._options.url.rstrip("/") + "/api/chat", body, self._options.timeout_seconds)
         message = data.get("message") or {}
-        reason = "length" if data.get("done_reason") == "length" else "stop"
+        calls = [ToolCall(c.get("id") or f"call_{uuid.uuid4().hex[:12]}", c["function"]["name"], _arguments(c["function"].get("arguments")))
+                 for c in message.get("tool_calls") or [] if c.get("function", {}).get("name")]
+        reason = "tool_use" if calls else "length" if data.get("done_reason") == "length" else "stop"
         return ChatResult(message.get("content") or "", data.get("model") or self.model, reason,
-                          data.get("prompt_eval_count"), data.get("eval_count"))
+                          data.get("prompt_eval_count"), data.get("eval_count"), calls)
+
+
+def _ollama_message(m: dict) -> dict:
+    if m["role"] == "tool":
+        return {"role": "tool", "content": m["content"], "tool_name": m.get("name", "")}
+    if m["role"] == "assistant" and m.get("tool_calls"):
+        return {"role": "assistant", "content": m.get("content") or "",
+                "tool_calls": [{"function": {"name": c["name"], "arguments": c["arguments"]}} for c in m["tool_calls"]]}
+    return {"role": m["role"], "content": m["content"]}
+
+
+def _arguments(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(value or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
 
 
 def _post_json(url: str, body: dict, timeout: float) -> dict:
@@ -173,18 +252,20 @@ class AuditingChat(ChatClient):
         self._context = context or CallContext()
         self.provider, self.model = inner.provider, inner.model
 
-    def complete(self, system, messages, json_schema=None) -> ChatResult:
-        masked = [{"role": m["role"], "content": self._masker.mask_body(m["content"]) or ""} for m in messages]
+    def complete(self, system, messages, json_schema=None, tools=None) -> ChatResult:
+        # The text of every turn is masked; Claude's own assistant blocks (`raw`) are the model's output and go back as is.
+        masked = [{**m, "content": self._masker.mask_body(m["content"]) or ""} for m in messages]
         system = self._masker.mask_body(system) or ""
         started = time.monotonic()
+        request = [{"role": "system", "text": system}] + [_audit_entry(m) for m in masked]
+        if tools:
+            request.append({"role": "tools", "text": ", ".join(t.name for t in tools)})
         try:
-            result = self._inner.complete(system, masked, json_schema)
+            result = self._inner.complete(system, masked, json_schema, tools) if tools else self._inner.complete(system, masked, json_schema)
         except Exception as ex:
-            self._record([{"role": "system", "text": system}] + [{"role": m["role"], "text": m["content"]} for m in masked],
-                         None, ex, started)
+            self._record(request, None, ex, started)
             raise
-        self._record([{"role": "system", "text": system}] + [{"role": m["role"], "text": m["content"]} for m in masked],
-                     result, None, started)
+        self._record(request, result, None, started)
         return result
 
     def _record(self, request: list[dict], result: ChatResult | None, error: Exception | None, started: float):
@@ -195,9 +276,25 @@ class AuditingChat(ChatClient):
             prompt_sha256=hashlib.sha256(payload.encode("utf-8")).hexdigest(), request=request,
             duration_ms=int((time.monotonic() - started) * 1000), succeeded=error is None,
             run_id=self._context.run_id, triggered_by=self._context.triggered_by,
-            response=result.text if result else None, input_tokens=result.input_tokens if result else None,
+            response=_audit_response(result) if result else None, input_tokens=result.input_tokens if result else None,
             output_tokens=result.output_tokens if result else None,
             error=f"{type(error).__name__}: {error}" if error else None))
+
+
+def _audit_entry(m: dict) -> dict:
+    entry = {"role": m["role"], "text": m["content"]}
+    if m.get("tool_calls"):
+        entry["toolCalls"] = [{"name": c["name"], "arguments": c["arguments"]} for c in m["tool_calls"]]
+    if m["role"] == "tool":
+        entry["tool"] = m.get("name")
+    return entry
+
+
+def _audit_response(result: ChatResult) -> str:
+    if not result.tool_calls:
+        return result.text
+    calls = json.dumps([{"name": c.name, "arguments": c.arguments} for c in result.tool_calls], ensure_ascii=False)
+    return (result.text + "\n" if result.text else "") + "tool calls: " + calls
 
 
 @dataclass

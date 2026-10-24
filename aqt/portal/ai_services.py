@@ -8,6 +8,7 @@ import os
 import queue
 import threading
 import traceback
+import uuid
 
 from ..results import Outcome
 
@@ -248,18 +249,61 @@ class ScenarioService:
         return coverage.compute(self.store, self.scenarios_directory, include_drafts)
 
 
+class AskService:
+    """The ask-agent for the portal: each question runs in the background; answers are read from agent_questions."""
+
+    def __init__(self, store):
+        from ..ai import options as opt
+        self.store = store
+        self.options = opt.AiOptions.from_environment()
+        self._jobs = _Background()
+        self._pending: dict[str, dict] = {}       # job key -> question, provider, who, tools called so far
+        self._errors: dict[str, str] = {}
+
+    def model_for(self, provider: str) -> str:
+        from ..ai import options as opt
+        return self.options.with_provider(opt.ASK, provider).for_feature(opt.ASK).model
+
+    def pending(self) -> list[dict]:
+        return [dict(p, key=k) for k, p in list(self._pending.items()) if self._jobs.busy(k)]
+
+    def errors(self) -> dict[str, str]:
+        return dict(self._errors)
+
+    def start(self, question: str, provider: str, asked_by: str) -> str:
+        from ..ai import options as opt
+        from ..ai.agent import AskAgent
+        from ..ai.chat import ChatFactory, StoreAuditSink
+        key = uuid.uuid4().hex[:12]
+        state = {"question": question, "provider": provider, "asked_by": asked_by, "tools": []}
+        self._pending[key] = state
+
+        def job():
+            try:
+                factory = ChatFactory(self.options.with_provider(opt.ASK, provider), StoreAuditSink(self.store, print), self.store.masker)
+                AskAgent(self.store, factory).ask(question, asked_by, on_tool=lambda name, args: state["tools"].append(name))
+            except Exception as ex:  # noqa: BLE001 - shown on the Ask page
+                self._errors[key] = f"{question[:80]}: {type(ex).__name__}: {ex}"
+                raise
+            finally:
+                self._pending.pop(key, None)
+
+        self._jobs.start(key, provider, job)
+        return key
+
+
 def try_create(connection: str | None, root_directory: str, auto_summarize: bool = False):
-    """(recorder, summaries, rules, scenarios, problem). Everything None with a reason when the store/AI layer is not available."""
+    """(recorder, summaries, rules, scenarios, ask, problem). Everything None with a reason when the store/AI layer is not available."""
     try:
         from ..store import AqtStore, DOCKER_COMPOSE_DEFAULT
     except ImportError as ex:
-        return None, None, None, None, f"The store and AI pages need the AI extra: pip install -e '.[ai]' ({ex})"
+        return None, None, None, None, None, f"The store and AI pages need the AI extra: pip install -e '.[ai]' ({ex})"
     store = AqtStore(connection or DOCKER_COMPOSE_DEFAULT)
     try:
         applied = store.migrate()
         if applied:
             print(f"  store: applied migrations {', '.join(applied)}")
     except Exception as ex:  # noqa: BLE001 - the portal still works without the database
-        return None, None, None, None, f"The database is not reachable ({ex}). Start it with 'docker compose up -d' or set AQT_DB."
+        return None, None, None, None, None, f"The database is not reachable ({ex}). Start it with 'docker compose up -d' or set AQT_DB."
     return (StoreRecorder(store), SummaryService(store, auto_summarize), RuleService(store, root_directory),
-            ScenarioService(store, root_directory), None)
+            ScenarioService(store, root_directory), AskService(store), None)

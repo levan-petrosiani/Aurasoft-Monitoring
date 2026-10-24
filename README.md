@@ -28,12 +28,12 @@ This installs the `aqt` command (`python -m aqt` works too). Run it from the rep
 | `aqt/` | Engine: YAML loading (`yamljson`, `binding`, `profiles`, `scenarios`), runner (`runner`, `steps`, `variables`, `jsonpath`), `signing`, `certificates`, `oauth`, `httpclient`, `reporting` |
 | `aqt/cli.py` | `aqt` command line |
 | `aqt/mockbank/` | In-memory fake ASPSP enforcing real XS2A checks |
-| `aqt/portal/` | Web portal (Flask); `ai_services.py` adds the store writes, AI summary, Standards, Rules, Drafts and Coverage pages |
+| `aqt/portal/` | Web portal (Flask); `ai_services.py` adds the store writes, AI summary, Standards, Rules, Drafts, Coverage and Ask pages |
 | `aqt/store/` | PostgreSQL store: schema migrations, `masking` (secrets/IBANs), run import, clause, rule and scenario-draft queries, `coverage` |
 | `aqt/standards/` | Standards → clauses: PDF reader (table of contents driven), Word reader, quote verifier, `sources.yaml` |
-| `aqt/ai/` | Model providers + audit (`chat`), run summaries, standards ingest, rule drafting and review (`rules`), scenario drafting and review (`scenario_drafting`); prompts in `ai/prompts/` |
+| `aqt/ai/` | Model providers + audit (`chat`), run summaries, standards ingest, rule drafting and review (`rules`), scenario drafting and review (`scenario_drafting`), the ask-agent (`agent`); prompts in `ai/prompts/` |
 | `aqt/dryrun.py` | Runs one scenario on an in-process MockBank (never a real bank); used to check AI drafts |
-| `aqt/cli_ai.py` | `aqt db`, `aqt ai`, `aqt standards`, `aqt rules`, `aqt scenarios`, `aqt coverage` |
+| `aqt/cli_ai.py` | `aqt db`, `aqt ai`, `aqt standards`, `aqt rules`, `aqt scenarios`, `aqt coverage`, `aqt ask` |
 | `tests/` | pytest, including every shipped YAML file and an end-to-end run against MockBank |
 
 ## Web portal (`aqt/portal`)
@@ -55,6 +55,7 @@ aqt portal                 # http://localhost:5280/   (--port, --root <dir>, --d
 | **Standards / Rules** | Clauses of the standards; AI rule drafts to approve, edit or reject (store/AI layer) |
 | **Drafts** | AI scenario drafts from approved rules, with the MockBank dry run; approve writes the YAML file |
 | **Coverage** | Approved rules → scenarios → last result per bank |
+| **Ask** | Questions about runs, failures, rules and the standards, answered by an agent with read-only tools; history with what it looked up |
 
 - Runs execute one at a time (manual SCA uses one fixed callback port) and queue otherwise.
 - Each run is stored in its own folder (`run.json` + reports) under `reports/portal-python/`, so history survives restarts.
@@ -286,6 +287,7 @@ aqt rules approve GE-AUTH-001 --by "Your Name"
 aqt scenarios draft GE-CON-001 --provider ollama   # needs an approved rule; dry runs on an in-process MockBank
 aqt scenarios approve NEG-CON-009 --by "Your Name"  # writes scenarios/negative/NEG-CON-009-....yaml, links the rule
 aqt coverage                            # approved rules -> scenarios -> last result per bank
+aqt ask "Why did TBC fail last night?" --provider ollama    # the ask-agent; aqt ask history
 aqt portal                              # store/AI pages on when the database is reachable (--no-db turns them off)
 ```
 
@@ -304,6 +306,13 @@ aqt portal                              # store/AI pages on when the database is
   who decides. A person approves, edits (checked and dry-run again) or rejects on the **Drafts** page or with
   `aqt scenarios`; approving writes the file to `scenarios/<suite>/`. **Coverage** shows each approved rule with its
   scenarios and their last result per bank.
+- **Ask:** an agent answers questions by calling read-only tools: list runs, open a run (with the changes since the
+  previous run and the bank's later runs), scenario details and history, standards search, clause text, rules with
+  coverage, and one SQL `SELECT` over prepared views. The SQL tool **logs in as its own role `aqt_agent`**, which can
+  read only the views in schema `agent` (no request/response headers or bodies, no AI audit), one statement, read-only,
+  5 s. `aqt db migrate` sets its password from `AQT_AGENT_DB_PASSWORD` (dev default `aqt_agent_dev`). Every id in the
+  answer is checked against the tool results; unknown ids are flagged (`unverified`). Questions, answers and tool calls
+  are saved in `agent_questions`.
 - **Providers:** Claude (`claude-opus-5-5`, refusal fallback, effort per feature) by default; switch a feature to the
   local model with `--provider ollama` or `AQT_AI_<FEATURE>_PROVIDER=ollama` (e.g. `AQT_AI_SUMMARY_PROVIDER`).
 - Database tests run when `AQT_TEST_DB` is set (`host=localhost port=5435 user=aqt password=aqt_dev`); each test
@@ -323,6 +332,6 @@ every existing rule quote still verifies).
 
 ## Not done yet
 
-The ask-agent (Phase 4); Playwright and decoupled SCA modes, onboarding (client registration), PIS
+Playwright and decoupled SCA modes, onboarding (client registration), PIS
 suite, OpenAPI schema validation, Excel report, `aqt compare`, monitor mode. The AIS suite has been verified against
 MockBank (all 16 scenarios pass); it has not yet been run against a real local XS2A + AuthServer or a bank sandbox.

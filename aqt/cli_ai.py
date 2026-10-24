@@ -1,10 +1,11 @@
 """
-aqt db | ai | standards | rules | scenarios | coverage — the store and AI commands, and the store hook of `aqt run`.
+aqt db | ai | standards | rules | scenarios | coverage | ask — the store and AI commands, and the store hook of `aqt run`.
 
 Imports of the database and AI packages happen inside the commands, so the core tool (run, mock, portal, validate)
 works without the `ai` extra installed.
 """
 
+import json
 import os
 
 from .errors import ConfigurationError
@@ -23,6 +24,7 @@ USAGE = """  aqt db migrate|status [--db <connection>]           create/upgrade 
   aqt scenarios draft <rule-id> [--provider ..] [--model ..] | drafts [--status s] [--rule id] | show <draft>
   aqt scenarios approve|reject <draft> --by <name> [--note ..]   AI scenario drafts (checked on MockBank only)
   aqt coverage [--drafts]                             approved rules -> scenarios -> last result per bank
+  aqt ask "<question>" [--provider ..] [--model ..] | ask history     questions about runs, results, rules, standards
     (store commands use --db or AQT_DB; db/ai/standards/rules default to the docker-compose database, localhost:5435)"""
 
 
@@ -463,3 +465,42 @@ def cmd_coverage(cli) -> int:
         Out.error(p)
     Out.muted(f"{result.covered_count} of {result.approved_count} approved rule(s) have a scenario.")
     return SUCCESS
+
+
+# ---- aqt ask ---------------------------------------------------------------------------------------------------
+
+def _print_question(q, show_tools: bool):
+    Out = _out()
+    if show_tools:
+        for t in q.tool_calls:
+            Out.muted(f"  · {t['tool']}({json.dumps(t['arguments'], ensure_ascii=False)})")
+    print()
+    if q.answer:
+        print(q.answer)
+    else:
+        Out.error(q.error or "No answer.")
+    print()
+    for n in q.citation_notes:
+        Out._write("  check: " + n, "dark_yellow")
+    Out.muted(f"{q.status} · {q.provider} {q.model} · {len(q.tool_calls)} tool call(s) · {q.duration_ms / 1000:.1f} s · question {str(q.id)[:8]}")
+
+
+def cmd_ask(cli) -> int:
+    from .ai.agent import AskAgent
+    Out = _out()
+    store = _store(cli)
+    if cli.positional and cli.positional[0] == "history":
+        for q in store.list_agent_questions(int(cli.get("limit") or 20)):
+            print(f"{str(q.id)[:8]}  {q.asked_utc:%Y-%m-%d %H:%M}  {q.status:<10} {q.asked_by or '-':<12} {q.question[:90]}")
+        return SUCCESS
+    question = " ".join(cli.positional).strip()
+    if not question:
+        raise ConfigurationError('Usage: aqt ask "<question>" [--provider anthropic|ollama] [--model name] | aqt ask history')
+    from .ai import options as opt
+    factory = _factory(store, cli, opt.ASK)
+    settings = factory.describe(opt.ASK)
+    Out.muted(f"Asking {settings.provider} {settings.model} (read-only tools over the store) ...")
+    answer = AskAgent(store, factory).ask(question, f"{os.environ.get('USER', 'cli')} (aqt ask)",
+                                          on_tool=lambda name, args: Out.muted(f"  · {name}({json.dumps(args, ensure_ascii=False)})"))
+    _print_question(answer.row, show_tools=False)
+    return SUCCESS if answer.row.status != "failed" else TESTS_FAILED

@@ -69,9 +69,9 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
     ai, ai_problem = None, "The store and AI pages are off (the portal was started with --no-db)."
     if use_database:
         from .ai_services import try_create
-        recorder, summaries, rules, drafts, ai_problem = try_create(database or os.environ.get("AQT_DB"), root, auto_summarize)
+        recorder, summaries, rules, drafts, asking, ai_problem = try_create(database or os.environ.get("AQT_DB"), root, auto_summarize)
         if recorder is not None:
-            ai = SimpleNamespace(recorder=recorder, summaries=summaries, rules=rules, drafts=drafts, store=recorder.store)
+            ai = SimpleNamespace(recorder=recorder, summaries=summaries, rules=rules, drafts=drafts, ask=asking, store=recorder.store)
     runs = RunService(catalog, mock_bank, data_directory, ai.recorder if ai else None, ai.summaries if ai else None)
     app.config.update(catalog=catalog, mock_bank=mock_bank, runs=runs, ai=ai, ai_problem=ai_problem)
 
@@ -375,6 +375,29 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
         if ai is not None:
             context["coverage"] = ai.drafts.coverage(context["include_drafts"])
         return render_template("coverage.html", **context)
+
+    # ---- ask-agent (Phase 4) ---------------------------------------------------------------------------------
+
+    @app.get("/ask")
+    def ask_page():
+        context = {"page": "ask", "questions": [], "pending": [], "errors": {}, "models": {}, "message": request.args.get("message"),
+                   "open_id": request.args.get("q")}
+        if ai is not None:
+            context.update(questions=ai.store.list_agent_questions(30), pending=ai.ask.pending(), errors=ai.ask.errors(),
+                           models={p: ai.ask.model_for(p) for p in ("anthropic", "ollama")})
+        return render_template("ask.html", **context)
+
+    @app.post("/ask")
+    def ask_post():
+        if ai is None:
+            abort(404)
+        question, provider = (request.form.get("question") or "").strip(), request.form.get("provider", "anthropic")
+        reviewer = request.cookies.get(_REVIEWER_COOKIE)
+        if not reviewer:
+            return redirect("/ask?" + urlencode({"message": "Enter your name at the top first (it is saved with the question)."}))
+        if question and provider in ("anthropic", "ollama"):
+            ai.ask.start(question[:2000], provider, f"{reviewer} (portal)")
+        return redirect("/ask")
 
     @app.post("/runs/<run_id>/cancel")
     def run_cancel(run_id):

@@ -16,7 +16,7 @@ from conftest import REPO_ROOT  # noqa: E402
 def test_without_a_database_the_pages_explain_how_to_turn_them_on(tmp_path):
     app = create_app(REPO_ROOT, str(tmp_path), use_database=False)
     client = app.test_client()
-    for page in ("/rules", "/standards", "/drafts", "/coverage"):
+    for page in ("/rules", "/standards", "/drafts", "/coverage", "/ask"):
         response = client.get(page)
         assert response.status_code == 200 and b"--no-db" in response.data
     assert client.post("/rules/X/approve").status_code == 404
@@ -114,3 +114,20 @@ def test_drafts_and_coverage_pages(portal):
 
     page = client.get("/coverage")
     assert page.status_code == 200 and rule.id.encode() in page.data and b"No scenario yet" in page.data
+
+
+def test_ask_page(portal):
+    import uuid
+    from datetime import datetime, timezone
+    from aqt.store.entities import AgentQuestionRow
+    app, db, _ = portal
+    db.store.add_agent_question(AgentQuestionRow(id=uuid.uuid4(), asked_utc=datetime.now(timezone.utc), question="Why did X fail?",
+                                                 status="unverified", provider="fake", model="m", asked_by="Ana", answer="Because of NEG-CON-777.",
+                                                 tool_calls=[{"tool": "list_runs", "arguments": {}, "result": "No runs match."}],
+                                                 citation_notes=["NEG-CON-777 is not in the data the agent looked at."]))
+    client = app.test_client()
+    client.delete_cookie("aqt_reviewer")
+    page = client.get("/ask")
+    assert page.status_code == 200 and b"Why did X fail?" in page.data and b"is not in the data" in page.data and b"list_runs" in page.data
+    response = client.post("/ask", data={"question": "Anything?", "provider": "ollama"})
+    assert "message=" in response.headers["Location"]

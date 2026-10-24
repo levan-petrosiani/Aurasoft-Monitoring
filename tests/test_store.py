@@ -198,7 +198,10 @@ def test_a_database_created_by_the_csharp_tool_is_recognised(db):
     from aqt.store.connection import _migration_files, connect, migrate
     with connect(db.connection, register_vector=False) as conn:
         conn.execute("DELETE FROM aqt_schema_migrations")
-        conn.execute("DROP TABLE scenario_drafts")  # added by 0002; the C# tool never had it
+        # Added by the later migrations; the C# tool never had them.
+        conn.execute("DROP TABLE scenario_drafts")
+        conn.execute("DROP SCHEMA agent CASCADE")
+        conn.execute("DROP TABLE agent_questions")
         conn.execute('CREATE TABLE "__EFMigrationsHistory" (migration_id varchar(150) PRIMARY KEY, product_version varchar(32))')
         conn.execute("""INSERT INTO "__EFMigrationsHistory" VALUES ('20261024084136_StandardsAndRules', '10.0.13')""")
         conn.commit()

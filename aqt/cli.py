@@ -438,10 +438,10 @@ def main(argv: list[str]) -> int:
         if command == "portal":
             from .portal.app import run_portal
             return run_portal(cli)
-        if command in ("db", "ai", "standards", "rules", "scenarios", "coverage"):
+        if command in ("db", "ai", "standards", "rules", "scenarios", "coverage", "ask"):
             from . import cli_ai
             return {"db": cli_ai.cmd_db, "ai": cli_ai.cmd_ai, "standards": cli_ai.cmd_standards, "rules": cli_ai.cmd_rules,
-                    "scenarios": cli_ai.cmd_scenarios, "coverage": cli_ai.cmd_coverage}[command](cli)
+                    "scenarios": cli_ai.cmd_scenarios, "coverage": cli_ai.cmd_coverage, "ask": cli_ai.cmd_ask}[command](cli)
         if command == "list":
             return cmd_list(cli)
         if command == "validate":

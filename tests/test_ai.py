@@ -52,7 +52,12 @@ def fake_anthropic():
                                                                        "usage": {"input_tokens": 10, "output_tokens": 0}}}),
                 ("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
                 ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "OK"}}),
-                ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+                ("content_block_stop", {"type": "content_block_stop", "index": 0})] + ([
+                ("content_block_start", {"type": "content_block_start", "index": 1,
+                                         "content_block": {"type": "tool_use", "id": "toolu_1", "name": "list_runs", "input": {}}}),
+                ("content_block_delta", {"type": "content_block_delta", "index": 1,
+                                         "delta": {"type": "input_json_delta", "partial_json": '{"bank": "TBCBGE22"}'}}),
+                ("content_block_stop", {"type": "content_block_stop", "index": 1})] if captured.get("stop") == "tool_use" else []) + [
                 ("message_delta", {"type": "message_delta", "delta": {"stop_reason": captured.get("stop", "end_turn"), "stop_sequence": None},
                                    "usage": {"output_tokens": 2}}),
                 ("message_stop", {"type": "message_stop"})]
@@ -95,6 +100,24 @@ def test_fallback_can_be_turned_off_and_effort_follows_configuration(fake_anthro
     body = fake_anthropic["body"]
     assert "fallbacks" not in body and body["output_config"] == {"effort": "high"}
     assert "server-side-fallback" not in fake_anthropic["headers"].get("anthropic-beta", "")
+
+
+def test_tools_are_sent_and_a_tool_call_comes_back_and_goes_back_as_is(fake_anthropic):
+    from aqt.ai.chat import Tool
+    fake_anthropic["stop"] = "tool_use"
+    client = ChatFactory(_claude(fake_anthropic), InMemoryAuditSink()).create(opt.ASK)
+    tools = [Tool("list_runs", "Runs", {"type": "object", "properties": {"bank": {"type": "string"}}})]
+    messages = [{"role": "user", "content": "Runs of TBC?"}]
+    result = client.complete("system", messages, tools=tools)
+    assert fake_anthropic["body"]["tools"] == [{"name": "list_runs", "description": "Runs", "input_schema": tools[0].parameters}]
+    assert result.finish_reason == "tool_use" and [(c.id, c.name, c.arguments) for c in result.tool_calls] == [("toolu_1", "list_runs", {"bank": "TBCBGE22"})]
+
+    fake_anthropic["stop"] = "end_turn"
+    messages += [result.as_message(), {"role": "tool", "tool_call_id": "toolu_1", "name": "list_runs", "content": "3 runs"}]
+    client.complete("system", messages, tools=tools)
+    sent = fake_anthropic["body"]["messages"]
+    assert [b["type"] for b in sent[1]["content"]] == ["text", "tool_use"] and sent[1]["content"][1]["input"] == {"bank": "TBCBGE22"}
+    assert sent[2] == {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": "3 runs"}]}
 
 
 # ---- audit and masking -------------------------------------------------------------------------------------------
