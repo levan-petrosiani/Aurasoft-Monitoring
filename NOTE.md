@@ -556,3 +556,13 @@ numbering conflict. The user confirmed Python is final and asked for the port. W
 **What:** README ("Store and AI layer" section; "Moved from C#" now says everything is ported),
 CLAUDE.md (Python modules, commands, the macOS note), ARCHITECTURE.md (components with the AI layer, summary
 and rules flows, store schema, test counts), PLAN status.
+
+## 2026-10-24 · 43. System overview PDF for the Python system; publishing as a pull request
+
+**What:** Regenerated `docs/overview/system-overview.pdf` (19 pages) from the earlier overview, converted to the Python
+system. The converter fails if any expected sentence is missing, so nothing stays outdated by accident. It covers
+packages and line counts, the Python stack, the port's verification, the new bugs, current numbers (14 runs, 19 summaries,
+24 rules, 93 tests), the roadmap (merge the PR first) and the decisions (Python as a team decision).
+**Why:** the user chose to regenerate it for Python and to publish the port as a **pull request**, so teammates see
+the change to their `aqt/oauth.py` before it reaches `main`. The earlier local commit with the C# PDF (`18409b2`) was
+dropped from local `main` (it only ever existed locally).
