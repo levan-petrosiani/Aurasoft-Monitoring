@@ -1,0 +1,143 @@
+@using ApiTestTool.AI
+@using ApiTestTool.AI.Summaries
+@using ApiTestTool.Store.Entities
+@implements IDisposable
+@inject SummaryService Summaries
+
+<section class="ai-panel">
+    <div class="ai-head">
+        <h2>AI summary</h2>
+        <div class="ai-actions">
+            @if (_runningProvider is not null)
+            {
+                <span class="muted small">Summarizing with @(_runningProvider == AiProviders.Ollama ? "the local model" : "Claude")… @(_runningProvider == AiProviders.Ollama ? "(a local model can take a minute)" : "")</span>
+            }
+            else
+            {
+                <button class="btn btn-small btn-primary" @onclick="() => Start(AiProviders.Anthropic)" title="@Summaries.ModelFor(AiProviders.Anthropic)">
+                    @(_entity is null ? "Summarize" : "Summarize again") with Claude
+                </button>
+                <button class="btn btn-small btn-ghost" @onclick="() => Start(AiProviders.Ollama)" title="Run data stays on this machine">
+                    Local (@Summaries.ModelFor(AiProviders.Ollama))
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (_entity is null)
+    {
+        <p class="muted small">No summary yet. The summary groups problems by cause, says whether the bank or our side is at fault, and compares with the bank's previous run. Data is masked before it is sent.</p>
+    }
+    else if (_summary is null)
+    {
+        <div class="alert alert-warn">
+            <b>No summary (@_entity.Status).</b> @_entity.Text
+        </div>
+    }
+    else
+    {
+        <div class="ai-headline">
+            <span class="badge badge-@HealthCss(_summary.Health)">@_summary.Health</span>
+            <b>@_summary.Headline</b>
+        </div>
+
+        @foreach (var f in _summary.Findings)
+        {
+            <div class="ai-finding">
+                <div class="ai-finding-head">
+                    <b>@f.Title</b>
+                    <span class="chip">@f.Severity</span>
+                    <span class="chip ai-side-@f.Side">@SideText(f.Side)</span>
+                </div>
+                @if (f.Scenarios.Count > 0)
+                {
+                    <div class="small">@foreach (var id in f.Scenarios) { <code>@id</code> }</div>
+                }
+                <p>@f.Explanation</p>
+                @if (f.Evidence.Length > 0) { <div class="small"><span class="label">Evidence</span> <code class="ai-evidence">@f.Evidence</code></div> }
+                @if (f.SpecRef.Length > 0) { <div class="small"><span class="label">Clause</span> @f.SpecRef</div> }
+                @if (f.NextStep.Length > 0) { <div class="small"><span class="label">Next step</span> @f.NextStep</div> }
+            </div>
+        }
+
+        @if (_summary.Comparison.Length > 0)
+        {
+            <p class="small"><span class="label">Since the previous run</span> @_summary.Comparison</p>
+        }
+
+        @if (_summary.Attention.Count > 0)
+        {
+            <div class="small"><span class="label">Worth a look</span>
+                <ul>@foreach (var a in _summary.Attention) { <li>@a</li> }</ul>
+            </div>
+        }
+
+        @if (_entity.ValidationNotes.Count > 0)
+        {
+            <details class="small ai-notes">
+                <summary>Checked by the tool: @_entity.ValidationNotes.Count correction(s)</summary>
+                <ul>@foreach (var n in _entity.ValidationNotes) { <li>@n</li> }</ul>
+            </details>
+        }
+    }
+
+    @if (_entity is not null)
+    {
+        <p class="muted small ai-foot">
+            @(_entity.Provider == "none" ? "No model call needed" : $"{_entity.Provider} · {_entity.Model}") · @_entity.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
+            · @((_entity.DurationMs / 1000.0).ToString("0.0", CultureInfo.InvariantCulture)) s · AI-generated: check it against the scenario details below.
+        </p>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string RunId { get; set; } = "";
+
+    private RunSummaryEntity? _entity;
+    private RunSummary? _summary;
+    private string? _runningProvider;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        Summaries.Changed -= OnChanged;
+        Summaries.Changed += OnChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _runningProvider = Summaries.RunningProvider(RunId);
+        _entity = await Summaries.GetLatestAsync(RunId);
+        _summary = _entity is null ? null : SummaryService.Parse(_entity);
+    }
+
+    private void Start(string provider)
+    {
+        Summaries.Start(RunId, provider, $"{Environment.UserName} (portal)");
+        _runningProvider = Summaries.RunningProvider(RunId);
+    }
+
+    private void OnChanged(string runId)
+    {
+        if (runId == RunId)
+            InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+    }
+
+    private static string HealthCss(string health) => health switch
+    {
+        "healthy" => "pass",
+        "degraded" => "queued",
+        "broken" => "fail",
+        _ => "error",
+    };
+
+    private static string SideText(string side) => side switch
+    {
+        "bank" => "bank side",
+        "our-side" => "our side",
+        "environment" => "environment",
+        _ => "unclear",
+    };
+
+    public void Dispose() => Summaries.Changed -= OnChanged;
+}

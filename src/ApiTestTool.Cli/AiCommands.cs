@@ -1,4 +1,5 @@
 using ApiTestTool.AI;
+using ApiTestTool.AI.Summaries;
 using ApiTestTool.Engine;
 using ApiTestTool.Store;
 using Microsoft.Extensions.AI;
@@ -14,7 +15,11 @@ internal static class AiCommands
         return sub switch
         {
             "check" => await CheckAsync(cli, cancellationToken),
-            _ => throw new ConfigurationException("Usage: aqt ai check [--provider anthropic|ollama] [--model name] [--db <connection>]"),
+            "summarize" => await SummarizeAsync(cli, cancellationToken),
+            _ => throw new ConfigurationException("""
+                Usage: aqt ai check [--provider anthropic|ollama] [--model name] [--db <connection>]
+                       aqt ai summarize <run-id|latest> [--bank BIC] [--provider anthropic|ollama] [--model name] [--show-input]
+                """),
         };
     }
 
@@ -49,6 +54,48 @@ internal static class AiCommands
 
         Out.Muted($"Audit records written to {where}.");
         return ok ? ExitCodes.Success : ExitCodes.ConfigurationError;
+    }
+
+    /// <summary>Summarizes a stored run (the store is required: the summary is read from and written to it).</summary>
+    private static async Task<int> SummarizeAsync(CliArgs cli, CancellationToken cancellationToken)
+    {
+        var connection = StoreCommands.RunConnection(cli) ?? StoreConnection.DockerComposeDefault;
+        var store = new AqtStore(connection);
+
+        var target = cli.Positional.Skip(1).FirstOrDefault() ?? "latest";
+        var runId = target.Equals("latest", StringComparison.OrdinalIgnoreCase)
+            ? await store.GetLatestRunIdAsync(cli.Get("bank"), cancellationToken) ?? throw new ConfigurationException("The store has no runs yet (aqt db import, or run with --db)")
+            : target;
+
+        var options = new AiOptions();
+        if (cli.Get("provider") is not null || cli.Get("model") is not null)
+            options.Features[AiFeatures.Summary] = new AiFeatureOptions { Provider = cli.Get("provider"), Model = cli.Get("model") };
+
+        var factory = new ChatClientFactory(options, new StoreAuditSink(store, Out.Notice), store.Masker);
+        var settings = factory.Describe(AiFeatures.Summary);
+
+        if (cli.Has("show-input"))
+        {
+            var run = await store.GetRunAsync(runId, cancellationToken) ?? throw new ConfigurationException($"Run '{runId}' is not in the store");
+            Out.Muted("--- input sent to the model ---");
+            Console.WriteLine(RunDigest.Build(run, await store.GetPreviousRunAsync(run, cancellationToken)).Text);
+            Out.Muted("--- end of input ---");
+        }
+
+        Out.Muted($"Summarizing {runId} with {settings.Provider} {settings.Model} ...");
+        var result = await new RunSummarizer(store, factory).SummarizeAsync(runId, $"{Environment.UserName} (aqt ai summarize)", cancellationToken);
+        var e = result.Entity;
+
+        Console.WriteLine();
+        if (result.Summary is { } summary)
+            Console.WriteLine(summary.ToText());
+        else
+            Out.Error($"No summary ({e.Status}): {e.Text}");
+
+        foreach (var note in e.ValidationNotes)
+            Out.Notice("check: " + note);
+        Out.Muted($"{e.Provider} {e.Model} · {e.DurationMs} ms · stored in run_summaries ({e.Id})");
+        return result.Summary is null ? ExitCodes.TestsFailed : ExitCodes.Success;
     }
 
     private static (IAiAuditSink Sink, string Where) AuditSink(CliArgs cli) =>

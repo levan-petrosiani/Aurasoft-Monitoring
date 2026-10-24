@@ -19,6 +19,7 @@ dotnet run --project src/ApiTestTool.Portal --launch-profile Portal  # web UI on
 docker compose up -d                                                 # PostgreSQL on localhost:5435
 dotnet run --project src/ApiTestTool.Cli -- db migrate|import|status # store
 dotnet run --project src/ApiTestTool.Cli -- ai check                 # Claude + Ollama reachable, audited
+dotnet run --project src/ApiTestTool.Cli -- ai summarize latest --provider ollama --show-input   # AI run triage
 AQT_TEST_DB="Host=localhost;Port=5435;Username=aqt;Password=aqt_dev" dotnet test   # include database tests
 dotnet tool restore && dotnet ef migrations add <Name> --project src/ApiTestTool.Store --output-dir Migrations
 ```
@@ -35,7 +36,7 @@ After changing store entities, add a migration. Run `dotnet` from the repo root 
 | `src/ApiTestTool.MockBank` | In-memory fake ASPSP enforcing real XS2A checks; the reference target for new scenarios |
 | `src/ApiTestTool.Portal` | Blazor Server UI; `Services/RunService.cs` queues runs, `StoreRecorder.cs` writes them to PostgreSQL |
 | `src/ApiTestTool.Store` | EF Core + Npgsql store (`AqtStore`), `SensitiveDataMasker`, `RunImporter`, migrations |
-| `src/ApiTestTool.AI` | `ChatClientFactory` (Claude / Ollama per feature), `AuditingChatClient` (mask + audit every call) |
+| `src/ApiTestTool.AI` | `ChatClientFactory` (Claude / Ollama per feature), `AuditingChatClient` (mask + audit every call), `Summaries/` (digest → prompt → validate → `run_summaries`) |
 | `tests/ApiTestTool.*.Tests` | xUnit: engine (every shipped YAML end to end), store (masking, import, DB with `AQT_TEST_DB`), AI |
 | `banks/<BIC>.yaml` | Bank profiles; `extends: _shared.yaml`; `_`-prefixed files are not run |
 | `scenarios/<suite>/*.yaml` | Test cases; reusable headers/bodies in `scenarios/_templates` |
@@ -70,6 +71,10 @@ After changing store entities, add a migration. Run `dotnet` from the repo root 
 - Store: PostgreSQL (`docker compose up -d`, port 5435; connection `ConnectionStrings:Aqt` / env `AQT_DB`).
   CLI and portal runs must still work without a database — a store failure is a notice, never a failed run.
 - Everything written to the store or sent to a model goes through `SensitiveDataMasker` first.
+- Facts go in code, judgement goes to the model: counts, run-to-run changes, clause existence and scenario ids are
+  computed or checked in code (see `RunDigest`, `RunSummary.Validate`); the model explains and groups.
+- Claude requests go through the beta endpoint with `fallbacks: "default"` (refusal fallback) and per-feature
+  effort; `AnthropicRequestTests` captures the real request — keep it passing when touching the provider code.
 - AIS first; PIS is designed in (`service: AIS | PIS | COMMON`) — don't add anything AIS-only to shared code.
 
 ## Style

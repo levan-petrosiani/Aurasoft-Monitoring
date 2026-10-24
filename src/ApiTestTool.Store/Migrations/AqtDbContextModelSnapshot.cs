@@ -353,6 +353,71 @@ namespace ApiTestTool.Store.Migrations
                     b.ToTable("runs", (string)null);
                 });
 
+            modelBuilder.Entity("ApiTestTool.Store.Entities.RunSummaryEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AiCallId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ai_call_id");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_utc");
+
+                    b.Property<long>("DurationMs")
+                        .HasColumnType("bigint")
+                        .HasColumnName("duration_ms");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("model");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("RunId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("run_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<string>("SummaryJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("summary_json");
+
+                    b.Property<string>("Text")
+                        .HasColumnType("text")
+                        .HasColumnName("text");
+
+                    b.Property<string>("TriggeredBy")
+                        .HasColumnType("text")
+                        .HasColumnName("triggered_by");
+
+                    b.PrimitiveCollection<List<string>>("ValidationNotes")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("validation_notes");
+
+                    b.HasKey("Id")
+                        .HasName("pk_run_summaries");
+
+                    b.HasIndex("RunId", "CreatedUtc")
+                        .HasDatabaseName("ix_run_summaries_run_id_created_utc");
+
+                    b.ToTable("run_summaries", (string)null);
+                });
+
             modelBuilder.Entity("ApiTestTool.Store.Entities.ScenarioResultEntity", b =>
                 {
                     b.Property<long>("Id")

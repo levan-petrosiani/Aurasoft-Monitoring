@@ -1,6 +1,6 @@
 # AI layer — plan
 
-Status: Phase 0 done (2026-10-24) — see NOTE.md steps 8–13; Phase 1 next. Hackathon project — each phase ends in
+Status: Phase 0 and Phase 1 done (2026-10-24) — see NOTE.md steps 8–20; Phase 2 next. Hackathon project — each phase ends in
 something demoable. Progress is logged in `NOTE.md`; `ARCHITECTURE.md` is updated at the end of each phase.
 
 ## 1. Goals
@@ -64,7 +64,7 @@ so the tool stays usable for the standalone case.
 |---|---|---|
 | Rule drafting | Claude (`claude-opus-5-5`), Anthropic SDK directly | Public documents only. Needs citations, structured output and the best accuracy |
 | Scenario drafting | Claude (`claude-opus-5-5`), tool loop | Several rounds of draft → validate → MockBank; quality cuts review time |
-| Run summary | `IChatClient`: Claude by default, Ollama (`gemma4:26b`) by config | Sees run data, so the local option keeps data on the machine |
+| Run summary | `IChatClient`: Claude by default, Ollama (`qwen3:8b`; `gemma4:26b` optional) by config | Sees run data, so the local option keeps data on the machine |
 | Ask-the-agent | `IChatClient` + function calling: Claude by default, Ollama by config | Same reason; Claude is more reliable at multi-step tool use |
 | Clause embeddings | Ollama `bge-m3` (local) | Anthropic has no embeddings API; bge-m3 is free and good |
 
@@ -101,7 +101,7 @@ DSL reference, templates).
 | Phase | Deliverable | Demo |
 |---|---|---|
 | 0. Foundations ✅ | .NET SDK on the Mac; baseline commit; `docker-compose` Postgres; `ApiTestTool.Store` + migrations + import; runs written to the store; `ApiTestTool.AI` skeleton (config, providers, masking, audit) | Runs from CLI/portal appear in Postgres |
-| 1. Run summaries | Summary panel on the Run page, `aqt ai summarize` | Run TBC-MOCK → one-click triage of failures, Claude vs local |
+| 1. Run summaries ✅ | Summary panel on the Run page, `aqt ai summarize` | Run TBC-MOCK → one-click triage of failures, Claude vs local |
 | 2. Standards + rules | Ingest BG 1.3.16 + Georgian guides; clause search; rule drafting; review queue | Pick a clause → AI drafts rules with quotes → approve in the portal |
 | 3. Scenario drafting | Draft → validate → MockBank loop; drafts page; coverage matrix | Approved rule → generated scenario → green on MockBank → coverage goes up |
 | 4. Ask-the-agent | Ask page + `aqt ask` | "Why did TBC fail last night?" → answer citing run IDs and clauses |

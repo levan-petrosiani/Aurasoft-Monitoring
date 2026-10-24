@@ -173,3 +173,20 @@ details.log pre { margin-top: 8px; }
     .exchange-grid { grid-template-columns: 1fr; }
     table.grid { display: block; overflow-x: auto; }
 }
+
+/* AI summary panel (Run page) */
+.ai-panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 16px 0; box-shadow: var(--shadow); }
+.ai-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.ai-head h2 { margin: 0; }
+.ai-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ai-headline { display: flex; gap: 10px; align-items: baseline; margin: 12px 0; }
+.ai-finding { border-left: 3px solid var(--line); padding: 4px 0 4px 12px; margin: 10px 0; }
+.ai-finding p { margin: 6px 0; }
+.ai-finding-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ai-finding code { margin-right: 6px; }
+.ai-side-bank { color: var(--fail); }
+.ai-side-our-side { color: var(--error); }
+.ai-side-environment { color: var(--warn); }
+.ai-evidence { white-space: pre-wrap; word-break: break-word; }
+.ai-notes { margin-top: 8px; }
+.ai-foot { margin: 10px 0 0; }

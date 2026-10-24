@@ -38,11 +38,11 @@ public sealed class AiOptions
     /// </summary>
     public static IReadOnlyDictionary<string, AiFeatureOptions> Defaults { get; } = new Dictionary<string, AiFeatureOptions>(StringComparer.OrdinalIgnoreCase)
     {
-        [AiFeatures.Summary] = new() { Provider = AiProviders.Anthropic, MaxOutputTokens = 4000 },
-        [AiFeatures.Ask] = new() { Provider = AiProviders.Anthropic, MaxOutputTokens = 8000 },
-        [AiFeatures.RuleDrafting] = new() { Provider = AiProviders.Anthropic, MaxOutputTokens = 16000 },
-        [AiFeatures.ScenarioDrafting] = new() { Provider = AiProviders.Anthropic, MaxOutputTokens = 16000 },
-        [AiFeatures.Check] = new() { Provider = AiProviders.Anthropic, MaxOutputTokens = 200 },
+        [AiFeatures.Summary] = new() { Provider = AiProviders.Anthropic, MaxOutputTokens = 16000, Effort = "medium" },
+        [AiFeatures.Ask] = new() { Provider = AiProviders.Anthropic, MaxOutputTokens = 16000, Effort = "medium" },
+        [AiFeatures.RuleDrafting] = new() { Provider = AiProviders.Anthropic, MaxOutputTokens = 32000, Effort = "high" },
+        [AiFeatures.ScenarioDrafting] = new() { Provider = AiProviders.Anthropic, MaxOutputTokens = 32000, Effort = "high" },
+        [AiFeatures.Check] = new() { Provider = AiProviders.Anthropic, MaxOutputTokens = 1000, Effort = "low" },
     };
 
     /// <summary>Effective settings of a feature: configured values over the defaults, model defaulting per provider.</summary>
@@ -57,6 +57,7 @@ public sealed class AiOptions
             Provider = provider,
             Model = configured?.Model ?? (provider == AiProviders.Ollama ? Ollama.DefaultModel : Anthropic.DefaultModel),
             MaxOutputTokens = configured?.MaxOutputTokens ?? defaults.MaxOutputTokens,
+            Effort = configured?.Effort ?? defaults.Effort,
         };
     }
 }
@@ -69,6 +70,9 @@ public sealed class AiFeatureOptions
     public string? Model { get; set; }
 
     public int? MaxOutputTokens { get; set; }
+
+    /// <summary>Claude only: low | medium | high | xhigh | max (adaptive thinking depth and token spend).</summary>
+    public string? Effort { get; set; }
 }
 
 public sealed class AnthropicOptions
@@ -77,11 +81,25 @@ public sealed class AnthropicOptions
     public string? ApiKey { get; set; }
 
     public string DefaultModel { get; set; } = "claude-opus-5-5";
+
+    /// <summary>
+    /// If Claude declines a request for policy reasons, let the API re-run it on Anthropic's recommended fallback
+    /// model (<c>fallbacks: "default"</c>). Security-testing material (signatures, tokens, auth flows) can trip
+    /// classifiers, so this is on by default.
+    /// </summary>
+    public bool RefusalFallback { get; set; } = true;
 }
 
 public sealed class OllamaOptions
 {
     public string Url { get; set; } = "http://localhost:11434";
 
-    public string DefaultModel { get; set; } = "gemma4:26b";
+    /// <summary>
+    /// qwen3:8b (5 GB): a TBC run summarized in ~35 s with the right root cause; gemma4:26b (17 GB) was as accurate
+    /// but took ~190 s (NOTE.md step 15). Bigger models can be chosen per feature.
+    /// </summary>
+    public string DefaultModel { get; set; } = "qwen3:8b";
+
+    /// <summary>Local models can take minutes (loading a 17 GB model, slow generation); HttpClient's default is 100 s.</summary>
+    public int TimeoutSeconds { get; set; } = 600;
 }

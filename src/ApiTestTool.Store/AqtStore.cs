@@ -133,6 +133,67 @@ public sealed class AqtStore
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    /// <summary>A run with scenarios, steps and exchanges (read-only, ordered as executed).</summary>
+    public async Task<RunEntity?> GetRunAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var db = CreateContext();
+        var run = await db.Runs.AsNoTracking()
+            .Include(r => r.Scenarios).ThenInclude(s => s.Steps).ThenInclude(st => st.Exchanges)
+            .AsSplitQuery()
+            .SingleOrDefaultAsync(r => r.Id == id, cancellationToken);
+
+        if (run is not null)
+        {
+            run.Scenarios = [.. run.Scenarios.OrderBy(s => s.Ordinal)];
+            foreach (var s in run.Scenarios)
+            {
+                s.Steps = [.. s.Steps.OrderBy(st => st.Ordinal)];
+                foreach (var st in s.Steps)
+                    st.Exchanges = [.. st.Exchanges.OrderBy(e => e.Ordinal)];
+            }
+        }
+
+        return run;
+    }
+
+    /// <summary>The newest run id, optionally for one bank.</summary>
+    public async Task<string?> GetLatestRunIdAsync(string? bankBic = null, CancellationToken cancellationToken = default)
+    {
+        await using var db = CreateContext();
+        return await db.Runs.AsNoTracking()
+            .Where(r => bankBic == null || r.BankBic == bankBic)
+            .OrderByDescending(r => r.CreatedUtc)
+            .Select(r => r.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>The bank's previous run that has results (for "what changed since last time"), with its scenario outcomes.</summary>
+    public async Task<RunEntity?> GetPreviousRunAsync(RunEntity run, CancellationToken cancellationToken = default)
+    {
+        await using var db = CreateContext();
+        return await db.Runs.AsNoTracking()
+            .Include(r => r.Scenarios)
+            .Where(r => r.BankBic == run.BankBic && r.Id != run.Id && r.CreatedUtc < run.CreatedUtc && r.Scenarios.Any())
+            .OrderByDescending(r => r.CreatedUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task AddRunSummaryAsync(RunSummaryEntity summary, CancellationToken cancellationToken = default)
+    {
+        await using var db = CreateContext();
+        db.RunSummaries.Add(summary);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<RunSummaryEntity?> GetLatestRunSummaryAsync(string runId, CancellationToken cancellationToken = default)
+    {
+        await using var db = CreateContext();
+        return await db.RunSummaries.AsNoTracking()
+            .Where(s => s.RunId == runId)
+            .OrderByDescending(s => s.CreatedUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<StoreStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         await using var db = CreateContext();

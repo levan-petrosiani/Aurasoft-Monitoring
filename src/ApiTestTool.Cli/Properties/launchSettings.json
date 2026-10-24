@@ -47,6 +47,14 @@
       "commandLineArgs": "ai check",
       "environmentVariables": { "AQT_DB": "Host=localhost;Port=5435;Database=aqt;Username=aqt;Password=aqt_dev" }
     },
+    "aqt: ai summarize latest (local model)": {
+      "commandName": "Project",
+      "commandLineArgs": "ai summarize latest --provider ollama"
+    },
+    "aqt: ai summarize latest (Claude)": {
+      "commandName": "Project",
+      "commandLineArgs": "ai summarize latest --provider anthropic"
+    },
     "aqt: validate": {
       "commandName": "Project",
       "commandLineArgs": "validate"

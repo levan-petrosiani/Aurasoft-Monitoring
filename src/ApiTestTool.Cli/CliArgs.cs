@@ -5,7 +5,7 @@ namespace ApiTestTool.Cli;
 /// <summary>Minimal argument parser: <c>command [positional...] [--name value | --name=value | --flag]</c>.</summary>
 internal sealed class CliArgs
 {
-    private static readonly HashSet<string> s_flags = new(StringComparer.OrdinalIgnoreCase) { "verbose", "no-preflight-gate", "sca-auto", "with-mock", "replace" };
+    private static readonly HashSet<string> s_flags = new(StringComparer.OrdinalIgnoreCase) { "verbose", "no-preflight-gate", "sca-auto", "with-mock", "replace", "show-input" };
 
     private readonly Dictionary<string, string?> _options = new(StringComparer.OrdinalIgnoreCase);
 

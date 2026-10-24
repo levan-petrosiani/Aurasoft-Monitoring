@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject RunService RunService
 @inject NavigationManager Nav
+@inject IServiceProvider Services
 
 <PageTitle>Run @Id · API Test Portal</PageTitle>
 
@@ -68,6 +69,11 @@
     <div class="tile"><b>@completed.Count(s => s.Outcome == Outcome.Blocked)</b>blocked</div>
     <div class="tile"><b>@completed.Count(s => s.Outcome == Outcome.Skipped)</b>skipped</div>
 </div>
+
+@if (!_run.IsActive && Services.GetService<SummaryService>() is not null)
+{
+    <AiSummaryPanel RunId="@Id" />
+}
 
 @if (_run.IsActive)
 {

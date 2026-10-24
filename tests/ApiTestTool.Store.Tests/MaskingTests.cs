@@ -23,6 +23,15 @@ public class MaskingTests
     }
 
     [Fact]
+    public void Keeps_xs2a_error_codes_readable()
+    {
+        var masked = _masker.MaskBody("""{"code":"FORMAT_ERROR","tppMessages":[{"category":"ERROR","code":"CONSENT_UNKNOWN"}]}""");
+
+        Assert.Contains("FORMAT_ERROR", masked);
+        Assert.Contains("CONSENT_UNKNOWN", masked);
+    }
+
+    [Fact]
     public void Masks_form_bodies_and_query_strings()
     {
         var form = _masker.MaskBody("grant_type=authorization_code&code=SplxlOBeZQQYbYS6WxSbIA&code_verifier=dBjftJeZ4CVP&client_id=PSDGE-NBG-X");

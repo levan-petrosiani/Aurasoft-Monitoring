@@ -13,9 +13,9 @@ public class AiLayerTests
         options.Features[AiFeatures.Ask] = new AiFeatureOptions { Provider = AiProviders.Ollama, Model = "qwen3:8b" };
 
         Assert.Equal((AiProviders.Anthropic, "claude-opus-5-5"), (options.For(AiFeatures.RuleDrafting).Provider, options.For(AiFeatures.RuleDrafting).Model));
-        Assert.Equal((AiProviders.Ollama, "gemma4:26b"), (options.For(AiFeatures.Summary).Provider, options.For(AiFeatures.Summary).Model));
+        Assert.Equal((AiProviders.Ollama, "qwen3:8b"), (options.For(AiFeatures.Summary).Provider, options.For(AiFeatures.Summary).Model));
         Assert.Equal("qwen3:8b", options.For(AiFeatures.Ask).Model);
-        Assert.Equal(4000, options.For(AiFeatures.Summary).MaxOutputTokens); // default kept when not overridden
+        Assert.Equal((16000, "medium"), (options.For(AiFeatures.Summary).MaxOutputTokens, options.For(AiFeatures.Summary).Effort)); // defaults kept when not overridden
     }
 
     [Fact]

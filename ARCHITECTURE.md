@@ -3,8 +3,9 @@
 Snapshot of the system as it is **now**. Update this file at the end of every phase (see `docs/ai/PLAN.md`);
 the target design lives in the plan. Diagrams are Mermaid (render in GitHub, GitLab, Rider, VS Code).
 
-**Last updated:** 2026-10-24, end of **Phase 0** (store + AI foundations). New in this phase: PostgreSQL store,
-masking, run import, AI provider factory with an audit log. No AI features yet.
+**Last updated:** 2026-10-24, end of **Phase 1** (AI run summaries). Phase 0 added the PostgreSQL store, masking,
+run import and the AI provider factory with an audit log. Phase 1 added the run summary: `RunDigest` →
+`RunSummarizer` → validation in code → `run_summaries`, the CLI command and the portal panel.
 
 ## 1. Components
 
@@ -17,16 +18,16 @@ flowchart LR
     end
 
     subgraph Hosts["Entry points"]
-        Cli["ApiTestTool.Cli (aqt)<br/>run · db · ai check"]
-        Portal["ApiTestTool.Portal<br/>Blazor :5280<br/>RunService → StoreRecorder"]
+        Cli["ApiTestTool.Cli (aqt)<br/>run · db · ai check · ai summarize"]
+        Portal["ApiTestTool.Portal<br/>Blazor :5280<br/>RunService → StoreRecorder<br/>AI summary panel"]
     end
 
     Engine["ApiTestTool.Engine<br/>loader · runner · signing · OAuth · reports<br/>(no AI, no DB)"]
     Mock["ApiTestTool.MockBank<br/>fake ASPSP :7443 / :7080"]
 
-    subgraph New["New in Phase 0"]
+    subgraph New["Phase 0 + 1"]
         Store["ApiTestTool.Store<br/>AqtStore · RunImporter<br/>SensitiveDataMasker · EF migrations"]
-        AI["ApiTestTool.AI<br/>ChatClientFactory<br/>AuditingChatClient"]
+        AI["ApiTestTool.AI<br/>ChatClientFactory · AuditingChatClient<br/>Summaries: RunDigest · RunSummarizer"]
     end
 
     subgraph Targets["Banks under test"]
@@ -36,8 +37,8 @@ flowchart LR
 
     Files[("reports/ · data/runs/<br/>run.json · summary.json<br/>report.html · junit.xml")]
     PG[("PostgreSQL 17 + pgvector<br/>docker :5435")]
-    Claude["Claude API<br/>claude-opus-5-5"]
-    Ollama["Ollama (local)<br/>gemma4:26b · qwen3:8b · bge-m3"]
+    Claude["Claude API (beta endpoint)<br/>claude-opus-5-5 · effort per feature<br/>fallbacks: default"]
+    Ollama["Ollama (local)<br/>qwen3:8b (default) · gemma4:26b · bge-m3"]
 
     Banks & Scen & Certs --> Engine
     Cli --> Engine
@@ -52,7 +53,9 @@ flowchart LR
     Cli -- "db import" --> Files
     Portal -- "background writes" --> Store
     Store -- "masked rows" --> PG
-    Cli -- "ai check" --> AI
+    Cli -- "ai check / summarize" --> AI
+    Portal -- "SummaryService" --> AI
+    AI -- "read runs, save summaries" --> Store
     AI -- "masked prompts" --> Claude
     AI -- "masked prompts" --> Ollama
     AI -- "audit (ai_calls)" --> Store
@@ -62,7 +65,24 @@ Rules the diagram encodes: the engine has no AI and no database dependency; ever
 or a model passes `SensitiveDataMasker`; a store failure never fails a run (the files on disk are complete and
 can be imported later).
 
-## 2. Engine internals (unchanged in Phase 0)
+## 2. AI run summary (Phase 1)
+
+```mermaid
+flowchart LR
+    Run[("runs + scenario/step results<br/>+ masked exchanges")] --> Digest
+    Prev[("bank's previous run")] --> Digest
+    Digest["RunDigest (code)<br/>problems + evidence excerpts<br/>outcome changes · pass rates<br/>scenario ids · clause refs"] --> Prompt
+    Prompt["System prompt<br/>outcome semantics · side rules<br/>JSON schema"] --> Model{{"Claude or Ollama<br/>(AuditingChatClient → ai_calls)"}}
+    Model --> Parse["Parse JSON<br/>(1 repair retry)"]
+    Parse --> Validate["Validate (code)<br/>drop unknown scenarios<br/>clauses must be in the run<br/>passed-scenario findings → warnings<br/>flag unexplained failures<br/>comparison text from code"]
+    Validate --> Saved[("run_summaries")]
+    Saved --> UI["Portal panel · aqt ai summarize"]
+```
+
+The model decides grouping, side (bank / our side / environment / unclear), explanation and next step. Everything
+that can be checked or computed — counts, run-to-run changes, scenario ids, clause references — is done in code.
+
+## 3. Engine internals (unchanged since Phase 0)
 
 ```mermaid
 flowchart TB
@@ -96,7 +116,7 @@ flowchart TB
     Run --> RW
 ```
 
-## 3. Store schema
+## 4. Store schema
 
 ```mermaid
 erDiagram
@@ -105,6 +125,8 @@ erDiagram
     step_results ||--o{ exchanges : "cascade"
     runs ||..o{ events : "run_id (kept after delete)"
     runs ||..o{ ai_calls : "run_id (kept after delete)"
+    runs ||..o{ run_summaries : "run_id (kept after delete)"
+    run_summaries }o..|| ai_calls : "ai_call_id"
 
     runs {
         text id PK "run folder name"
@@ -158,6 +180,17 @@ erDiagram
         text message
         jsonb data
     }
+    run_summaries {
+        uuid id PK
+        text run_id
+        text provider
+        text model
+        text status "ok | unstructured | failed"
+        jsonb summary_json "validated summary"
+        text text "raw answer or error"
+        text_array validation_notes
+        uuid ai_call_id
+    }
     ai_calls {
         uuid id PK
         text feature "summary | ask | ruleDrafting | scenarioDrafting | check"
@@ -172,7 +205,7 @@ erDiagram
     }
 ```
 
-## 4. One AIS scenario at runtime (AIS-001)
+## 5. One AIS scenario at runtime (AIS-001)
 
 ```mermaid
 sequenceDiagram
@@ -197,7 +230,7 @@ sequenceDiagram
     R->>S: results + exchanges (tokens, codes, IBANs masked)
 ```
 
-## 5. Tech facts
+## 6. Tech facts
 
 | Item | Value |
 |---|---|
@@ -206,5 +239,5 @@ sequenceDiagram
 | Storage | YAML in; `run.json` + reports out; PostgreSQL 17 (pgvector image) as the queryable store |
 | Ports | Portal 5280 · MockBank 7443 / 7080 · OAuth callback 5199 · PostgreSQL 5435 · Ollama 11434 |
 | Tools | `dotnet-ef` 10.0.13 as a local tool (`dotnet tool restore`) |
-| Tests | 75: engine 53 · store 17 (3 need `AQT_TEST_DB`) · AI 5 |
+| Tests | 90: engine 53 · store 18 (3 need `AQT_TEST_DB`) · AI 19 (4 need `AQT_TEST_DB`) |
 | Services covered | AIS (consents, accounts, balances, transactions), preflight, negative. PIS in Phase 5 |

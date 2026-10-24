@@ -32,6 +32,10 @@ public sealed class StoreRecorder(AqtStore store, ILogger<StoreRecorder> logger)
     public void DeleteRun(string runId) =>
         Enqueue($"delete run {runId}", ct => store.DeleteRunAsync(runId, ct));
 
+    /// <summary>Runs <paramref name="action"/> after every write queued so far (e.g. summarize once the run is saved).</summary>
+    public void Then(string what, Action action) =>
+        Enqueue(what, _ => { action(); return Task.CompletedTask; });
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await foreach (var (what, write) in _queue.Reader.ReadAllAsync(stoppingToken))

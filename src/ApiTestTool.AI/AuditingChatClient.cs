@@ -9,8 +9,8 @@ using Microsoft.Extensions.AI;
 
 namespace ApiTestTool.AI;
 
-/// <summary>Who/what a model call is for; stored with the audit record.</summary>
-public sealed record AiCallContext(string? RunId = null, string? TriggeredBy = null);
+/// <summary>Who/what a model call is for; stored with the audit record. <paramref name="CallId"/> lets a feature link its own rows to the audit row.</summary>
+public sealed record AiCallContext(string? RunId = null, string? TriggeredBy = null, Guid? CallId = null);
 
 /// <summary>
 /// Wraps every provider client: masks the text of outgoing messages (last line of defence — features mask their
@@ -31,8 +31,9 @@ public sealed class AuditingChatClient(IChatClient inner, string feature, string
             await RecordAsync(masked, response, null, sw.ElapsedMilliseconds);
             return response;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
+            // Timeouts surface as OperationCanceledException too; only the caller's own cancellation goes unrecorded.
             await RecordAsync(masked, null, ex, sw.ElapsedMilliseconds);
             throw;
         }
@@ -54,7 +55,7 @@ public sealed class AuditingChatClient(IChatClient inner, string feature, string
                     break;
                 update = e.Current;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 await RecordAsync(masked, null, ex, sw.ElapsedMilliseconds);
                 throw;
@@ -75,7 +76,7 @@ public sealed class AuditingChatClient(IChatClient inner, string feature, string
         var request = JsonSerializer.Serialize(messages.Select(m => new { role = m.Role.Value, text = m.Text }), s_json);
         var call = new AiCallEntity
         {
-            Id = Guid.NewGuid(),
+            Id = context?.CallId ?? Guid.NewGuid(),
             TimeUtc = DateTime.UtcNow,
             Feature = feature,
             Provider = provider,

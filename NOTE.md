@@ -174,3 +174,82 @@ End to end:
 - The portal starts, migrates and serves pages.
 **Not verified by me:** a run started from the portal UI (Blazor needs a browser). Check: start a MOCK run in the
 portal, then `aqt db status` should show one more run, with `run.queued/started/completed` events.
+
+## 2026-10-24 · 14. Pushed Phase 0; Phase 1 design
+
+**What:** Pushed `38c7151`. Phase 1 = AI run summary (triage) in the CLI and the portal.
+**Why this shape:**
+- The model gets a **digest**, not raw `run.json`: only problems, their failures and response excerpts, skipped
+  and passed ids, and warnings. That keeps prompts small, cheap and readable for local models.
+- **Facts are computed in code**: counts, outcome changes vs the bank's previous run, scenario ids, clause refs.
+  The model groups problems by cause and explains them.
+- Its answer is **validated in code** before it is stored. A tester can't easily spot a made-up clause or scenario
+  id, so the tool must.
+
+## 2026-10-24 · 15. Phase 1: Claude request settings (Opus 5.5)
+
+**What:** `AnthropicDefaultsChatClient` sends every Claude call through the **beta** endpoint with
+`fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) and a per-feature **effort** (summary/ask `medium`,
+drafting `high`, check `low`) via adaptive thinking. Options: `ApiTestTool:AI:Anthropic:RefusalFallback`,
+`Features:<f>:Effort`.
+**Why:** Our prompts contain security-testing material (signatures, tokens, OAuth flows), which can trip safety
+classifiers; with the fallback, a declined request is re-run on Anthropic's recommended model instead of failing.
+Opus 5.5 defaults to effort `medium`, so we set it explicitly per feature.
+**Verified without a key:** `AnthropicRequestTests` captures the real HTTP request offline and checks the model,
+`max_tokens`, `fallbacks: "default"`, the beta header, `output_config.effort` and `thinking: adaptive`.
+**Still unverified:** a live Claude call (no `ANTHROPIC_API_KEY` yet).
+
+## 2026-10-24 · 16. Phase 1: summarizer, storage, CLI
+
+**What:** `RunDigest`, `RunSummary` (schema, parse, validate), `RunSummarizer`; table `run_summaries` (migration
+`RunSummaries`); `aqt ai summarize <run-id|latest> [--provider] [--model] [--show-input]`.
+**Why:**
+- One repair retry when the answer isn't valid JSON (local models sometimes add prose).
+- An unreadable answer is stored as `unstructured` with the raw text, never thrown away.
+- Runs without results are summarized without a model call.
+- Every summary links to its `ai_calls` row.
+- JSON-schema response format is used for Ollama only. For Claude the schema is in the prompt, because the adapter
+  plus fallback combination with structured outputs is untested here.
+
+## 2026-10-24 · 17. Phase 1: two bugs found by the first real summary
+
+1. **Masking hid XS2A error codes.** JSON key `code` was masked everywhere (meant for the OAuth code), so
+   `"code":"FORMAT_ERROR"` became `***`, which is exactly the evidence a tester needs. Now `code` is masked only in
+   form bodies and query strings. All 12 runs re-imported: error codes readable, still 0 secrets.
+2. **Local model timeout.** OllamaSharp's HttpClient default is 100 s, and `gemma4:26b` needed longer. Added
+   `Ollama:TimeoutSeconds` (600). Timeouts are now audited and stored as failed summaries, not treated as a
+   user cancellation.
+
+## 2026-10-24 · 18. Phase 1: local model choice (user's request)
+
+**What:** Default local model changed from `gemma4:26b` (17 GB) to **`qwen3:8b`** (5.2 GB).
+**Why:** The user asked for a smaller model. Same TBC run: gemma4 192 s, qwen3 35 s, both found the right root cause
+and clause. qwen3 made more small mistakes, and those were fixed in code (step 19). The only installed models are
+gemma4:26b and qwen3:8b; bge-m3 and the reranker are embedding models and can't summarize.
+
+## 2026-10-24 · 19. Phase 1: evaluation on all stored runs, and fixes
+
+**What:** Summarized all 9 runs with results using qwen3:8b and compared each answer with the database.
+**Errors found → fix:**
+- "Since previous run" text misdescribed changes ("previously failed" for Blocked) → the comparison is now
+  **written in code** from the computed changes and removed from the model's schema.
+- Warnings of passed scenarios reported as findings (PRE-002 untrusted cert on MockBank) → **code** moves
+  findings whose scenarios all passed to "Worth a look".
+- Random 503s of the TBC mock blamed on the bank → prompt: 502/503/504/timeouts are "environment" unless persistent.
+- A tester clicking Deny (`access_denied`) blamed on the bank as Critical → prompt: mark "unclear", suggest re-run.
+- Validator cleared a correct but shortened clause → it now matches clause numbers (6.3.1.2, 14.11.1) and
+  stores the run's exact reference.
+**Result:** Re-run on the 5 affected runs: all now correct against the data (sides, grouping, comparison).
+Speed 15–35 s per run locally.
+
+## 2026-10-24 · 20. Phase 1: portal panel and tests
+
+**What:**
+- **AI summary** panel on the Run page: "Summarize with Claude" / "Local (qwen3:8b)", health badge, findings with
+  side, evidence, clause and next step, "since previous run", warnings, and the tool's corrections.
+- Optional `ApiTestTool:AI:Summary:AutoSummarize`, queued after the run is saved.
+- Tests: 90 total (engine 53, store 18, AI 19). The database fixture and sample run moved to `tests/Shared`.
+**Verified:**
+- Build clean, 90/90 tests pass.
+- The portal renders the stored summary for the TBC run (checked in the server-rendered HTML).
+**Not verified:** clicking the buttons in a browser, auto-summarize after a portal run, and a live Claude summary.

@@ -21,8 +21,14 @@ public sealed partial class SensitiveDataMasker(MaskingOptions? options = null)
 
     private static readonly HashSet<string> s_keys = new(StringComparer.OrdinalIgnoreCase)
     {
-        "access_token", "refresh_token", "id_token", "code", "code_verifier", "client_secret", "client_assertion", "password",
+        "access_token", "refresh_token", "id_token", "code_verifier", "client_secret", "client_assertion", "password",
     };
+
+    /// <summary>
+    /// OAuth authorization <c>code</c>: secret in form bodies and query strings (token request, callback URL), but
+    /// in JSON it is the XS2A error code (<c>tppMessages[].code</c> = FORMAT_ERROR), which must stay readable.
+    /// </summary>
+    private static readonly HashSet<string> s_formOnlyKeys = new(StringComparer.OrdinalIgnoreCase) { "code" };
 
     private readonly MaskingOptions _options = options ?? new MaskingOptions();
 
@@ -112,7 +118,7 @@ public sealed partial class SensitiveDataMasker(MaskingOptions? options = null)
                 continue;
 
             var key = HttpUtility.UrlDecode(parts[i][..eq]);
-            if (IsSecretKey(key))
+            if (IsSecretKey(key) || s_formOnlyKeys.Contains(key))
                 parts[i] = parts[i][..(eq + 1)] + Uri.EscapeDataString(MaskValue(HttpUtility.UrlDecode(parts[i][(eq + 1)..])));
         }
 

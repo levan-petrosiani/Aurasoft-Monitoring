@@ -1,5 +1,6 @@
 using ApiTestTool.Portal.Components;
 using ApiTestTool.Portal.Services;
+using ApiTestTool.AI;
 using ApiTestTool.Store;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,6 +16,11 @@ if (builder.Configuration.GetConnectionString("Aqt") is { Length: > 0 } connecti
     builder.Services.AddSingleton(new AqtStore(connection, builder.Configuration.GetSection("ApiTestTool:Store").Get<StoreOptions>()));
     builder.Services.AddSingleton<StoreRecorder>();
     builder.Services.AddHostedService(sp => sp.GetRequiredService<StoreRecorder>());
+
+    // AI run summaries need the store (they read runs from it and save summaries to it).
+    builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.Section));
+    builder.Services.Configure<SummaryOptions>(builder.Configuration.GetSection(AiOptions.Section + ":Summary"));
+    builder.Services.AddSingleton<SummaryService>();
 }
 
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RunService>());

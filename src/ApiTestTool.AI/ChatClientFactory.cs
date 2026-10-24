@@ -10,14 +10,26 @@ namespace ApiTestTool.AI;
 /// always wrapped in <see cref="AuditingChatClient"/>. Features depend on <see cref="IChatClient"/> only, so switching
 /// provider is a configuration change.
 /// </summary>
-public sealed class ChatClientFactory(AiOptions options, IAiAuditSink audit, SensitiveDataMasker? masker = null)
+public sealed class ChatClientFactory(AiOptions options, IAiAuditSink audit, SensitiveDataMasker? masker = null, HttpClient? anthropicHttp = null)
 {
     private readonly SensitiveDataMasker _masker = masker ?? SensitiveDataMasker.Default;
-    private readonly Lazy<AnthropicClient> _anthropic = new(() => string.IsNullOrEmpty(options.Anthropic.ApiKey)
-        ? new AnthropicClient() // ANTHROPIC_API_KEY or the 'ant auth login' profile
-        : new AnthropicClient { ApiKey = options.Anthropic.ApiKey });
+    private readonly Lazy<AnthropicClient> _anthropic = new(() =>
+    {
+        // No key configured: ANTHROPIC_API_KEY or the 'ant auth login' profile is used.
+        var key = string.IsNullOrEmpty(options.Anthropic.ApiKey) ? null : options.Anthropic.ApiKey;
+        return (key, anthropicHttp) switch
+        {
+            (null, null) => new AnthropicClient(),
+            (null, { } http) => new AnthropicClient { HttpClient = http }, // tests and proxies
+            ({ } k, null) => new AnthropicClient { ApiKey = k },
+            ({ } k, { } http) => new AnthropicClient { ApiKey = k, HttpClient = http },
+        };
+    });
 
     public AiOptions Options => options;
+
+    /// <summary>Tests: replaces the provider client (the audit wrapper is still applied).</summary>
+    internal Func<AiFeatureOptions, IChatClient>? ProviderOverride { get; init; }
 
     /// <summary>Provider, model and limits a feature will use.</summary>
     public AiFeatureOptions Describe(string feature) => options.For(feature);
@@ -26,10 +38,12 @@ public sealed class ChatClientFactory(AiOptions options, IAiAuditSink audit, Sen
     {
         var settings = options.For(feature);
         var model = settings.Model!;
-        IChatClient inner = settings.Provider switch
+        IChatClient inner = ProviderOverride is { } fake ? fake(settings) : settings.Provider switch
         {
-            AiProviders.Anthropic => _anthropic.Value.AsIChatClient(model),
-            AiProviders.Ollama => new OllamaApiClient(new Uri(options.Ollama.Url), model),
+            // Beta endpoint: needed for the server-side refusal fallback.
+            AiProviders.Anthropic => new AnthropicDefaultsChatClient(_anthropic.Value.Beta.AsIChatClient(model, settings.MaxOutputTokens), model, settings.Effort, options.Anthropic.RefusalFallback),
+            AiProviders.Ollama => new OllamaApiClient(
+                new HttpClient { BaseAddress = new Uri(options.Ollama.Url), Timeout = TimeSpan.FromSeconds(options.Ollama.TimeoutSeconds) }, model),
             _ => throw new InvalidOperationException($"Unknown AI provider '{settings.Provider}' for feature '{feature}' (use {AiProviders.Anthropic} or {AiProviders.Ollama})"),
         };
 

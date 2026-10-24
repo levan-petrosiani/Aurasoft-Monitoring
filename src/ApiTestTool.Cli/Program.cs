@@ -242,6 +242,7 @@ namespace ApiTestTool.Cli
                   aqt db migrate|status        create/upgrade the PostgreSQL store, show row counts
                   aqt db import [folder...] [--replace]   load existing report folders (default: ./reports) into the store
                   aqt ai check [--provider anthropic|ollama] [--model name]   one-line call to each AI provider
+                  aqt ai summarize <run-id|latest> [--bank BIC] [--provider ..] [--model ..] [--show-input]   AI triage of a stored run
                   aqt list banks|scenarios [--suite name]
                   aqt validate
                   aqt version

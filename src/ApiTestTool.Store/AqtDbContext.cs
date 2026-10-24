@@ -19,6 +19,8 @@ public sealed class AqtDbContext(DbContextOptions<AqtDbContext> options) : DbCon
 
     public DbSet<AiCallEntity> AiCalls => Set<AiCallEntity>();
 
+    public DbSet<RunSummaryEntity> RunSummaries => Set<RunSummaryEntity>();
+
     /// <summary>Options for a connection string (snake_case naming, retries on transient errors).</summary>
     public static DbContextOptions<AqtDbContext> CreateOptions(string connectionString) =>
         Configure(new DbContextOptionsBuilder<AqtDbContext>(), connectionString).Options;
@@ -82,6 +84,13 @@ public sealed class AqtDbContext(DbContextOptions<AqtDbContext> options) : DbCon
             c.HasIndex(x => x.TimeUtc);
             c.HasIndex(x => x.Feature);
             c.HasIndex(x => x.RunId);
+        });
+
+        model.Entity<RunSummaryEntity>(rs =>
+        {
+            rs.ToTable("run_summaries");
+            rs.Property(x => x.SummaryJson).HasColumnType("jsonb");
+            rs.HasIndex(x => new { x.RunId, x.CreatedUtc });
         });
     }
 }

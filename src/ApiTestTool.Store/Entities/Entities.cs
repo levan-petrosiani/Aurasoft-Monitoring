@@ -221,3 +221,36 @@ public sealed class AiCallEntity
 
     public string? Error { get; set; }
 }
+
+/// <summary>An AI summary (triage) of a run. Regenerating adds a new row; the newest one is shown.</summary>
+public sealed class RunSummaryEntity
+{
+    public Guid Id { get; set; }
+
+    public required string RunId { get; set; }
+
+    public DateTime CreatedUtc { get; set; }
+
+    public required string Provider { get; set; }
+
+    public required string Model { get; set; }
+
+    /// <summary>ok, unstructured (model answered but not in the expected shape) or failed.</summary>
+    public required string Status { get; set; }
+
+    /// <summary>The validated summary (jsonb), when <see cref="Status"/> is ok.</summary>
+    public string? SummaryJson { get; set; }
+
+    /// <summary>Raw model text when the answer could not be parsed, or the error.</summary>
+    public string? Text { get; set; }
+
+    /// <summary>Problems the validation fixed, e.g. an unknown scenario id or a clause that is not in the run.</summary>
+    public List<string> ValidationNotes { get; set; } = [];
+
+    /// <summary>The <c>ai_calls</c> row of the (last) model call.</summary>
+    public Guid? AiCallId { get; set; }
+
+    public string? TriggeredBy { get; set; }
+
+    public long DurationMs { get; set; }
+}

@@ -30,14 +30,16 @@ public sealed class RunService : BackgroundService
     private readonly MockBankService _mockBank;
     private readonly ILogger<RunService> _logger;
     private readonly StoreRecorder? _store;
+    private readonly SummaryService? _summaries;
 
     /// <param name="store">Set when a database is configured (<c>ConnectionStrings:Aqt</c>); runs are then also written to PostgreSQL.</param>
-    public RunService(CatalogService catalog, MockBankService mockBank, IOptions<PortalOptions> options, IWebHostEnvironment env, ILogger<RunService> logger, StoreRecorder? store = null)
+    public RunService(CatalogService catalog, MockBankService mockBank, IOptions<PortalOptions> options, IWebHostEnvironment env, ILogger<RunService> logger, StoreRecorder? store = null, SummaryService? summaries = null)
     {
         _catalog = catalog;
         _mockBank = mockBank;
         _logger = logger;
         _store = store;
+        _summaries = summaries;
         DataDirectory = Path.GetFullPath(Path.Combine(env.ContentRootPath, options.Value.DataDirectory));
         Directory.CreateDirectory(DataDirectory);
         LoadHistory();
@@ -225,6 +227,12 @@ public sealed class RunService : BackgroundService
         _store?.Event($"run.{status.ToString().ToLowerInvariant()}",
             error ?? $"{record.Passed} passed, {record.Failed} failed, {record.Errors} errors, {record.Skipped} skipped",
             run.Id, status == RunStatus.Completed && record.Failed + record.Errors == 0 ? "Info" : status == RunStatus.Failed ? "Error" : "Warning");
+
+        if (status == RunStatus.Completed && _summaries is { Options.AutoSummarize: true } summaries)
+        {
+            var provider = summaries.Options.AutoProvider is { Length: > 0 } p ? p : summaries.DefaultProvider;
+            _store?.Then($"auto-summary {run.Id}", () => summaries.Start(run.Id, provider, "auto (portal)"));
+        }
         run.NotifyChanged();
         RunsChanged?.Invoke();
     }

@@ -66,6 +66,16 @@ dotnet run --project src/ApiTestTool.Cli -- db status
   (including failed ones) goes to `ai_calls`. Claude needs `ANTHROPIC_API_KEY` (or `ant auth login`). Never put
   the key in `appsettings.json`. Provider and model per feature (read by the portal from Phase 1 on):
   `ApiTestTool:AI:Features:<summary|ask|ruleDrafting|scenarioDrafting>:{Provider,Model}`.
+- **AI run summary (Phase 1):** `aqt ai summarize <run-id|latest> [--provider anthropic|ollama] [--model x]
+  [--show-input]`, or the **AI summary** panel on a run's page in the portal ("Summarize with Claude" /
+  "Local"). It groups problems by root cause, says whether the bank, our side or the environment is at fault,
+  quotes the evidence, gives a next step, and lists what changed since the bank's previous run. Before it is
+  stored, code checks the answer: unknown scenario ids are dropped, clause references must come from the run
+  (shortened ones are restored to the run's wording), findings about passed scenarios become warnings,
+  unexplained failures are listed, and the "since the previous run" text is written in code. Summaries are kept
+  in `run_summaries` and linked to their `ai_calls` row. Automatic summaries after each portal run:
+  `ApiTestTool:AI:Summary:AutoSummarize` (off by default). Local default model: `qwen3:8b` (~15–35 s per run);
+  `gemma4:26b` is as accurate but takes ~3 min.
 - Database tests run when `AQT_TEST_DB` is set (e.g. `Host=localhost;Port=5435;Username=aqt;Password=aqt_dev`);
   each test class creates and drops its own database.
 
@@ -180,6 +190,7 @@ Reports go to `reports/<BIC>-<timestamp>/`: `report.html`, `summary.json`, `juni
 | `aqt db migrate\|status` | Creates/upgrades the PostgreSQL store; shows row counts and pending migrations |
 | `aqt db import [folder...] [--replace]` | Loads existing report folders (default `./reports`) into the store |
 | `aqt ai check [--provider anthropic\|ollama] [--model x]` | One-line call to each AI provider, recorded in `ai_calls` |
+| `aqt ai summarize <run-id\|latest> [--bank BIC] [--provider ..] [--model ..] [--show-input]` | AI triage of a stored run, saved in `run_summaries` |
 | `aqt version` | Prints the version |
 
 Exit codes: `0` all passed, `1` failures or errors in the run, `2` invalid input or configuration.
@@ -282,8 +293,9 @@ The TestTool posted some bad requests to `v2/consents`; the ported scenarios use
 
 ## Verification
 
-- `dotnet test` runs 75 tests (store and AI tests: masking, run mapping, import, the AI audit client and
-  provider choice; with `AQT_TEST_DB`, also PostgreSQL round trips). The 53 engine tests cover signing/verification, YAML typing, variables, JSON paths, the
+- `dotnet test` runs 90 tests (store and AI tests: masking, run mapping, import, the AI audit client,
+  provider choice, the exact Claude request (captured offline), run digest, summary parsing and validation; with
+  `AQT_TEST_DB`, also PostgreSQL round trips and the summarizer end to end). The 53 engine tests cover signing/verification, YAML typing, variables, JSON paths, the
   runner against an in-memory bank, preflight gating, loading of every shipped YAML file, PKCE (RFC 7636
   vector), authorize URL and TBC quirks, the callback listener (callback, auth-server error, timeout,
   busy port), and the shipped AIS-001/AIS-002 scenarios end to end against an in-memory XS2A + OAuth

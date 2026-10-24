@@ -1,9 +1,9 @@
 using ApiTestTool.Engine.Running;
 
-namespace ApiTestTool.Store.Tests;
+namespace ApiTestTool.Tests.Shared;
 
 /// <summary>A small run result: one passed scenario with an SCA token exchange, one failed with an IBAN in the response.</summary>
-internal static class TestRuns
+public static class TestRuns
 {
     public static RunResult Create()
     {
