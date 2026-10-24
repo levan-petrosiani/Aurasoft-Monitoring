@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ApiTestTool.Store\ApiTestTool.Store.csproj" />
+    <ProjectReference Include="..\ApiTestTool.Standards\ApiTestTool.Standards.csproj" />
   </ItemGroup>
 
   <ItemGroup>

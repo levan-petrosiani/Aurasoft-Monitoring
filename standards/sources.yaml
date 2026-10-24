@@ -1,0 +1,64 @@
+# Standards the rules are drafted from. The files themselves are not committed (licences differ, and they are
+# large): `aqt standards fetch` downloads them to standards/sources/<file> and checks the SHA-256 below, and
+# `aqt standards ingest` splits them into clauses and stores them in PostgreSQL.
+#
+# A new version = a new entry (keep the old one while rules still reference it).
+
+- id: BG-IG
+  title: NextGenPSD2 XS2A Framework – Implementation Guidelines
+  publisher: Berlin Group
+  version: "1.3.16"
+  published: 2025-11-27
+  language: en
+  format: pdf
+  url: https://badopkt.myrdbx.io/wp-content/uploads/2026/09/Berlin-Group-NextGenPSD2-Implementation-Guidelines-1.3.16-2025-12-02.pdf
+  page: https://berlin-group.org/library/?standard=Open%20Banking%20/%20NextGenPSD2
+  file: bg-ig/1.3.16/implementation-guidelines.pdf
+  sha256: f0030d92f3fce42d46900c76e762a58a8982a8f15ed4220980a58e41b2243756
+  license: Creative Commons Attribution-NoDerivatives 4.0 (Berlin Group)
+  # Each page starts with a running header that ends with this line; it is dropped.
+  pageHeaderEnd: "(ref. License Notice"
+  # The PDF has a stray sentence ("The payment data contained ... JSON or XML.") glued into the chapter 6 heading.
+  titles:
+    "6": Account Information Service
+
+- id: GE-XS2A
+  title: NextGenPSD2 XS2A Framework Implementation Guide (Georgia)
+  publisher: Association of Banks of Georgia — Open Banking standards
+  version: "0.8.RC3"
+  published: 2022-09-12
+  language: ka
+  format: docx
+  url: https://cdn.association.ge/static/openbanking/standards/word/NextGenPSD2_XS2A_Implementation_Guide_0.8.RC3_8Oyzlse.docx
+  page: https://openfinance.ge/en/standards
+  file: ge-xs2a/0.8.RC3/xs2a-implementation-guide.docx
+  sha256: 6c194efd79834d81197ce02440614decfc89bc44ec44e42d9cdec620add4f974
+  license: Not stated on the site; not redistributed
+  # Clause numbers are computed from Word heading levels; verified against the published PDF of the same version
+  # (contents = chapter 1, 7.6.1 PartyIdentification, 8.2.3, 8.3.2). See NOTE.md step 22.
+
+- id: GE-JWS
+  title: JSON Web Signature Implementation Guide (Georgia)
+  publisher: Association of Banks of Georgia — Open Banking standards
+  version: "0.5.RC1"
+  published: 2021-09-06
+  language: ka
+  format: docx
+  url: https://cdn.association.ge/static/openbanking/standards/word/OpenFinance_Json_Web_Signature_Profile_0.5.RC1.docx
+  page: https://openfinance.ge/en/standards
+  file: ge-jws/0.5.RC1/jws-implementation-guide.docx
+  sha256: ce3a7d0abb62573b681db2d4cf07864bd8a853485c4bdd1a2a0c40af98c96514
+  license: Not stated on the site; not redistributed
+
+- id: GE-IAA
+  title: Identification, Authentication and Authorization Manual (Georgia)
+  publisher: Association of Banks of Georgia — Open Banking standards
+  version: "0.8.RC1"
+  published: 2021-09-30
+  language: ka
+  format: docx
+  url: https://cdn.association.ge/static/openbanking/standards/word/Open_Finance_IAA_Implementation_Guide_0.8.RC1.docx
+  page: https://openfinance.ge/en/standards
+  file: ge-iaa/0.8.RC1/iaa-implementation-guide.docx
+  sha256: 77d10413ad482266c4f39aa0b64a03b909710911373f451e3602cdb52d0f2604
+  license: Not stated on the site; not redistributed

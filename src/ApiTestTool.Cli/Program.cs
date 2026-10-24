@@ -25,6 +25,8 @@ try
         "mock" => await Commands.MockAsync(cts.Token),
         "db" => await StoreCommands.DbAsync(cli, cts.Token),
         "ai" => await AiCommands.AiAsync(cli, cts.Token),
+        "standards" => await RuleCommands.StandardsAsync(cli, cts.Token),
+        "rules" => await RuleCommands.RulesAsync(cli, cts.Token),
         "list" => Commands.List(cli),
         "validate" => Commands.Validate(cli),
         "version" or "--version" => Commands.Version(),
@@ -243,6 +245,9 @@ namespace ApiTestTool.Cli
                   aqt db import [folder...] [--replace]   load existing report folders (default: ./reports) into the store
                   aqt ai check [--provider anthropic|ollama] [--model name]   one-line call to each AI provider
                   aqt ai summarize <run-id|latest> [--bank BIC] [--provider ..] [--model ..] [--show-input]   AI triage of a stored run
+                  aqt standards fetch|ingest [--no-embed]|list|search "<text>" [--standard ID]|show <clause-key>
+                  aqt rules draft <clause-key> [--provider ..] [--model ..] · list [--status s] [--standard ID] · show <id>
+                  aqt rules approve|reject|reopen <id> --by <name> [--note ..] · export        rules from the standards
                   aqt list banks|scenarios [--suite name]
                   aqt validate
                   aqt version
@@ -266,14 +271,19 @@ namespace ApiTestTool.Cli
         }
     }
 
-    internal sealed record Paths(string Banks, string Scenarios)
+    internal sealed record Paths(string Banks, string Scenarios, string Root)
     {
+        public string Standards => Path.Combine(Root, "standards");
+
+        public string Rules => Path.Combine(Root, "rules");
+
         public static Paths Resolve(CliArgs cli)
         {
             var root = cli.Get("root") ?? Environment.GetEnvironmentVariable("AQT_HOME") ?? FindRoot();
             return new Paths(
                 cli.Get("banks") ?? Path.Combine(root, "banks"),
-                cli.Get("scenarios") ?? Path.Combine(root, "scenarios"));
+                cli.Get("scenarios") ?? Path.Combine(root, "scenarios"),
+                root);
         }
 
         private static string FindRoot()

@@ -20,6 +20,8 @@ docker compose up -d                                                 # PostgreSQ
 dotnet run --project src/ApiTestTool.Cli -- db migrate|import|status # store
 dotnet run --project src/ApiTestTool.Cli -- ai check                 # Claude + Ollama reachable, audited
 dotnet run --project src/ApiTestTool.Cli -- ai summarize latest --provider ollama --show-input   # AI run triage
+dotnet run --project src/ApiTestTool.Cli -- standards fetch && dotnet run --project src/ApiTestTool.Cli -- standards ingest
+dotnet run --project src/ApiTestTool.Cli -- rules draft <clause-key> --provider ollama          # AI rule drafts
 AQT_TEST_DB="Host=localhost;Port=5435;Username=aqt;Password=aqt_dev" dotnet test   # include database tests
 dotnet tool restore && dotnet ef migrations add <Name> --project src/ApiTestTool.Store --output-dir Migrations
 ```
@@ -36,12 +38,13 @@ After changing store entities, add a migration. Run `dotnet` from the repo root 
 | `src/ApiTestTool.MockBank` | In-memory fake ASPSP enforcing real XS2A checks; the reference target for new scenarios |
 | `src/ApiTestTool.Portal` | Blazor Server UI; `Services/RunService.cs` queues runs, `StoreRecorder.cs` writes them to PostgreSQL |
 | `src/ApiTestTool.Store` | EF Core + Npgsql store (`AqtStore`), `SensitiveDataMasker`, `RunImporter`, migrations |
-| `src/ApiTestTool.AI` | `ChatClientFactory` (Claude / Ollama per feature), `AuditingChatClient` (mask + audit every call), `Summaries/` (digest → prompt → validate → `run_summaries`) |
+| `src/ApiTestTool.Standards` | No AI/DB: `PdfClauseReader` (TOC-driven), `DocxClauseReader` (heading styles), `QuoteVerifier`, `StandardSources` (manifest, fetch, SHA-256) |
+| `src/ApiTestTool.AI` | `ChatClientFactory` (Claude / Ollama per feature, embeddings), `AuditingChatClient` (mask + audit every call), `Summaries/` (run triage), `Standards/StandardsIngestor`, `Rules/` (`RuleDrafter`, `RuleBook` review + export, `NormativeLevel`) |
 | `tests/ApiTestTool.*.Tests` | xUnit: engine (every shipped YAML end to end), store (masking, import, DB with `AQT_TEST_DB`), AI |
 | `banks/<BIC>.yaml` | Bank profiles; `extends: _shared.yaml`; `_`-prefixed files are not run |
 | `scenarios/<suite>/*.yaml` | Test cases; reusable headers/bodies in `scenarios/_templates` |
-| `rules/` | (planned) Normative rules drafted from the standards, human-approved — see `rules/README.md` |
-| `standards/` | (planned) Source documents and the clause index — see `standards/README.md` |
+| `rules/` | Approved rules exported from the database (`aqt rules export`); the database is the source of truth |
+| `standards/` | `sources.yaml` manifest (URL, version, SHA-256); downloaded files under `sources/` are git-ignored |
 | `docs/ai/` | AI feature plan and design notes |
 
 ## Hard constraints
@@ -62,7 +65,9 @@ After changing store entities, add a migration. Run `dotnet` from the repo root 
 - AI output is a **draft** until a human approves it (`status: draft` → `approved` happens only in the
   portal review screen, recording reviewer and time). Draft scenarios never run against real banks.
 - Every rule and generated scenario must cite a clause, and its verbatim `quote` must be found in the
-  indexed standard text (checked in code, not by the model).
+  indexed standard text (`QuoteVerifier`, checked in code, not by the model). Georgian documents stay Georgian;
+  quotes are verified against the Georgian text, English translations are per rule and marked as AI-made.
+- Only `RuleBook` changes a rule's status, always with a reviewer name and a `rule_reviews` row.
 - Every model call is written to the audit log (model, prompt hash, token usage, output, who triggered it).
 - Data sent to the model is masked first (tokens, auth codes, PSU identifiers, IBANs as configured).
 - Providers: rule and scenario drafting use the official `Anthropic` SDK (`claude-opus-5-5`). Run summaries

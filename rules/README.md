@@ -1,12 +1,13 @@
 # rules/
 
-Normative rules taken from the standards (Berlin Group NextGenPSD2, Georgian openfinance.ge guides, NBG rules). A rule is one checkable
-requirement with the exact clause and quote it comes from. Scenarios reference the rules they verify
-(`rules: [GE-CON-014]`), which gives a coverage matrix: clause → rules → scenarios → last result.
+Approved rules, exported from the database with `aqt rules export` (or "Export approved to rules/" on the portal's
+Rules page). A rule is one checkable requirement taken from a clause of a standard, with the exact passage it rests on.
 
-- AI drafts rules with `status: draft`. Only a human review in the portal sets `approved`.
-- `source.quote` must appear verbatim in the indexed clause text (checked in code).
-- `_example.yaml` documents every field. Files starting with `_` are not loaded.
-- One file per rule: `rules/<standard>/<ID>.yaml`, e.g. `rules/ge/GE-CON-014.yaml`.
-
-Status: format proposal — not loaded by the tool yet. See `docs/ai/PLAN.md`.
+- The **database is the source of truth** (`rules` and `rule_reviews` tables): drafts, review status and the full
+  history live there. These files are a versioned copy of the approved set, so changes show up in git.
+- Rules are drafted by AI from a clause (`aqt rules draft <clause-key>` or the Standards page). Code checks each
+  draft: the `quote` must occur in the clause text (else `invalid`), the level must be backed by the quote's wording,
+  and near-duplicates are flagged. Only a person approves (`aqt rules approve <id> --by <name>` or the Rules page).
+- One file per rule: `rules/<prefix>/<ID>.yaml`, e.g. `rules/ge/GE-CON-001.yaml`. Files starting with `_` are kept.
+- IDs: `<BG|GE|NBG>-<AREA>-<NNN>`; areas CON, ACC, TRX, PIS, PST, PCN, SBK, AUTH, SIG, TLS, ERR, HDR, GEN.
+- `_example.yaml` shows the format. Do not edit exported files by hand: edit the rule in the portal and export again.

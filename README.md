@@ -76,6 +76,24 @@ dotnet run --project src/ApiTestTool.Cli -- db status
   in `run_summaries` and linked to their `ai_calls` row. Automatic summaries after each portal run:
   `ApiTestTool:AI:Summary:AutoSummarize` (off by default). Local default model: `qwen3:8b` (~15–35 s per run);
   `gemma4:26b` is as accurate but takes ~3 min.
+- **Standards and rules (Phase 2):** the standards in [standards/sources.yaml](standards/sources.yaml) (Berlin Group
+  NextGenPSD2 IG 1.3.16; the Georgian XS2A, JWS and IAA guides) are split into numbered clauses and stored with
+  full-text search (English stemming; plain words for Georgian) and local `bge-m3` embeddings, so an English question
+  also finds Georgian clauses. From a clause, the AI drafts **rules**: one checkable requirement each, with level
+  (MUST/SHOULD/MAY), an English requirement, the **verbatim quote** it rests on (plus an AI translation for Georgian)
+  and how a TPP test would check it. Code checks every draft: the quote must occur in the clause (otherwise the rule
+  is stored as `invalid`), a level not backed by the quote's wording is flagged, and near-duplicates (same meaning
+  *and* same fields/codes) are flagged. A person approves, edits or rejects each draft in the portal (**Standards** and
+  **Rules** pages, with the reviewer's name recorded) or with `aqt rules approve|reject`; `aqt rules export` writes
+  approved rules to `rules/` for git.
+
+  ```bash
+  dotnet run --project src/ApiTestTool.Cli -- standards fetch      # download + verify SHA-256 (files are not committed)
+  dotnet run --project src/ApiTestTool.Cli -- standards ingest     # clauses + embeddings into PostgreSQL (~30 s)
+  dotnet run --project src/ApiTestTool.Cli -- standards search "consent validity"
+  dotnet run --project src/ApiTestTool.Cli -- rules draft GE-XS2A:0.8.RC3:9.1.1.10 --provider ollama
+  dotnet run --project src/ApiTestTool.Cli -- rules approve GE-CON-002 --by "Your Name"
+  ```
 - Database tests run when `AQT_TEST_DB` is set (e.g. `Host=localhost;Port=5435;Username=aqt;Password=aqt_dev`);
   each test class creates and drops its own database.
 
@@ -191,6 +209,11 @@ Reports go to `reports/<BIC>-<timestamp>/`: `report.html`, `summary.json`, `juni
 | `aqt db import [folder...] [--replace]` | Loads existing report folders (default `./reports`) into the store |
 | `aqt ai check [--provider anthropic\|ollama] [--model x]` | One-line call to each AI provider, recorded in `ai_calls` |
 | `aqt ai summarize <run-id\|latest> [--bank BIC] [--provider ..] [--model ..] [--show-input]` | AI triage of a stored run, saved in `run_summaries` |
+| `aqt standards fetch\|ingest [--standard ID] [--no-embed]` | Download/verify the standards; split into clauses and store them (with embeddings) |
+| `aqt standards list\|search "<text>"\|show <clause-key>` | Browse and search clauses (keys look like `BG-IG:1.3.16:6.3.1.2`) |
+| `aqt rules draft <clause-key> [--provider ..] [--model ..]` | AI drafts rules from a clause; checked in code; stored as drafts |
+| `aqt rules list [--status s] [--standard ID]\|show <id>` | Rules and their review history |
+| `aqt rules approve\|reject\|reopen <id> --by <name> [--note ..]`, `aqt rules export` | Review; write approved rules to `rules/` |
 | `aqt version` | Prints the version |
 
 Exit codes: `0` all passed, `1` failures or errors in the run, `2` invalid input or configuration.
@@ -293,7 +316,8 @@ The TestTool posted some bad requests to `v2/consents`; the ported scenarios use
 
 ## Verification
 
-- `dotnet test` runs 90 tests (store and AI tests: masking, run mapping, import, the AI audit client,
+- `dotnet test` runs 122 tests (Phase 2 adds the PDF/Word clause readers, the quote verifier, the sources
+  manifest, level and duplicate checks, drafting and the review workflow, clause search). Before Phase 2 it ran 90 tests (store and AI tests: masking, run mapping, import, the AI audit client,
   provider choice, the exact Claude request (captured offline), run digest, summary parsing and validation; with
   `AQT_TEST_DB`, also PostgreSQL round trips and the summarizer end to end). The 53 engine tests cover signing/verification, YAML typing, variables, JSON paths, the
   runner against an in-memory bank, preflight gating, loading of every shipped YAML file, PKCE (RFC 7636

@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using Pgvector;
 
 #nullable disable
 
@@ -21,6 +22,7 @@ namespace ApiTestTool.Store.Migrations
                 .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("ApiTestTool.Store.Entities.AiCallEntity", b =>
@@ -104,6 +106,83 @@ namespace ApiTestTool.Store.Migrations
                         .HasDatabaseName("ix_ai_calls_time_utc");
 
                     b.ToTable("ai_calls", (string)null);
+                });
+
+            modelBuilder.Entity("ApiTestTool.Store.Entities.ClauseEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Vector>("Embedding")
+                        .HasColumnType("vector(1024)")
+                        .HasColumnName("embedding");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("language");
+
+                    b.Property<int>("Level")
+                        .HasColumnType("integer")
+                        .HasColumnName("level");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("number");
+
+                    b.Property<int>("Ord")
+                        .HasColumnType("integer")
+                        .HasColumnName("ord");
+
+                    b.Property<int?>("Page")
+                        .HasColumnType("integer")
+                        .HasColumnName("page");
+
+                    b.Property<string>("Parent")
+                        .HasColumnType("text")
+                        .HasColumnName("parent");
+
+                    b.Property<string>("Standard")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("standard");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("title");
+
+                    b.Property<string>("Version")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_clauses");
+
+                    b.HasIndex("Key")
+                        .IsUnique()
+                        .HasDatabaseName("ix_clauses_key");
+
+                    b.HasIndex("Standard", "Version", "Ord")
+                        .HasDatabaseName("ix_clauses_standard_version_ord");
+
+                    b.ToTable("clauses", (string)null);
                 });
 
             modelBuilder.Entity("ApiTestTool.Store.Entities.EventEntity", b =>
@@ -248,6 +327,195 @@ namespace ApiTestTool.Store.Migrations
                         .HasDatabaseName("ix_exchanges_step_result_id");
 
                     b.ToTable("exchanges", (string)null);
+                });
+
+            modelBuilder.Entity("ApiTestTool.Store.Entities.RuleEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AiCallId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ai_call_id");
+
+                    b.Property<string>("Area")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("area");
+
+                    b.Property<string>("CheckJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("check_json");
+
+                    b.PrimitiveCollection<List<string>>("CheckNotes")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("check_notes");
+
+                    b.Property<string>("ClauseKey")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("clause_key");
+
+                    b.Property<string>("ClauseNumber")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("clause_number");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_utc");
+
+                    b.Property<string>("DraftedBy")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("drafted_by");
+
+                    b.Property<Vector>("Embedding")
+                        .HasColumnType("vector(1024)")
+                        .HasColumnName("embedding");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("level");
+
+                    b.Property<string>("Model")
+                        .HasColumnType("text")
+                        .HasColumnName("model");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<string>("Operation")
+                        .HasColumnType("text")
+                        .HasColumnName("operation");
+
+                    b.Property<string>("Quote")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("quote");
+
+                    b.Property<string>("QuoteEnglish")
+                        .HasColumnType("text")
+                        .HasColumnName("quote_english");
+
+                    b.Property<string>("Requirement")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("requirement");
+
+                    b.Property<string>("ReviewNote")
+                        .HasColumnType("text")
+                        .HasColumnName("review_note");
+
+                    b.Property<string>("ReviewedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("reviewed_by");
+
+                    b.Property<DateTime?>("ReviewedUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_utc");
+
+                    b.PrimitiveCollection<List<string>>("Scenarios")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("scenarios");
+
+                    b.Property<string>("Service")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("service");
+
+                    b.Property<string>("SimilarTo")
+                        .HasColumnType("text")
+                        .HasColumnName("similar_to");
+
+                    b.Property<string>("Standard")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("standard");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("title");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_utc");
+
+                    b.Property<string>("Version")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_rules");
+
+                    b.HasIndex("ClauseKey")
+                        .HasDatabaseName("ix_rules_clause_key");
+
+                    b.HasIndex("Status", "Standard")
+                        .HasDatabaseName("ix_rules_status_standard");
+
+                    b.ToTable("rules", (string)null);
+                });
+
+            modelBuilder.Entity("ApiTestTool.Store.Entities.RuleReviewEntity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("action");
+
+                    b.Property<string>("After")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("after");
+
+                    b.Property<string>("Before")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("before");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("text")
+                        .HasColumnName("note");
+
+                    b.Property<string>("Reviewer")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("reviewer");
+
+                    b.Property<string>("RuleId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("rule_id");
+
+                    b.Property<DateTime>("TimeUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("time_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_rule_reviews");
+
+                    b.HasIndex("RuleId", "TimeUtc")
+                        .HasDatabaseName("ix_rule_reviews_rule_id_time_utc");
+
+                    b.ToTable("rule_reviews", (string)null);
                 });
 
             modelBuilder.Entity("ApiTestTool.Store.Entities.RunEntity", b =>
@@ -487,6 +755,58 @@ namespace ApiTestTool.Store.Migrations
                         .HasDatabaseName("ix_scenario_results_scenario_id_outcome");
 
                     b.ToTable("scenario_results", (string)null);
+                });
+
+            modelBuilder.Entity("ApiTestTool.Store.Entities.StandardDocumentEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Version")
+                        .HasColumnType("text")
+                        .HasColumnName("version");
+
+                    b.Property<int>("ClauseCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("clause_count");
+
+                    b.Property<DateTime>("IngestedUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ingested_utc");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("language");
+
+                    b.Property<string>("License")
+                        .HasColumnType("text")
+                        .HasColumnName("license");
+
+                    b.Property<string>("Publisher")
+                        .HasColumnType("text")
+                        .HasColumnName("publisher");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("sha256");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("title");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("url");
+
+                    b.HasKey("Id", "Version")
+                        .HasName("pk_standard_documents");
+
+                    b.ToTable("standard_documents", (string)null);
                 });
 
             modelBuilder.Entity("ApiTestTool.Store.Entities.StepResultEntity", b =>

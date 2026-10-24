@@ -55,6 +55,22 @@
       "commandName": "Project",
       "commandLineArgs": "ai summarize latest --provider anthropic"
     },
+    "aqt: standards fetch + check": {
+      "commandName": "Project",
+      "commandLineArgs": "standards fetch"
+    },
+    "aqt: standards ingest": {
+      "commandName": "Project",
+      "commandLineArgs": "standards ingest"
+    },
+    "aqt: rules draft GE 9.1.1.10 (local model)": {
+      "commandName": "Project",
+      "commandLineArgs": "rules draft GE-XS2A:0.8.RC3:9.1.1.10 --provider ollama"
+    },
+    "aqt: rules list drafts": {
+      "commandName": "Project",
+      "commandLineArgs": "rules list --status draft"
+    },
     "aqt: validate": {
       "commandName": "Project",
       "commandLineArgs": "validate"

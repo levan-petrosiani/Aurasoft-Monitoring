@@ -253,3 +253,123 @@ Speed 15–35 s per run locally.
 - Build clean, 90/90 tests pass.
 - The portal renders the stored summary for the TBC run (checked in the server-rendered HTML).
 **Not verified:** clicking the buttons in a browser, auto-summarize after a portal run, and a live Claude summary.
+
+## 2026-10-24 · 21. Pushed Phase 1; Phase 2 plan
+
+**What:** Pushed `efa3d00`. Phase 2 = standards → clauses → AI-drafted rules → human review.
+**Why rules before tests:** a reviewer can check a one-line rule with a quote in seconds; checking a generated test
+takes much longer. With approved rules as the brief, every Phase 3 test can be traced back to a sentence of the standard.
+
+## 2026-10-24 · 22. Phase 2: getting and reading the documents
+
+**What:**
+- Berlin Group IG **1.3.16** (341-page PDF, CC BY-ND 4.0, free download). The official library links its files to
+  `badopkt.myrdbx.io`; that looked odd, but the official page itself references that host for all 156 of its files,
+  so it is their file server.
+- Georgian guides from openfinance.ge (XS2A 0.8.RC3, JWS 0.5.RC1, IAA 0.8.RC1): **Georgian only**, confirmed.
+- `standards/sources.yaml` records the URL, version, licence and SHA-256 of each. The files are git-ignored and
+  re-downloaded with `aqt standards fetch`. A changed file is refused until someone reviews it.
+**Reading:**
+- **PDF** (PdfPig 0.1.16): the table of contents gives the clause list, and each entry is found in order in the body.
+  This keeps references like "cp. 6.3.3" from being taken as headings. The TOC stops at 3 levels, so 6.3.1.2 was hidden
+  inside 6.3.1 (22k chars). A second pass finds sub-headings, accepting only the expected next number. Result: 182
+  clauses, 0 problems.
+- **PDF defect:** the chapter 6 heading has a stray sentence glued in ("The payment data contained … JSON or
+  XML."). Fixed with an explicit, reviewable `titles:` correction in the manifest, not a parsing hack.
+- **Word**: heading styles; numbers computed like Word. **Decision checked against the official PDF:** the
+  "Contents" heading counts as chapter 1 (numbered style). The document's own cross-references disagree with each other
+  (some match, e.g. 7.6.2 and 8.3.2; some are stale, e.g. 6.6.1 and 7.2.3), so I downloaded the published PDF of the same
+  version: it prints "1 სარჩევი", 7.6.1 PartyIdentification, 8.2.3, 8.3.2, matching my numbering.
+**Language decision:** no whole-document translation. Georgian text is the source of truth and quotes are verified
+against it. Each rule carries an English translation of its quote, marked as AI-made, because bulk translation is
+costly and an 8B local model translates Georgian poorly.
+
+## 2026-10-24 · 23. Phase 2: database and search
+
+**What:**
+- Tables `standard_documents`, `clauses`, `rules`, `rule_reviews` (migration `StandardsAndRules`) with pgvector.
+- `clauses.search` is a **generated** tsvector: English stemming for English documents, plain words for Georgian
+  (Postgres has no Georgian stemmer).
+- HNSW indexes on the embeddings.
+- Ingest: 379 clauses with local **bge-m3** embeddings in 31 s.
+**Why hybrid search:** words find exact field names (validUntil, PSU-IP-Address); embeddings find meaning across
+languages. Results are merged by reciprocal rank.
+**Fixes during testing:**
+- `websearch_to_tsquery` needs every word, so questions found nothing → words are joined with "or" and ranked.
+- Ollama silently truncates prompts at its default context window → `num_ctx` 16k is set on every Ollama call.
+  This also protects the Phase 1 summaries.
+**Verified:**
+- "how many times per day can the TPP read account data" (English) finds GE-XS2A 2.1.2 and 9.1.1.6 (Georgian).
+- "consent validity" finds GE 9.1.1.10 თანხმობის ვადა.
+
+## 2026-10-24 · 24. Phase 2: rule drafting
+
+**What:**
+- `RuleDrafter`: prompt with the clause, its section path and the existing rules for the clause; JSON answer with one
+  repair retry.
+- Code checks:
+  - **quote must occur in the clause** (`QuoteVerifier`: ignores whitespace, line breaks, hyphenation, quote/dash
+    style and case, nothing else; "…" splits into ordered parts; very short parts are refused). Otherwise the rule
+    is stored as `invalid`, kept for the record but not reviewable.
+  - **level vs keywords** (MUST/SHOULD/MAY and Georgian equivalents) → note for the reviewer.
+  - **duplicates** → note.
+  - ids `BG/GE-AREA-NNN`; a `drafted` history row per rule.
+**Found by testing on real clauses (qwen3:8b):**
+- BG 6.3.1.2: all quotes verified. The level check correctly questioned "MUST" on text without requirement keywords;
+  global consent is actually optional ("if this function is supported"). Prompt now spells out optional = MAY.
+  qwen3:8b still says MUST. That's an 8B-model limit, it's why drafting defaults to Claude, and the reviewer sees the
+  warning.
+- **False duplicate:** "accept `availableAccounts`" vs "accept `allPsd2`" scored 0.97 on embeddings. Duplicates now
+  also need the **same identifiers** (fields, codes, statuses, paths), checked in code.
+- GE 9.1.1.10 (Georgian): found the Georgia-specific **90-day consent limit → PERIOD_INVALID** and the 9999-12-31
+  rule. Both quotes were verbatim Georgian and verified. Issues left for the reviewer: one rule combines two
+  requirements, it adds a 400 status the text doesn't state, and the translation confuses TPP (მმპ) with ASPSP.
+**Not verified:** drafting with Claude (no API key yet).
+
+## 2026-10-24 · 25. Phase 2: review workflow and export
+
+**What:** `RuleBook`: approve (drafts only), reject (reason required), edit (drafts only; an edited quote is checked
+again; fixing the quote turns an `invalid` rule back into a draft), reopen, retire. Each action:
+- needs a reviewer name,
+- writes a `rule_reviews` row with the fields before and after,
+- refuses if someone else changed the rule meanwhile.
+
+`aqt rules export` / portal button writes approved rules to `rules/<prefix>/<id>.yaml` and removes stale ones.
+**Decision changed:** the **database is the source of truth** for rules, with YAML as an export for git. The plan said
+files first, but the queue, history and duplicate search need the database.
+
+## 2026-10-24 · 26. Phase 2: portal pages
+
+**What:**
+- **Standards** page: documents, outline with rule counts, search (words + meaning), clause view with breadcrumb,
+  "Draft rules with Claude / Local".
+- **Rules** page: queue by status and standard; cards showing the quote (+ EN translation), check results colour-coded,
+  approve/edit/reject/reopen, history line; export button.
+- The reviewer types their name once and it's kept in the browser (no login yet).
+**Bug found and fixed:** opening `/standards?clause=…` updated the URL during server prerendering, which became a 302
+to the same page, an endless redirect loop in a browser. Now the URL only changes on a click.
+**Verified:** all three pages return 200 and render real data (5 drafts, the Georgian clause with its breadcrumb).
+Not clicked through in a browser by me.
+
+## 2026-10-24 · 27. Phase 2: tests
+
+**What:** New `ApiTestTool.Standards.Tests` covering:
+- the TOC parser and wrapped entries, headings, header stripping and sub-sections
+- Word numbering, including the numbered Contents heading, numbering turned off and skipped levels
+- the quote verifier, English and Georgian
+- the manifest and a hash mismatch
+
+AI tests: level questions, identifier duplicates, drafting (numbering, invalid, level note, duplicate), the
+review workflow and guards, stale review, export as valid YAML. Store test: hybrid search. **122 tests pass.**
+**Two test bugs, not product bugs:**
+- My test quote "corrected" the PDF's own typo ("unambigously"); the verifier rightly refused it.
+- `jsonb` reformats JSON; the test now parses it.
+
+## 2026-10-24 · 28. State after Phase 2
+
+- In the database: 4 standards, 379 clauses (all embedded), 5 draft rules from the qwen3:8b trials, left for the user
+  to review as a demo:
+  - BG-CON-001..003: BG-CON-003 is wrong (MUST for an optional function), so reject it with a reason.
+  - GE-CON-001..002: approve 002; edit 001 to remove the second requirement and the 400 status.
+- Next: set `ANTHROPIC_API_KEY` and compare Claude's drafts on the same clauses. Then Phase 3 (scenarios from approved
+  rules).

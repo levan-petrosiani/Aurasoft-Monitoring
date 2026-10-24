@@ -1,27 +1,32 @@
 # standards/
 
-Source documents the rules and scenarios are derived from, plus the clause index built from them.
+The standards rules are drafted from.
 
 | Path | Contents |
 |---|---|
-| `sources/` | Original files (PDF/HTML/YAML OpenAPI), one folder per standard and version, e.g. `sources/ge-xs2a/0.8.RC3/` |
-| `sources/<std>/<ver>/source.yaml` | Where the file came from (URL, date obtained, licence, SHA-256) |
-| `index/` | Generated: clauses as JSON Lines (`{standard, version, clause, title, text, page}`); rebuilt by `aqt standards ingest` |
+| `sources.yaml` | Manifest: id, version, language, format, download URL, **SHA-256**, licence, parsing hints |
+| `sources/<id>/<version>/<file>` | The downloaded documents (git-ignored: licences differ and the files are large) |
 
-Documents (latest versions, English preferred — see `docs/ai/PLAN.md` §8):
+```bash
+dotnet run --project src/ApiTestTool.Cli -- standards fetch    # download missing files, verify SHA-256
+dotnet run --project src/ApiTestTool.Cli -- standards ingest   # split into clauses, store with embeddings
+```
 
-| Standard ID | Document | Version | Where |
-|---|---|---|---|
-| `BG-IG` | Berlin Group NextGenPSD2 Framework Implementation Guidelines | 1.3.16 (2025-12-02) | https://berlin-group.org/library/ |
-| `BG-OAS` | NextGenPSD2 OpenAPI files | 1.3.x | https://gitlab.com/the-berlin-group/nextgenpsd2 |
-| `GE-XS2A` | XS2A Standard Implementation Guide (AIS + PIS) | 0.8.RC3 (2022-09-12) | https://openfinance.ge/en/standards |
-| `GE-JWS` | JSON Web Signature Implementation Guide | 0.5.RC1 | same |
-| `GE-IAA` | Identification, Authentication and Authorization Manual | 0.8.RC1 | same |
-| `GE-IDA` | User Identification and Authentication Service Standard | 0.3.RC3 | same |
-| `NBG-80-04` | NBG Rule on Inclusion in Open Banking (Order 80/04) | — | https://nbg.gov.ge/en/page/open-banking |
+| ID | Document | Version | Language | Clauses |
+|---|---|---|---|---|
+| `BG-IG` | Berlin Group NextGenPSD2 XS2A Implementation Guidelines | 1.3.16 (2025-12-02) | en | 182 |
+| `GE-XS2A` | XS2A Standard Implementation Guide (Georgia) | 0.8.RC3 | ka | 133 |
+| `GE-JWS` | JSON Web Signature Implementation Guide (Georgia) | 0.5.RC1 | ka | 32 |
+| `GE-IAA` | Identification, Authentication and Authorization Manual (Georgia) | 0.8.RC1 | ka | 32 |
 
-The `GE-*` documents are listed as Georgian on openfinance.ge. If no English version exists, the Georgian
-original is the source of truth (quotes are verified against it) and a marked machine translation is stored
-next to each clause.
+How documents are split:
 
-Status: proposal — the ingest command is not implemented yet.
+- **PDF (Berlin Group):** the table of contents gives the clause list; each entry is found, in order, as a heading in
+  the body. Deeper sections (6.3.1.2) missing from the TOC are found inside their parent, accepting only the expected
+  next number. Running page headers are removed (`pageHeaderEnd`). Headings the document prints wrongly are corrected
+  in the manifest (`titles`), e.g. a stray sentence glued into the BG-IG chapter 6 heading.
+- **Word (Georgian guides):** Heading1–6 styles; numbers are computed like Word's automatic numbering. The "Contents"
+  heading is numbered as chapter 1 in these documents, which was verified against the published PDF of GE-XS2A.
+- The Georgian guides are published only in Georgian. The Georgian text is the source of truth (quotes are verified
+  against it); rules carry an English translation of their quote, marked as an AI translation.
+- A file whose SHA-256 differs from the manifest is refused: review the new file, then update `sources.yaml`.

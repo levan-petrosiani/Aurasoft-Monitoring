@@ -45,6 +45,24 @@ public sealed class AiOptions
         [AiFeatures.Check] = new() { Provider = AiProviders.Anthropic, MaxOutputTokens = 1000, Effort = "low" },
     };
 
+    /// <summary>
+    /// A copy in which <paramref name="feature"/> uses <paramref name="provider"/> (e.g. a "Local" button). A configured
+    /// model belongs to the configured provider, so switching provider uses the new provider's default model.
+    /// </summary>
+    public AiOptions WithProvider(string feature, string provider)
+    {
+        var copy = new AiOptions { Anthropic = Anthropic, Ollama = Ollama, Features = new(Features, StringComparer.OrdinalIgnoreCase) };
+        var current = Features.GetValueOrDefault(feature);
+        copy.Features[feature] = new AiFeatureOptions
+        {
+            Provider = provider,
+            Model = current?.Provider == provider ? current.Model : null,
+            MaxOutputTokens = current?.MaxOutputTokens,
+            Effort = current?.Effort,
+        };
+        return copy;
+    }
+
     /// <summary>Effective settings of a feature: configured values over the defaults, model defaulting per provider.</summary>
     public AiFeatureOptions For(string feature)
     {
@@ -102,4 +120,13 @@ public sealed class OllamaOptions
 
     /// <summary>Local models can take minutes (loading a 17 GB model, slow generation); HttpClient's default is 100 s.</summary>
     public int TimeoutSeconds { get; set; } = 600;
+
+    /// <summary>
+    /// Context window sent as <c>num_ctx</c>. Ollama's default is small and it cuts longer prompts silently, which would
+    /// drop most of a long clause. 16k fits the largest clauses and still runs on a 24 GB Mac with qwen3:8b.
+    /// </summary>
+    public int ContextTokens { get; set; } = 16384;
+
+    /// <summary>Local embedding model for clause and rule search (1024 dimensions, multilingual incl. Georgian).</summary>
+    public string EmbeddingModel { get; set; } = "bge-m3";
 }

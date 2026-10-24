@@ -21,17 +21,30 @@ public sealed class AqtDbContext(DbContextOptions<AqtDbContext> options) : DbCon
 
     public DbSet<RunSummaryEntity> RunSummaries => Set<RunSummaryEntity>();
 
+    public DbSet<StandardDocumentEntity> StandardDocuments => Set<StandardDocumentEntity>();
+
+    public DbSet<ClauseEntity> Clauses => Set<ClauseEntity>();
+
+    public DbSet<RuleEntity> Rules => Set<RuleEntity>();
+
+    public DbSet<RuleReviewEntity> RuleReviews => Set<RuleReviewEntity>();
+
+    /// <summary>Embedding size of bge-m3 (the local embedding model).</summary>
+    public const int EmbeddingDimensions = 1024;
+
     /// <summary>Options for a connection string (snake_case naming, retries on transient errors).</summary>
     public static DbContextOptions<AqtDbContext> CreateOptions(string connectionString) =>
         Configure(new DbContextOptionsBuilder<AqtDbContext>(), connectionString).Options;
 
     internal static DbContextOptionsBuilder<AqtDbContext> Configure(DbContextOptionsBuilder<AqtDbContext> builder, string connectionString) =>
         builder
-            .UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure(3))
+            .UseNpgsql(connectionString, npgsql => npgsql.EnableRetryOnFailure(3).UseVector())
             .UseSnakeCaseNamingConvention();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
+        model.HasPostgresExtension("vector");
+
         model.Entity<RunEntity>(run =>
         {
             run.ToTable("runs");
@@ -91,6 +104,38 @@ public sealed class AqtDbContext(DbContextOptions<AqtDbContext> options) : DbCon
             rs.ToTable("run_summaries");
             rs.Property(x => x.SummaryJson).HasColumnType("jsonb");
             rs.HasIndex(x => new { x.RunId, x.CreatedUtc });
+        });
+
+        model.Entity<StandardDocumentEntity>(d =>
+        {
+            d.ToTable("standard_documents");
+            d.HasKey(x => new { x.Id, x.Version });
+        });
+
+        model.Entity<ClauseEntity>(c =>
+        {
+            c.ToTable("clauses");
+            c.HasIndex(x => x.Key).IsUnique();
+            c.HasIndex(x => new { x.Standard, x.Version, x.Ord });
+            c.Property(x => x.Embedding).HasColumnType($"vector({EmbeddingDimensions})");
+        });
+
+        model.Entity<RuleEntity>(r =>
+        {
+            r.ToTable("rules");
+            r.HasKey(x => x.Id);
+            r.Property(x => x.CheckJson).HasColumnType("jsonb");
+            r.Property(x => x.Embedding).HasColumnType($"vector({EmbeddingDimensions})");
+            r.HasIndex(x => new { x.Status, x.Standard });
+            r.HasIndex(x => x.ClauseKey);
+        });
+
+        model.Entity<RuleReviewEntity>(rr =>
+        {
+            rr.ToTable("rule_reviews");
+            rr.Property(x => x.Before).HasColumnType("jsonb");
+            rr.Property(x => x.After).HasColumnType("jsonb");
+            rr.HasIndex(x => new { x.RuleId, x.TimeUtc });
         });
     }
 }

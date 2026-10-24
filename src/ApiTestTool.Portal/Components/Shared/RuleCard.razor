@@ -1,0 +1,178 @@
+@using System.Text.Json
+@using ApiTestTool.AI.Rules
+@using ApiTestTool.Store.Entities
+@inject RuleService Rules
+
+<div class="rule-card rule-@Rule.Status">
+    <div class="rule-head">
+        <code class="rule-id">@Rule.Id</code>
+        <span class="badge badge-@StatusCss">@Rule.Status</span>
+        <span class="chip">@Rule.Level</span>
+        <span class="chip">@Rule.Service</span>
+        <span class="chip">@Rule.Area</span>
+        <b>@Rule.Title</b>
+    </div>
+
+    @if (_editing)
+    {
+        <div class="form rule-edit">
+            <label class="label">Title</label>
+            <input class="field" @bind="_title" />
+            <label class="label">Level</label>
+            <select class="field" @bind="_level"><option>MUST</option><option>SHOULD</option><option>MAY</option></select>
+            <label class="label">Requirement (what the bank's API does)</label>
+            <textarea class="field" rows="3" @bind="_requirement"></textarea>
+            <label class="label">Quote (verbatim from the clause; checked again on save)</label>
+            <textarea class="field" rows="4" @bind="_quote"></textarea>
+            @if (Rule.QuoteEnglish is not null || _quoteEnglish is { Length: > 0 })
+            {
+                <label class="label">Quote in English</label>
+                <textarea class="field" rows="3" @bind="_quoteEnglish"></textarea>
+            }
+            <label class="label">Operation</label>
+            <input class="field" @bind="_operation" />
+            <div class="actions">
+                <button class="btn btn-small btn-primary" @onclick="SaveEdit">Save</button>
+                <button class="btn btn-small btn-ghost" @onclick="() => _editing = false">Cancel</button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <p class="rule-req">@Rule.Requirement</p>
+        <blockquote class="rule-quote">
+            <div>“@Rule.Quote”</div>
+            @if (Rule.QuoteEnglish is not null)
+            {
+                <div class="muted small">EN (AI translation): “@Rule.QuoteEnglish”</div>
+            }
+            <div class="small"><a href="/standards?clause=@Uri.EscapeDataString(Rule.ClauseKey)">@Rule.Standard @Rule.Version · @Rule.ClauseNumber</a></div>
+        </blockquote>
+
+        <div class="small">
+            @if (Rule.Operation is not null) { <span><span class="label">Operation</span> <code>@Rule.Operation</code></span> }
+            @if (_check is not null)
+            {
+                <div><span class="label">Check</span> @_check.Kind: @_check.Description
+                    @if (_check.ExpectStatus.Count > 0) { <code>@string.Join("/", _check.ExpectStatus)</code> }
+                    @foreach (var c in _check.ExpectErrorCodes) { <code>@c</code> }
+                </div>
+            }
+            @if (Rule.Notes is not null) { <div><span class="label">Model's notes</span> @Rule.Notes</div> }
+        </div>
+
+        <ul class="rule-checks small">
+            @foreach (var n in Rule.CheckNotes)
+            {
+                <li class="@NoteCss(n)">@n</li>
+            }
+        </ul>
+    }
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-fail small">@_error</div>
+    }
+
+    @if (!_editing && ShowActions)
+    {
+        <div class="actions">
+            @if (Rule.Status == "draft")
+            {
+                <button class="btn btn-small btn-primary" disabled="@NoReviewer" @onclick="Approve">Approve</button>
+            }
+            @if (Rule.Status is "draft" or "invalid")
+            {
+                <button class="btn btn-small btn-ghost" disabled="@NoReviewer" @onclick="StartEdit">Edit</button>
+            }
+            @if (Rule.Status is "draft" or "approved")
+            {
+                <input class="field field-inline" placeholder="Reason for rejecting" @bind="_rejectNote" />
+                <button class="btn btn-small btn-ghost btn-danger" disabled="@NoReviewer" @onclick="Reject">Reject</button>
+            }
+            @if (Rule.Status is "approved" or "rejected")
+            {
+                <button class="btn btn-small btn-ghost" disabled="@NoReviewer" @onclick="Reopen">Reopen</button>
+            }
+            @if (NoReviewer)
+            {
+                <span class="muted small">Enter your name at the top to review.</span>
+            }
+        </div>
+    }
+
+    <p class="muted small rule-foot">
+        drafted by @Rule.DraftedBy@(Rule.Model is null ? "" : $" ({Rule.Model})") · @Rule.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
+        @if (Rule.ReviewedBy is not null)
+        {
+            <span> · @Rule.Status by <b>@Rule.ReviewedBy</b> @Rule.ReviewedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)@(Rule.ReviewNote is null ? "" : $": {Rule.ReviewNote}")</span>
+        }
+    </p>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RuleEntity Rule { get; set; } = null!;
+
+    [Parameter] public string? Reviewer { get; set; }
+
+    [Parameter] public bool ShowActions { get; set; } = true;
+
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private RuleCheck? _check;
+    private string? _error;
+    private string? _rejectNote;
+    private bool _editing;
+    private string _title = "", _level = "", _requirement = "", _quote = "", _operation = "";
+    private string? _quoteEnglish;
+
+    private bool NoReviewer => string.IsNullOrWhiteSpace(Reviewer);
+
+    protected override void OnParametersSet() =>
+        _check = Rule.CheckJson is null ? null : JsonSerializer.Deserialize<RuleCheck>(Rule.CheckJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+    private string StatusCss => Rule.Status switch
+    {
+        "approved" => "pass",
+        "rejected" or "invalid" => "fail",
+        "draft" => "queued",
+        _ => "error",
+    };
+
+    private static string NoteCss(string note) =>
+        note.StartsWith("Quote found", StringComparison.Ordinal) || note.StartsWith("Quote fixed", StringComparison.Ordinal) ? "note-ok"
+        : note.StartsWith("Quote check failed", StringComparison.Ordinal) ? "note-fail" : "note-warn";
+
+    private Task Approve() => Run(b => b.ApproveAsync(Rule.Id, Reviewer!));
+
+    private Task Reopen() => Run(b => b.ReopenAsync(Rule.Id, Reviewer!));
+
+    private Task Reject() => Run(b => b.RejectAsync(Rule.Id, Reviewer!, _rejectNote ?? ""));
+
+    private void StartEdit()
+    {
+        (_title, _level, _requirement, _quote, _quoteEnglish, _operation) = (Rule.Title, Rule.Level, Rule.Requirement, Rule.Quote, Rule.QuoteEnglish, Rule.Operation ?? "");
+        _editing = true;
+    }
+
+    private async Task SaveEdit()
+    {
+        var edit = new RuleEdit(
+            Title: _title != Rule.Title ? _title : null,
+            Level: _level != Rule.Level ? _level : null,
+            Requirement: _requirement != Rule.Requirement ? _requirement : null,
+            Quote: _quote != Rule.Quote ? _quote : null,
+            QuoteEnglish: _quoteEnglish != Rule.QuoteEnglish ? _quoteEnglish : null,
+            Operation: _operation != (Rule.Operation ?? "") ? _operation : null);
+        await Run(b => b.EditAsync(Rule.Id, Reviewer!, edit));
+        if (_error is null)
+            _editing = false;
+    }
+
+    private async Task Run(Func<RuleBook, Task<RuleEntity>> action)
+    {
+        _error = await Rules.ReviewAsync(Rule.Id, action);
+        if (_error is null)
+            await Changed.InvokeAsync();
+    }
+}

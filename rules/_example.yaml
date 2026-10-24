@@ -1,42 +1,29 @@
-# Example rule — documents every field. Not loaded (file name starts with "_").
-id: GE-CON-003                      # <STANDARD>-<AREA>-<NNN>; AREA: CON consent, SIG signature, AUTH oauth, ACC accounts, ERR errors, PIS, PST, PCN, SBK
-title: validUntil in the past is rejected
-status: draft                       # draft | approved | rejected | retired
-level: MUST                         # MUST | SHOULD | MAY  (RFC 2119 keyword in the source)
+# Example of an exported rule (the format `aqt rules export` writes). Files starting with "_" are kept by the export.
+id: GE-CON-002                      # <BG|GE|NBG>-<AREA>-<NNN>; AREA: CON ACC TRX PIS PST PCN SBK AUTH SIG TLS ERR HDR GEN
+title: "Replace 9999-12-31 with the maximum consent term"
+status: approved                    # draft | approved | rejected | retired | invalid (failed the automatic checks)
+level: MUST                         # MUST | SHOULD | MAY — must be backed by the quote's wording
 service: AIS                        # AIS | PIS | COMMON
-
+area: CON
 source:
-  standard: GE-XS2A                 # GE-XS2A (openfinance.ge XS2A IG) | GE-JWS | GE-IAA | NBG-80-04 | BG-IG (NextGenPSD2 IG) | BG-OAS
+  standard: GE-XS2A
   version: "0.8.RC3"
-  clause: "6.3.1"
-  quote: "<verbatim sentence(s) from the clause; checked against the index>"
-  documentSha256: "<hash of the ingested source file>"
-
+  clause: "9.1.1.10"
+  quote: "გამონაკლისს შეადგენს მნიშვნელობა „9999-12-31“, რომლის მიღების შემთხვევაში აუცილებელია ამსმპ-მა თანხმობის ვადა შეცვალოს მაქსიმალურ დასაშვებ მნიშვნელობაზე (არაუმეტეს 90 დღისა)"
+  quoteEnglish: "The exception is the value '9999-12-31': on receiving it, the ASPSP must change the consent term to the maximum allowed value (not more than 90 days)"  # AI translation
+requirement: "When validUntil is 9999-12-31, the ASPSP sets the consent's validity to the maximum allowed (at most 90 days) and returns that date in the consent details."
 appliesTo:
-  operation: POST v2/consents/account-access
-  features: [consents]              # profile features this depends on (become the scenario's `requires`)
-
-requirement: >
-  When the TPP requests a consent with validUntil earlier than today, the ASPSP rejects it with
-  HTTP 400 and error code FORMAT_ERROR (or PERIOD_INVALID).
-
-# How the rule is verified, in the scenario DSL's terms. Used as the brief for scenario drafting.
+  operation: "POST /v2/consents/account-access"
 check:
-  kind: negative                    # negative | positive | header | signature | flow
-  expect:
-    status: 400
-    errorCode: [FORMAT_ERROR, PERIOD_INVALID]
-
-scenarios: [NEG-CON-003]            # scenarios that verify this rule (filled in when they are written)
-
+  kind: positive                    # negative | positive | header | signature | flow | manual
+  description: "Create a consent with validUntil 9999-12-31, then GET the consent and expect validUntil within 90 days."
+  expectStatus: [201]
+scenarios: []                       # scenario ids that verify the rule (Phase 3)
 drafted:
-  by: ai                            # ai | human
-  model: claude-opus-5-5
-  at: 2026-10-24T10:00:00Z
-  callId: "<ai_calls row id in the store>"
-
-review:                             # written only by the portal review action
-  by: null
-  at: null
-  decision: null                    # approved | rejected
-  note: null
+  by: ai
+  model: "anthropic:claude-opus-5-5"
+  at: 2026-10-24T12:00:00Z
+review:
+  by: "Reviewer Name"
+  at: 2026-10-24T12:30:00Z
+  note: ""

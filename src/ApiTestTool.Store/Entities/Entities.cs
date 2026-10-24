@@ -254,3 +254,160 @@ public sealed class RunSummaryEntity
 
     public long DurationMs { get; set; }
 }
+
+/// <summary>An ingested standard document (one row per id + version).</summary>
+public sealed class StandardDocumentEntity
+{
+    /// <summary>e.g. BG-IG, GE-XS2A.</summary>
+    public required string Id { get; set; }
+
+    public required string Version { get; set; }
+
+    public required string Title { get; set; }
+
+    public string? Publisher { get; set; }
+
+    /// <summary>en or ka.</summary>
+    public required string Language { get; set; }
+
+    public required string Url { get; set; }
+
+    public required string Sha256 { get; set; }
+
+    public string? License { get; set; }
+
+    public DateTime IngestedUtc { get; set; }
+
+    public int ClauseCount { get; set; }
+}
+
+/// <summary>One numbered section of a standard. <c>search</c> (tsvector) and <c>embedding</c> (vector) are maintained in SQL.</summary>
+public sealed class ClauseEntity
+{
+    public long Id { get; set; }
+
+    public required string Standard { get; set; }
+
+    public required string Version { get; set; }
+
+    public required string Number { get; set; }
+
+    public required string Title { get; set; }
+
+    public required string Text { get; set; }
+
+    public int Level { get; set; }
+
+    public string? Parent { get; set; }
+
+    public int Ord { get; set; }
+
+    public int? Page { get; set; }
+
+    public required string Language { get; set; }
+
+    /// <summary>Stable key <c>BG-IG:1.3.16:6.3.1.2</c>.</summary>
+    public required string Key { get; set; }
+
+    public Pgvector.Vector? Embedding { get; set; }
+}
+
+/// <summary>
+/// One checkable requirement taken from a clause. Drafted by AI (status draft) or a person; only a review sets
+/// approved/rejected. The quote is the verbatim passage of the clause the rule rests on (checked in code).
+/// </summary>
+public sealed class RuleEntity
+{
+    /// <summary>e.g. BG-CON-001, GE-PIS-004.</summary>
+    public required string Id { get; set; }
+
+    /// <summary>draft | approved | rejected | retired | invalid (failed the automatic checks; kept for the record).</summary>
+    public required string Status { get; set; }
+
+    public required string Title { get; set; }
+
+    /// <summary>MUST | SHOULD | MAY.</summary>
+    public required string Level { get; set; }
+
+    /// <summary>AIS | PIS | COMMON.</summary>
+    public required string Service { get; set; }
+
+    /// <summary>CON, ACC, PIS, SIG, AUTH, ERR, TLS, ...</summary>
+    public required string Area { get; set; }
+
+    /// <summary>The requirement in plain English, phrased as what the bank's API must do.</summary>
+    public required string Requirement { get; set; }
+
+    public required string Standard { get; set; }
+
+    public required string Version { get; set; }
+
+    public required string ClauseNumber { get; set; }
+
+    public required string ClauseKey { get; set; }
+
+    /// <summary>Verbatim passage from the clause, in the document's language.</summary>
+    public required string Quote { get; set; }
+
+    /// <summary>English translation of the quote when the document is not in English (AI-made; marked as such).</summary>
+    public string? QuoteEnglish { get; set; }
+
+    /// <summary>API operation the rule is about, e.g. "POST /v2/consents/account-access".</summary>
+    public string? Operation { get; set; }
+
+    /// <summary>How it can be verified (kind, description, expected status / error codes) as JSON.</summary>
+    public string? CheckJson { get; set; }
+
+    /// <summary>The model's notes (assumptions, ambiguity in the text).</summary>
+    public string? Notes { get; set; }
+
+    /// <summary>Results of the automatic checks (quote, level keyword, duplicates).</summary>
+    public List<string> CheckNotes { get; set; } = [];
+
+    /// <summary>Id of a similar existing rule, if the duplicate check found one.</summary>
+    public string? SimilarTo { get; set; }
+
+    /// <summary>ai or the person who wrote it.</summary>
+    public required string DraftedBy { get; set; }
+
+    public string? Model { get; set; }
+
+    public Guid? AiCallId { get; set; }
+
+    public DateTime CreatedUtc { get; set; }
+
+    public DateTime UpdatedUtc { get; set; }
+
+    public string? ReviewedBy { get; set; }
+
+    public DateTime? ReviewedUtc { get; set; }
+
+    public string? ReviewNote { get; set; }
+
+    /// <summary>Scenario ids that verify this rule (Phase 3).</summary>
+    public List<string> Scenarios { get; set; } = [];
+
+    public Pgvector.Vector? Embedding { get; set; }
+}
+
+/// <summary>History of every change to a rule: drafted, edited, approved, rejected, reopened.</summary>
+public sealed class RuleReviewEntity
+{
+    public long Id { get; set; }
+
+    public required string RuleId { get; set; }
+
+    public DateTime TimeUtc { get; set; }
+
+    public required string Reviewer { get; set; }
+
+    /// <summary>drafted | edited | approved | rejected | reopened | retired.</summary>
+    public required string Action { get; set; }
+
+    public string? Note { get; set; }
+
+    /// <summary>The rule's fields before/after an edit, as JSON.</summary>
+    public string? Before { get; set; }
+
+    public string? After { get; set; }
+}

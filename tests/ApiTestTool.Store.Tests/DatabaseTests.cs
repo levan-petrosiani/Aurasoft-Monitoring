@@ -74,4 +74,38 @@ public class DatabaseTests(TestDatabase db) : IClassFixture<TestDatabase>
             Directory.Delete(root, recursive: true);
         }
     }
+
+    [DatabaseFact]
+    public async Task Clause_search_matches_any_word_with_english_stemming_and_by_meaning()
+    {
+        static ClauseEntity Clause(string number, string text, string language, float[] vector) => new()
+        {
+            Standard = "SR-IG", Version = "1", Number = number, Title = "t" + number, Text = text, Level = 1, Ord = int.Parse(number), Language = language,
+            Key = $"SR-IG:1:{number}", Embedding = new Pgvector.Vector(vector),
+        };
+
+        float[] Axis(int i) { var v = new float[AqtDbContext.EmbeddingDimensions]; v[i] = 1; return v; }
+
+        await db.Store.ReplaceStandardAsync(
+            new StandardDocumentEntity { Id = "SR-IG", Version = "1", Title = "Search", Language = "en", Url = "u", Sha256 = "x" },
+            [
+                Clause("1", "The ASPSP rejects consents whose validUntil is in the past.", "en", Axis(0)),
+                Clause("2", "Payment initiation with JSON encoding.", "en", Axis(1)),
+                Clause("3", "თანხმობის ვადა არ აღემატება 90 დღეს.", "ka", Axis(2)),
+            ]);
+
+        // "consent" finds "consents" (English stemming); the other words do not have to be present.
+        var byWords = await db.Store.SearchClausesAsync("consent rejected yesterday", null, "SR-IG");
+        Assert.Equal("1", byWords.First().Clause.Number);
+        Assert.True(byWords.First().ByWords);
+
+        // Georgian words match as plain words.
+        Assert.Equal("3", (await db.Store.SearchClausesAsync("თანხმობის", null, "SR-IG")).Single().Clause.Number);
+
+        // A query vector close to clause 3 finds it with no shared words.
+        var byMeaning = await db.Store.SearchClausesAsync("how long is a consent valid", Axis(2), "SR-IG");
+        Assert.Contains(byMeaning, h => h.Clause.Number == "3" && h.ByMeaning);
+
+        Assert.Equal(["1", "2", "3"], (await db.Store.GetOutlineAsync("SR-IG", "1")).Select(c => c.Number));
+    }
 }

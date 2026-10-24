@@ -51,7 +51,7 @@ public sealed record StoreStatus(int Runs, int Scenarios, int Exchanges, int Eve
 /// Writes runs, events and AI calls to PostgreSQL. Every method opens its own short-lived context, so one instance
 /// can be shared (singleton in the portal, one per command in the CLI). All data is masked before it is written.
 /// </summary>
-public sealed class AqtStore
+public sealed partial class AqtStore
 {
     private readonly DbContextOptions<AqtDbContext> _options;
     private readonly StoreOptions _storeOptions;

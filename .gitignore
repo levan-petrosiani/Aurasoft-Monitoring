@@ -18,3 +18,7 @@ certs/*
 # Local AI/dev data
 standards/index/
 .env
+
+# Standards source documents are downloaded (aqt standards fetch), not committed: see standards/sources.yaml
+standards/sources/**/*.pdf
+standards/sources/**/*.docx

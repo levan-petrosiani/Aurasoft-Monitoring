@@ -190,3 +190,36 @@ details.log pre { margin-top: 8px; }
 .ai-evidence { white-space: pre-wrap; word-break: break-word; }
 .ai-notes { margin-top: 8px; }
 .ai-foot { margin: 10px 0 0; }
+
+/* Standards and rules */
+.std-layout { display: grid; grid-template-columns: minmax(260px, 380px) 1fr; gap: 20px; align-items: start; }
+@media (max-width: 860px) { .std-layout { grid-template-columns: 1fr; } }
+.std-side { position: sticky; top: 12px; max-height: calc(100vh - 100px); overflow: auto; }
+.std-search { display: flex; gap: 6px; margin-bottom: 8px; }
+.std-search .field { flex: 1; }
+.std-outline { list-style: none; padding: 0; margin: 8px 0; font-size: 13px; }
+.std-outline li { padding: 3px 6px; border-radius: 6px; cursor: pointer; }
+.std-outline li:hover { background: var(--code); }
+.std-outline li.on { background: var(--running-bg); }
+.std-outline li code { color: var(--muted); margin-right: 4px; }
+.std-outline .lvl-1 { font-weight: 600; margin-top: 6px; }
+.std-outline .lvl-2 { padding-left: 14px; }
+.std-outline .lvl-3 { padding-left: 28px; }
+.std-outline .lvl-4 { padding-left: 42px; }
+.std-outline .lvl-5 { padding-left: 56px; }
+.clause-text { white-space: pre-wrap; word-break: break-word; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-size: 13px; max-height: 50vh; overflow: auto; }
+.reviewer { display: flex; gap: 8px; align-items: center; }
+.field-inline { width: auto; min-width: 180px; }
+.rule-card { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 10px 0; }
+.rule-draft { border-left-color: var(--running); }
+.rule-approved { border-left-color: var(--pass); }
+.rule-rejected, .rule-invalid { border-left-color: var(--fail); opacity: .85; }
+.rule-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rule-req { margin: 8px 0; }
+.rule-quote { margin: 8px 0; padding: 6px 12px; border-left: 3px solid var(--line); background: var(--code); border-radius: 4px; }
+.rule-checks { margin: 6px 0; padding-left: 18px; }
+.rule-checks .note-ok { color: var(--pass); }
+.rule-checks .note-warn { color: var(--warn); }
+.rule-checks .note-fail { color: var(--fail); }
+.rule-edit .field { width: 100%; }
+.rule-foot { margin: 6px 0 0; }

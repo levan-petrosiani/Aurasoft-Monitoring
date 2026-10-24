@@ -21,6 +21,7 @@ if (builder.Configuration.GetConnectionString("Aqt") is { Length: > 0 } connecti
     builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.Section));
     builder.Services.Configure<SummaryOptions>(builder.Configuration.GetSection(AiOptions.Section + ":Summary"));
     builder.Services.AddSingleton<SummaryService>();
+    builder.Services.AddSingleton<RuleService>();
 }
 
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RunService>());

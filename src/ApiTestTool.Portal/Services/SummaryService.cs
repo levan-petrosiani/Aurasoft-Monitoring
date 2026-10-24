@@ -69,25 +69,5 @@ public sealed class SummaryService(AqtStore store, IOptions<AiOptions> aiOptions
         return true;
     }
 
-    private AiOptions WithProvider(string provider)
-    {
-        var source = aiOptions.Value;
-        var options = new AiOptions
-        {
-            Anthropic = source.Anthropic,
-            Ollama = source.Ollama,
-            Features = new(source.Features, StringComparer.OrdinalIgnoreCase),
-        };
-
-        var current = source.Features.GetValueOrDefault(AiFeatures.Summary);
-        options.Features[AiFeatures.Summary] = new AiFeatureOptions
-        {
-            Provider = provider,
-            // A configured model belongs to the configured provider; switching provider uses that provider's default.
-            Model = current?.Provider == provider ? current.Model : null,
-            MaxOutputTokens = current?.MaxOutputTokens,
-            Effort = current?.Effort,
-        };
-        return options;
-    }
+    private AiOptions WithProvider(string provider) => aiOptions.Value.WithProvider(AiFeatures.Summary, provider);
 }

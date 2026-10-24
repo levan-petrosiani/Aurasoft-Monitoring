@@ -1,6 +1,6 @@
 # AI layer — plan
 
-Status: Phase 0 and Phase 1 done (2026-10-24) — see NOTE.md steps 8–20; Phase 2 next. Hackathon project — each phase ends in
+Status: Phases 0–2 done (2026-10-24) — see NOTE.md steps 8–28; Phase 3 next. Live Claude calls are not verified yet (no API key). Hackathon project — each phase ends in
 something demoable. Progress is logged in `NOTE.md`; `ARCHITECTURE.md` is updated at the end of each phase.
 
 ## 1. Goals
@@ -102,7 +102,7 @@ DSL reference, templates).
 |---|---|---|
 | 0. Foundations ✅ | .NET SDK on the Mac; baseline commit; `docker-compose` Postgres; `ApiTestTool.Store` + migrations + import; runs written to the store; `ApiTestTool.AI` skeleton (config, providers, masking, audit) | Runs from CLI/portal appear in Postgres |
 | 1. Run summaries ✅ | Summary panel on the Run page, `aqt ai summarize` | Run TBC-MOCK → one-click triage of failures, Claude vs local |
-| 2. Standards + rules | Ingest BG 1.3.16 + Georgian guides; clause search; rule drafting; review queue | Pick a clause → AI drafts rules with quotes → approve in the portal |
+| 2. Standards + rules ✅ | Ingest BG 1.3.16 + Georgian guides; clause search; rule drafting; review queue | Pick a clause → AI drafts rules with quotes → approve in the portal |
 | 3. Scenario drafting | Draft → validate → MockBank loop; drafts page; coverage matrix | Approved rule → generated scenario → green on MockBank → coverage goes up |
 | 4. Ask-the-agent | Ask page + `aqt ask` | "Why did TBC fail last night?" → answer citing run IDs and clauses |
 | 5. PIS | §9 | Payment consent → SCA → status, on MockBank |
@@ -116,7 +116,8 @@ Each AI feature gets a small eval set (inputs + expected outcome) before staff u
 |---|---|---|
 | 1 | Data policy / provider | Hybrid: Claude for drafting (public documents only); summaries and the agent can switch to local Ollama; masking always on |
 | 2 | Documents | Latest versions, English. BG NextGenPSD2 IG **1.3.16** (2025-12-02) + OpenAPI 1.3 (gitlab.com/the-berlin-group/nextgenpsd2). Georgian: openfinance.ge/en/standards — XS2A IG 0.8.RC3, JWS 0.5.RC1, IAA 0.8.RC1, Identity Assurance 0.3.RC3; NBG Rule 80/04 (English) |
-| 2a | ⚠ Georgian docs language | openfinance.ge lists them as **Georgian**. Ask obstandards@association.ge for English. If there is none: ingest the Georgian original as the source of truth (quotes are checked against it) and store a machine translation next to each clause for reading and prompting, marked as a translation |
+| 2a | Georgian docs language | Confirmed Georgian-only on openfinance.ge. The Georgian text is the source of truth (quotes verified against it); an English translation is made **per rule** at drafting time (marked as AI translation) instead of translating whole documents up front |
+| 2b | Rules storage | **Database is the source of truth** (status workflow, history, search); approved rules are exported to `rules/<prefix>/<ID>.yaml` for git (`aqt rules export`). Changed from "files first" because the review queue, history and duplicate search need the database |
 | 3 | Database | PostgreSQL (Docker for dev) |
 | 4 | Approvers | The team now (reviewer name), staff with a role later |
 | 5 | Scope | AIS first, PIS designed in now, built in Phase 5 |

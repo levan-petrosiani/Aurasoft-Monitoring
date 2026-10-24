@@ -42,13 +42,24 @@ public sealed class ChatClientFactory(AiOptions options, IAiAuditSink audit, Sen
         {
             // Beta endpoint: needed for the server-side refusal fallback.
             AiProviders.Anthropic => new AnthropicDefaultsChatClient(_anthropic.Value.Beta.AsIChatClient(model, settings.MaxOutputTokens), model, settings.Effort, options.Anthropic.RefusalFallback),
-            AiProviders.Ollama => new OllamaApiClient(
-                new HttpClient { BaseAddress = new Uri(options.Ollama.Url), Timeout = TimeSpan.FromSeconds(options.Ollama.TimeoutSeconds) }, model),
+            AiProviders.Ollama => new OllamaDefaultsChatClient(new OllamaApiClient(
+                new HttpClient { BaseAddress = new Uri(options.Ollama.Url), Timeout = TimeSpan.FromSeconds(options.Ollama.TimeoutSeconds) }, model), options.Ollama.ContextTokens),
             _ => throw new InvalidOperationException($"Unknown AI provider '{settings.Provider}' for feature '{feature}' (use {AiProviders.Anthropic} or {AiProviders.Ollama})"),
         };
 
         return new AuditingChatClient(inner, feature, settings.Provider!, model, audit, _masker, context);
     }
+
+    /// <summary>
+    /// Local embeddings (bge-m3 via Ollama) for clause and rule search. Not audited: nothing leaves the machine, and
+    /// the inputs are public standards text and drafted rules.
+    /// </summary>
+    public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator() =>
+        EmbeddingOverride ?? new OllamaApiClient(
+            new HttpClient { BaseAddress = new Uri(options.Ollama.Url), Timeout = TimeSpan.FromSeconds(options.Ollama.TimeoutSeconds) }, options.Ollama.EmbeddingModel);
+
+    /// <summary>Tests: replaces the embedding generator.</summary>
+    internal IEmbeddingGenerator<string, Embedding<float>>? EmbeddingOverride { get; init; }
 
     /// <summary>Default request options for a feature (output limit).</summary>
     public ChatOptions ChatOptionsFor(string feature) => new() { MaxOutputTokens = options.For(feature).MaxOutputTokens };
