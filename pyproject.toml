@@ -24,7 +24,7 @@ aqt = "aqt.cli:_entry"
 include = ["aqt*"]
 
 [tool.setuptools.package-data]
-aqt = ["mockbank/*.json", "portal/templates/*.html", "portal/static/*.css"]
+aqt = ["mockbank/*.json", "portal/templates/*.html", "portal/static/*.css", "portal/static/*.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

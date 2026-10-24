@@ -9,8 +9,7 @@
 <body>
 <header class="topbar">
     <a class="brand" href="/">
-        <span class="brand-mark">✓</span>
-        <span>API Test Portal</span>
+        <img class="brand-logo" src="{{ url_for('static', filename='aura-logo.png') }}" alt="Aura Monitoring" />
     </a>
     <nav>
         <a href="/" class="{{ 'active' if page == 'home' }}">Dashboard</a>

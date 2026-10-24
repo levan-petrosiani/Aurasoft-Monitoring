@@ -414,3 +414,28 @@ listed in the README under "Moved from C#".
 --suite preflight,tbc --sca-auto` 11/11; portal on :5280, a MOCK run from New run completed 16 passed / 7 skipped
 and served its report files. Before removing C#, the Python client passed 16/16 against the C# MockBank and the
 C# client 16/16 against the Python MockBank.
+
+## 2026-10-24 · 32. Portal: Aura Software logo instead of the ✓ mark (user's request)
+
+**What:** the header's ✓ mark is now the Aura Software logo, `aqt/portal/static/aura-logo.png`, shown 30 px high.
+It was made from the user's `White Aura software logo.png` (2172×724, 380 KB, white on transparent): cropped to the
+drawing, faint specks (alpha < 32) cleared, scaled to 431×96 and made pure white (8.8 KB). `pyproject.toml` now ships
+`portal/static/*.png`, so a non-editable install has the logo too.
+**Why:** the user asked for the company logo in the top-left corner. The header follows the system theme and the logo
+is white, so the `--logo-filter` variable shows it black on the light theme and white on the dark one.
+**Verified:** headless-Chrome screenshots of the header in light and dark mode (1× and 2×) and at phone width;
+`pytest` 22 passed.
+
+## 2026-10-24 · 33. Portal: header logo 20% bigger (user's request)
+
+**What:** `.brand-logo` in `aqt/portal/static/app.css` is now 36 px high instead of 30 px (about 162 px wide).
+**Why:** the user asked for the logo to be 20% bigger. The PNG is 96 px high, so it stays sharp on 2× screens.
+
+## 2026-10-24 · 34. Portal: more space between "aura" and "monitoring" in the logo (user's request)
+
+**What:** `aqt/portal/static/aura-logo.png` (the user's `Aura monitoring logo with larger subtitle.png`, 2172×724) now
+has 28 px more space between the two words: everything above row 480 moved up 14 px and everything below moved down
+14 px. The canvas size is unchanged, so the header layout is the same.
+**Why:** the user said the words sat too close together. Rows 464–495 of the original were empty apart from
+near-invisible specks (alpha ≤ 3), so the split doesn't cut through any visible splatter.
+**Verified:** before/after renders on the dark theme background; nothing clipped at the top or bottom edge.
