@@ -116,17 +116,39 @@ def migrate(connection: str) -> list[str]:
         for version, sql in _migration_files():
             if version in applied:
                 continue
-            with conn.cursor() as cur:
-                cur.execute(sql)
-                cur.execute("INSERT INTO aqt_schema_migrations (version) VALUES (%s)", (version,))
-            conn.commit()
+
+            def apply(sql=sql, version=version):
+                with conn.cursor() as cur:
+                    cur.execute(sql)
+                    cur.execute("INSERT INTO aqt_schema_migrations (version) VALUES (%s)", (version,))
+                conn.commit()
+
+            _retry_role_conflict(conn, apply)
             applied_now.append(version)
         try:
-            _set_agent_password(conn)
+            _retry_role_conflict(conn, lambda: _set_agent_password(conn))
         except Exception as ex:  # noqa: BLE001 - no right to change roles: the ask-agent's SQL tool will say it cannot log in
             conn.rollback()
             print(f"  store: could not set the ask-agent role's password ({ex}); its SQL tool needs AQT_AGENT_DB_PASSWORD to match")
     return applied_now
+
+
+def _retry_role_conflict(conn, action, attempts: int = 6):
+    """Roles are shared by every database on the server: two databases migrating at the same time (parallel evals or
+    test runs, two portals) can both update the aqt_agent role, and PostgreSQL then refuses one with "tuple concurrently
+    updated". That conflict is retried after a short random pause; anything else is raised."""
+    import random
+    import time
+
+    import psycopg
+    for attempt in range(attempts):
+        try:
+            return action()
+        except psycopg.errors.InternalError as ex:
+            conn.rollback()
+            if "concurrently updated" not in str(ex) or attempt == attempts - 1:
+                raise
+            time.sleep(0.2 + random.random() * (attempt + 1) * 0.5)
 
 
 def _applied(conn) -> set[str]:

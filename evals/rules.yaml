@@ -60,7 +60,8 @@ cases:
       - application/json
     noInvalid: true
 - name: ge-payment-cancellation
-  why: Cancellation must be supported; 202/204/405 semantics; Authorization required after PSU authentication.
+  why: Cancellation must be supported, with 202/204/405 semantics. The last sentence (Authorization header when calling) is a TPP
+    duty, so it must not become a bank rule.
   clause:
     standard: GE-XS2A
     version: 0.8.RC3
@@ -104,7 +105,7 @@ cases:
       - DELETE
       - cancel
     - any:
-      - Authorization
+      - '405'
     noInvalid: true
 - name: ge-informative-examples
   why: 'Informative section (''examples, not a substitute for the normative chapters''): the right answer is no rules.'

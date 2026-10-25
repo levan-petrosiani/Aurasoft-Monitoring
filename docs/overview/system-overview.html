@@ -100,33 +100,25 @@
 <div class="cover">
   <div>
     <h1>AuraSoft API Test Tool<br>with an AI layer</h1>
-    <div class="sub">System overview: architecture, what is built, how it works, and what is next</div>
+    <div class="sub">System overview: architecture, what is built, how it works, how good the AI is, and what is next</div>
     <div class="band"></div>
     <table class="meta">
-      <tr><td class="muted">Status</td><td><b>Phases 0, 1 and 2 complete</b>, now in Python · Phase 3 next</td></tr>
-      <tr><td class="muted">Date</td><td>24 October 2026</td></tr>
-      <tr><td class="muted">Repository</td><td>github.com/levan-petrosiani/Aurasoft-Monitoring · branch <code>ai-layer-python</code> (pull request to <code>main</code>)</td></tr>
-      <tr><td class="muted">Stack</td><td>Python 3.11+ · Flask · PostgreSQL 17 + pgvector · Claude (Anthropic) · Ollama (local)</td></tr>
+      <tr><td class="muted">Status</td><td><b>All planned phases complete (0–6)</b> + eval sets · Claude verified live</td></tr>
+      <tr><td class="muted">Date</td><td>25 October 2026</td></tr>
+      <tr><td class="muted">Repository</td><td>github.com/levan-petrosiani/Aurasoft-Monitoring · branches <code>ai-layer-python</code> → <code>phase3-scenarios</code> (pull requests to <code>main</code>)</td></tr>
+      <tr><td class="muted">Stack</td><td>Python 3.11+ · Flask · PostgreSQL 17 + pgvector · Claude (Anthropic) · Ollama (local, optional)</td></tr>
       <tr><td class="muted">Context</td><td>Hackathon project, AltaSoft</td></tr>
     </table>
   </div>
   <div>
     <h3>Contents</h3>
     <ol class="toc small">
-      <li>Summary</li>
-      <li>The problem and the approach</li>
-      <li>System architecture</li>
-      <li>How a test run works</li>
-      <li>Data store and privacy</li>
-      <li>The AI layer</li>
-      <li>Feature: AI run summaries (Phase 1)</li>
-      <li>Feature: standards → rules → human review (Phase 2)</li>
-      <li>Portal and command line</li>
-      <li>Quality: tests, verification, bugs found</li>
-      <li>Current state in numbers</li>
-      <li>What is left: roadmap and open items</li>
-      <li>Key decisions</li>
-      <li>How to run it</li>
+      <li>Summary</li><li>The problem and the approach</li><li>System architecture</li><li>How a test run works</li>
+      <li>Data store and privacy</li><li>The AI layer</li><li>Feature: AI run summaries (Phase 1)</li>
+      <li>Feature: standards → rules → human review (Phase 2)</li><li>Feature: test scenarios from approved rules (Phase 3)</li>
+      <li>Feature: the Ask agent (Phase 4)</li><li>Payment initiation — PIS (Phase 5)</li><li>Monitoring (Phase 6)</li>
+      <li>Evaluation: Claude vs the local model</li><li>Portal and command line</li><li>Quality: tests, verification, bugs found</li>
+      <li>Current state in numbers</li><li>What is left</li><li>Key decisions</li><li>How to run it</li>
     </ol>
   </div>
 </div>
@@ -139,47 +131,45 @@ The <b>API Test Tool</b> (<code>aqt</code>) checks whether a bank's open-banking
 profiled for Georgia) behaves the way the standard requires. It acts like a real third-party app (TPP): mutual TLS with a
 QWAC certificate, every request signed with a QSealC (<code>Digest</code> + <code>X-Jws-Signature</code>), OAuth2 with
 PKCE for customer authentication, and every response checked against the standard. Tests are YAML scenarios; banks are
-YAML profiles; a built-in <b>MockBank</b> lets everything run without a real bank. The tool was first built in
-C#/.NET; the team then moved it to <b>Python</b>, and the AI layer described here was ported with it (same database,
-prompts and checks).
+YAML profiles; a built-in <b>MockBank</b> lets everything run without a real bank. It now covers both halves of open
+banking: <b>account information</b> (AIS) and <b>payment initiation</b> (PIS).
 </p>
-<p>
-This project adds an <b>AI layer</b> on top of that tool, built so that every AI output is traceable and checked:
-</p>
+<p>The <b>AI layer</b> on top of it is built so that every AI output is traceable and checked:</p>
 <ul>
-  <li><b>Store everything</b> (Phase 0): every run, scenario, step, HTTP exchange and event goes to PostgreSQL, with tokens,
-    authorization codes and IBANs masked before writing. Every model call is audited.</li>
-  <li><b>AI run summaries</b> (Phase 1): one click turns a run into a triage: problems grouped by cause, who is at fault
-    (bank, our side, environment), evidence, clause, next step, and what changed since the bank's previous run.</li>
-  <li><b>Rules from the standards</b> (Phase 2): the Berlin Group guide and the Georgian guides are split into clauses and
-    made searchable (also across English ↔ Georgian). The AI drafts <i>rules</i> from a clause, each with the exact sentence it
-    rests on; code verifies every quote; a person approves each rule before it counts.</li>
+  <li><b>Store everything</b> (Phase 0): runs, scenarios, steps, HTTP exchanges and events in PostgreSQL, masked before writing; every model call audited.</li>
+  <li><b>AI run summaries</b> (Phase 1): a triage of each run — causes, who is at fault, evidence, clause, next step, what changed.</li>
+  <li><b>Rules from the standards</b> (Phase 2): the AI drafts rules from a clause with the exact sentence they rest on; code verifies every quote; a person approves.</li>
+  <li><b>Test scenarios from approved rules</b> (Phase 3): the AI writes a scenario; code loads it, runs it on MockBank, feeds errors back; a person approves; a coverage view links clause → rule → scenario → result per bank.</li>
+  <li><b>Ask agent</b> (Phase 4): staff ask questions in plain language; the agent answers with read-only tools and its citations are checked in code.</li>
+  <li><b>Payment initiation</b> (Phase 5): MockBank payments and a <code>pis</code> suite, gated to sandbox test accounts.</li>
+  <li><b>Monitoring</b> (Phase 6): scheduled runs, regression alerts (+ webhook), trends, retention.</li>
+  <li><b>Eval sets</b>: fixed cases with known answers for every AI feature, scored in code — and a measured comparison of Claude with the local model (chapter 13).</li>
 </ul>
 <div class="callout">
 <b>Design principle.</b> Facts are computed in code; judgement comes from the model; a person approves.
-Counts, run-to-run changes, scenario ids and clause references are computed or checked in code. The model groups,
-explains and drafts. Nothing the AI drafts becomes a rule or a test until a human approves it, and the test engine
-itself contains no AI: results stay reproducible.
+Counts, run-to-run changes, ids, quotes, dry-run results and alerts are computed or checked in code. The model groups,
+explains and drafts. Nothing the AI drafts becomes a rule or a test until a human approves it, the test engine contains
+no AI, and the AI is graded by code, never by another model.
 </div>
 
 <h3>Status at a glance</h3>
 <table>
-  <tr><th style="width:24%">Phase</th><th>What it delivers</th><th style="width:15%">Status</th></tr>
-  <tr><td>0 · Foundations</td><td>PostgreSQL store, masking, import of existing runs, AI provider layer with audit log</td><td><span class="tag done">done</span></td></tr>
-  <tr><td>Port to Python</td><td>Engine, CLI, MockBank, portal (teammates); store, standards, AI layer, AI pages and tests (this work)</td><td><span class="tag done">done</span> <span class="small muted">pull request</span></td></tr>
-  <tr><td>1 · Run summaries</td><td>AI triage of runs in CLI and portal; Claude or local model; validated in code</td><td><span class="tag done">done</span></td></tr>
-  <tr><td>2 · Standards + rules</td><td>4 standards → 379 clauses, hybrid search, AI rule drafting, quote checks, review workflow, portal pages</td><td><span class="tag done">done</span></td></tr>
-  <tr><td>3 · Scenario drafting</td><td>Approved rule → generated test scenario → validated → proven on MockBank → reviewed; coverage matrix</td><td><span class="tag next">next</span></td></tr>
-  <tr><td>4 · Ask-the-agent</td><td>Staff ask questions about runs and the standards; agent answers with run ids and clauses</td><td><span class="tag todo">planned</span></td></tr>
-  <tr><td>5 · PIS</td><td>Payment initiation tests (designed in from the start)</td><td><span class="tag todo">planned</span></td></tr>
-  <tr><td>6 · Monitoring</td><td>Scheduled runs, regression alerts, trends</td><td><span class="tag todo">planned</span></td></tr>
+  <tr><th style="width:24%">Phase</th><th>What it delivers</th><th style="width:13%">Status</th></tr>
+  <tr><td>0 · Foundations</td><td>PostgreSQL store, masking, import, provider layer with audit log</td><td><span class="tag done">done</span></td></tr>
+  <tr><td>1 · Run summaries</td><td>AI triage in CLI and portal; validated in code</td><td><span class="tag done">done</span></td></tr>
+  <tr><td>2 · Standards + rules</td><td>4 standards → 379 clauses, hybrid search, rule drafting, quote checks, review workflow</td><td><span class="tag done">done</span></td></tr>
+  <tr><td>3 · Scenario drafting</td><td>Rule → scenario → engine check → MockBank dry run → review; coverage</td><td><span class="tag done">done</span></td></tr>
+  <tr><td>4 · Ask agent</td><td>Questions over runs, alerts, rules and standards; read-only tools; checked citations</td><td><span class="tag done">done</span></td></tr>
+  <tr><td>5 · PIS</td><td>MockBank payments, <code>pis</code> suite, polling, test-account gate</td><td><span class="tag done">done</span></td></tr>
+  <tr><td>6 · Monitoring</td><td>Schedules, alerts + webhook, trends, retention</td><td><span class="tag done">done</span></td></tr>
+  <tr><td>Eval sets</td><td>18 cases across the 4 AI features; Claude vs local measured</td><td><span class="tag done">done</span></td></tr>
 </table>
 
 <div class="kpis">
-  <div class="kpi"><b>93</b><span>automated tests, all passing</span></div>
-  <div class="kpi"><b>379</b><span>clauses from 4 standards, all embedded</span></div>
-  <div class="kpi"><b>24</b><span>rules drafted · 4 approved</span></div>
-  <div class="kpi"><b>14</b><span>runs in the store · 19 AI summaries</span></div>
+  <div class="kpi"><b>147</b><span>automated tests, all passing</span></div>
+  <div class="kpi"><b>35</b><span>scenarios · 28 pass on MockBank</span></div>
+  <div class="kpi"><b>18/18</b><span>eval cases passed by Claude</span></div>
+  <div class="kpi"><b>14/18</b><span>eval cases passed by the local model</span></div>
 </div>
 </div>
 
@@ -188,30 +178,27 @@ itself contains no AI: results stay reproducible.
 <h1>2. The problem and the approach</h1>
 <h3>The problem</h3>
 <ul>
-  <li>Writing conformance tests by hand from a 341-page standard (plus Georgian profiles) is slow, and it is hard to say
-    which requirements are covered and which are not.</li>
-  <li>Test results are long and technical; working out <i>why</i> a run failed, and whether it is the bank or our side,
-    takes an expert.</li>
-  <li>History lives in report folders; nobody can ask "when did this bank start failing?".</li>
+  <li>Writing conformance tests by hand from a 341-page standard (plus Georgian profiles) is slow, and it is hard to say which requirements are covered.</li>
+  <li>Test results are long and technical; working out <i>why</i> a run failed, and whether it is the bank or our side, takes an expert.</li>
+  <li>History lives in report folders; nobody can ask "when did this bank start failing?", and nobody notices when it does.</li>
 </ul>
-
 <h3>The approach — and why it is shaped this way</h3>
 <table>
-  <tr><th style="width:30%">Original idea</th><th>What we built instead, and why</th></tr>
-  <tr><td>AI writes tests directly from the documents</td><td><b>Document → approved rule → test.</b> A one-line rule with its quote can be reviewed in seconds; a generated test file cannot. Every future test traces back to a sentence of the standard.</td></tr>
-  <tr><td>AI "tests the APIs"</td><td><b>The AI writes, the engine runs.</b> The model never calls a bank. Results are reproducible from YAML and auditable.</td></tr>
+  <tr><th style="width:30%">Original idea</th><th>What we built, and why</th></tr>
+  <tr><td>AI writes tests directly from the documents</td><td><b>Document → approved rule → test.</b> A one-line rule with its quote can be reviewed in seconds; every generated test traces back to a sentence of the standard and is proven on MockBank before a person sees it.</td></tr>
+  <tr><td>AI "tests the APIs"</td><td><b>The AI writes, the engine runs.</b> The model never calls a bank; results stay reproducible.</td></tr>
   <tr><td>AI summaries</td><td><b>Triage, not prose:</b> grouped by cause, bank vs our side, evidence, clause, next step; facts computed in code.</td></tr>
-  <tr><td>Rule drafting with human approval</td><td>Kept, and strengthened: the quote is <b>verified in code</b>, so a rule can never rest on words the standard does not contain.</td></tr>
-  <tr><td>Store every data</td><td>Kept, with <b>masking before writing</b> (tokens, codes, PSU ids, IBANs) and an audit log of every AI call.</td></tr>
-  <tr><td>RAG agent over logs</td><td><b>An agent with query tools</b> over the database for logs (counts and time ranges need SQL, not similarity search); retrieval only for the standards text. (Phase 4)</td></tr>
+  <tr><td>Rule drafting with human approval</td><td>Kept and strengthened: quotes are <b>verified in code</b>; a failed quote goes back to the model once.</td></tr>
+  <tr><td>Store every data / monitoring</td><td>Kept, with <b>masking before writing</b>, an audit log, and alerts computed in code after every run.</td></tr>
+  <tr><td>RAG agent over logs</td><td><b>An agent with query tools</b> (counts and time ranges need SQL, not similarity search); its SQL runs under a read-only database login.</td></tr>
 </table>
-
-<h3>Model choice: cloud and local</h3>
+<h3>Model choice: measured, not assumed</h3>
 <p>
-Drafting reads only public standards, so it uses <b>Claude</b> (best accuracy; <code>claude-opus-5-5</code>).
-Features that see run data (summaries, the future ask-agent) can be switched to a <b>local model</b> via Ollama so data never
-leaves the machine. Embeddings for search are always local (<code>bge-m3</code>). The default local chat model is
-<code>qwen3:8b</code> (5 GB): it summarized a run in 35 s versus 190 s for <code>gemma4:26b</code> (17 GB) with the same root cause found.
+Every feature defaults to <b>Claude</b> (<code>claude-opus-5-5</code>, now verified live). A <b>local model</b>
+(<code>qwen3:8b</code> via Ollama) stays available as an opt-in for offline use or when no data may leave the machine.
+The eval sets measured both on the same 18 cases: Claude passed <b>18/18</b> (100% of checks), the
+local model <b>14/18</b> (93%), and Claude was about <b>4× faster</b> in total. Embeddings for
+search are always local (<code>bge-m3</code>).
 </p>
 </div>
 
@@ -223,27 +210,28 @@ leaves the machine. Embeddings for search are always local (<code>bge-m3</code>)
 <div class="layers">
   <div class="layer"><div class="name">People</div><div class="row" style="grid-template-columns:repeat(3,1fr)">
     <div class="box person"><b>Tester</b>starts runs, logs in for SCA</div>
-    <div class="box person"><b>Reviewer</b>approves / rejects rules</div>
-    <div class="box person"><b>Staff</b>reads summaries (asks questions in Phase 4)</div></div></div>
+    <div class="box person"><b>Reviewer</b>approves rules and scenarios, acknowledges alerts</div>
+    <div class="box person"><b>Staff</b>read summaries, ask questions</div></div></div>
   <div class="down">▼</div>
-  <div class="layer"><div class="name">Entry points</div><div class="row" style="grid-template-columns:1fr 1fr">
-    <div class="box code"><b>aqt CLI (Python)</b>run · db · ai · standards · rules · validate · portal</div>
-    <div class="box code"><b>Portal (Flask) :5280</b>runs · AI summary · Standards · Rules review</div></div></div>
+  <div class="layer"><div class="name">Entry points</div><div class="row" style="grid-template-columns:1fr 1fr 0.8fr">
+    <div class="box code"><b>aqt CLI</b>run · db · ai · standards · rules · scenarios · coverage · ask · monitor</div>
+    <div class="box code"><b>Portal (Flask) :5280</b>runs · summary · Standards · Rules · Drafts · Coverage · Ask · Monitoring · Alerts</div>
+    <div class="box code"><b>Monitor</b>schedules from monitoring.yaml (portal or cron)</div></div></div>
   <div class="down">▼</div>
-  <div class="layer"><div class="name">Application</div><div class="row" style="grid-template-columns:1.1fr 1fr 1.2fr">
-    <div class="box code"><b>Engine <code>aqt/</code></b>scenario runner · JWS signing · OAuth/PKCE · reports<br><i>no AI, no database</i></div>
-    <div class="box code"><b>Standards <code>aqt/standards</code></b>PDF / Word clause readers · quote verifier · sources manifest</div>
-    <div class="box ai"><b>AI layer <code>aqt/ai</code></b>providers + audit · run summaries · ingest · rule drafter · rule book</div></div></div>
+  <div class="layer"><div class="name">Application</div><div class="row" style="grid-template-columns:1.1fr 0.9fr 1.3fr">
+    <div class="box code"><b>Engine <code>aqt/</code></b>runner · JWS · OAuth/PKCE · polling · reports · MockBank dry runs<br><i>no AI, no database</i></div>
+    <div class="box code"><b>Standards · Monitor</b>clause readers · quote verifier · alerts · trends</div>
+    <div class="box ai"><b>AI layer <code>aqt/ai</code></b>providers + audit · summaries · rule and scenario drafters · Ask agent · evals</div></div></div>
   <div class="down">▼</div>
-  <div class="layer"><div class="name">Data &amp; models</div><div class="row" style="grid-template-columns:1fr 1.25fr 1fr 1fr">
+  <div class="layer"><div class="name">Data &amp; models</div><div class="row" style="grid-template-columns:1fr 1.3fr 1fr 1fr">
     <div class="box data"><b>Report folders</b>report.html · summary.json · junit.xml</div>
-    <div class="box data"><b>PostgreSQL 17 + pgvector</b>runs · exchanges · events · AI audit · clauses · rules (all masked)</div>
-    <div class="box ext"><b>Claude API</b>claude-opus-5-5 (masked prompts)</div>
-    <div class="box ext"><b>Ollama (local)</b>qwen3:8b · bge-m3 embeddings</div></div></div>
+    <div class="box data"><b>PostgreSQL 17 + pgvector</b>runs · audit · clauses · rules · drafts · questions · alerts (masked)</div>
+    <div class="box ext"><b>Claude API</b>claude-opus-5-5 (default)</div>
+    <div class="box ext"><b>Ollama (local)</b>bge-m3 embeddings · qwen3:8b (opt-in)</div></div></div>
   <div class="down">▼</div>
   <div class="layer"><div class="name">Under test</div><div class="row" style="grid-template-columns:1fr 1fr 1fr">
-    <div class="box ext"><b>MockBank :7443</b>built-in fake bank with real XS2A checks</div>
-    <div class="box ext"><b>Bank sandboxes</b>TBC, BoG, Liberty, … (mTLS + JWS + OAuth)</div>
+    <div class="box ext"><b>MockBank :7443</b>AIS + PIS with real XS2A checks</div>
+    <div class="box ext"><b>Bank sandboxes</b>TBC, BoG, … (mTLS + JWS + OAuth)</div>
     <div class="box ext"><b>Standards documents</b>Berlin Group PDF · Georgian .docx</div></div></div>
 </div>
 </div>
@@ -252,23 +240,23 @@ leaves the machine. Embeddings for search are always local (<code>bge-m3</code>)
 <h3>Packages</h3>
 <table>
   <tr><th style="width:26%">Package</th><th>Responsibility</th><th style="width:9%">Lines</th></tr>
-  <tr><td><code>aqt/</code> (engine)</td><td>YAML loading and binding, scenario runner, HTTP/TLS/SCA steps, JWS signing and verification, OAuth/PKCE, reports (HTML, JSON, JUnit)</td><td>3 281</td></tr>
-  <tr><td><code>aqt/cli.py</code>, <code>cli_ai.py</code></td><td><code>aqt</code> command: run, list, validate, mock, portal · db, ai, standards, rules</td><td>818</td></tr>
-  <tr><td><code>aqt/mockbank/</code></td><td>Fake bank with real XS2A checks (mTLS, signatures, consents, OAuth/PKCE)</td><td>1 158</td></tr>
-  <tr><td><code>aqt/portal/</code></td><td>Flask web UI: dashboard, runs, AI summary panel, Standards, Rules review (Python + templates)</td><td>1 803</td></tr>
-  <tr><td><code>aqt/store/</code> <span class="tag done">ported</span></td><td>PostgreSQL schema (SQL migrations) and access, masking, run import, clause and rule queries</td><td>1 027</td></tr>
-  <tr><td><code>aqt/standards/</code> <span class="tag done">ported</span></td><td>PDF and Word clause readers, quote verifier, sources manifest (no AI, no DB)</td><td>452</td></tr>
-  <tr><td><code>aqt/ai/</code> <span class="tag done">ported</span></td><td>Providers + audit, run summaries, standards ingest, rule drafting and review; prompts as files</td><td>1 239</td></tr>
-  <tr><td><code>tests/</code></td><td>pytest: engine, MockBank end to end, store, standards, AI, portal routes</td><td>1 212</td></tr>
+  <tr><td><code>aqt/</code> (engine)</td><td>YAML binding, runner, HTTP/TLS/SCA steps with polling, JWS, OAuth/PKCE, reports, MockBank dry runs</td><td>3 641</td></tr>
+  <tr><td><code>aqt/cli.py</code>, <code>cli_ai.py</code></td><td>The <code>aqt</code> command, all sub-commands, <code>.env</code> loading</td><td>1 170</td></tr>
+  <tr><td><code>aqt/mockbank/</code></td><td>Fake bank: consents, accounts, payments (lifecycle, table-4 checks), OAuth/PKCE</td><td>1 427</td></tr>
+  <tr><td><code>aqt/portal/</code></td><td>Flask UI incl. Standards, Rules, Drafts, Coverage, Ask, Monitoring, Alerts</td><td>2 569</td></tr>
+  <tr><td><code>aqt/store/</code></td><td>Schema (4 SQL migrations), masking, import, queries, coverage, agent views</td><td>1 948</td></tr>
+  <tr><td><code>aqt/standards/</code></td><td>PDF and Word clause readers, quote verifier, sources manifest</td><td>452</td></tr>
+  <tr><td><code>aqt/ai/</code></td><td>Providers + audit + tool calling, summaries, rules, scenarios, Ask agent, evals; prompts as files</td><td>2 650</td></tr>
+  <tr><td><code>aqt/monitor/</code></td><td>monitoring.yaml, due times, alerts and webhook, trends</td><td>247</td></tr>
+  <tr><td><code>tests/</code> · <code>evals/</code></td><td>pytest (147 tests) · eval cases (18)</td><td>2 060 · 464</td></tr>
 </table>
 
 <h3>Technology</h3>
 <table>
   <tr><td style="width:24%">Runtime</td><td>Python 3.11+ (developed on 3.14); Flask portal; PyYAML, cryptography, pyOpenSSL</td></tr>
-  <tr><td>Database</td><td>PostgreSQL 17 with pgvector (Docker, port 5435); psycopg 3 with plain SQL; numbered SQL migrations</td></tr>
-  <tr><td>AI</td><td>Official <code>anthropic</code> Python SDK (Claude); Ollama over HTTP for local models and bge-m3 embeddings</td></tr>
-  <tr><td>Documents</td><td>pdfplumber (PDF text), Office Open XML read directly (Word)</td></tr>
-  <tr><td>Install</td><td>Core: <code>pip install -e .[test]</code>; store + AI layer is an optional extra: <code>pip install -e .[ai]</code></td></tr>
+  <tr><td>Database</td><td>PostgreSQL 17 with pgvector (Docker, port 5435); psycopg 3, plain SQL, numbered migrations</td></tr>
+  <tr><td>AI</td><td>Official <code>anthropic</code> SDK (Claude, beta endpoint with refusal fallback); Ollama over HTTP for embeddings and the optional local model</td></tr>
+  <tr><td>Install</td><td>Core: <code>pip install -e .[test]</code>; store + AI: <code>pip install -e .[ai]</code>; API key in a git-ignored <code>.env</code></td></tr>
   <tr><td>Constraint</td><td>Standalone: only public PyPI packages; no dependency on AltaSoft's internal repositories</td></tr>
 </table>
 </div>
@@ -311,6 +299,9 @@ sequenceDiagram
   <tr><td>Blocked</td><td>Not run because a critical preflight check failed.</td></tr>
   <tr><td>Skipped</td><td>The bank does not declare the feature (expected; not a problem).</td></tr>
 </table>
+<p>Requests can <b>poll</b> (repeat until a status is final, e.g. a payment settling) and expectations can accept
+<b>one of several</b> values. <b>Unattended</b> runs (monitoring) skip scenarios that need a person to log in, unless the
+login is automatic (MockBank).</p>
 <p>Reports are written as before (<code>report.html</code>, <code>summary.json</code>, <code>junit.xml</code>), and the
 run is also saved to the database. A database problem never fails a run: it becomes a notice, and the folder can be
 imported later.</p>
@@ -322,50 +313,47 @@ imported later.</p>
 <div class="diagram">
 <div class="schema">
   <div class="group"><h4>Test runs</h4>
-    <div class="tbl"><div class="t">runs</div><div class="c">id (folder name) · source · status · bank_bic · counts · pass_rate · suites · options (jsonb)</div></div>
+    <div class="tbl"><div class="t">runs</div><div class="c">id · source (cli / portal / eval) · status · bank_bic · counts · pass_rate</div></div>
     <div class="rel">▼ has many</div>
     <div class="tbl"><div class="t">scenario_results</div><div class="c">scenario_id · suite · severity · spec_ref · outcome · reason</div></div>
     <div class="rel">▼ has many</div>
-    <div class="tbl"><div class="t">step_results</div><div class="c">name · kind · outcome · failures · warnings · info</div></div>
-    <div class="rel">▼ has many</div>
-    <div class="tbl"><div class="t">exchanges</div><div class="c">method · url · status_code · headers (jsonb) · bodies — all masked, capped 64 KB</div></div>
+    <div class="tbl"><div class="t">step_results → exchanges</div><div class="c">steps with failures · HTTP exchanges masked, capped 64 KB, pruned after 90 days</div></div>
+    <div class="tbl"><div class="t">alerts · monitor_state</div><div class="c">regression / fixed / bank_down / run_failed · acknowledged by · schedule last run</div></div>
   </div>
-  <div class="group"><h4>Monitoring &amp; AI</h4>
-    <div class="tbl"><div class="t">events</div><div class="c">time · run_id · source · type (run.started, scenario.completed, …) · level · message · data</div></div>
-    <div class="tbl"><div class="t">ai_calls</div><div class="c">feature · provider · model · triggered_by · request (masked) · response · tokens · duration · succeeded</div></div>
-    <div class="rel">▲ linked from</div>
-    <div class="tbl"><div class="t">run_summaries</div><div class="c">run_id · status (ok / unstructured / failed) · summary (jsonb) · validation notes · ai_call_id</div></div>
-    <p class="small muted" style="text-align:center;margin:4pt 0 0">Kept when a run is deleted.</p>
+  <div class="group"><h4>AI &amp; audit</h4>
+    <div class="tbl"><div class="t">ai_calls</div><div class="c">feature · provider · model · triggered_by · masked request · response · tokens · duration</div></div>
+    <div class="tbl"><div class="t">run_summaries</div><div class="c">run_id · status · summary (jsonb) · validation notes</div></div>
+    <div class="tbl"><div class="t">agent_questions</div><div class="c">question · answer · tool calls · citation check · status</div></div>
+    <div class="tbl"><div class="t">schema <code>agent</code> (views)</div><div class="c">read-only views for the Ask agent's SQL: no headers, bodies or AI audit</div></div>
   </div>
-  <div class="group"><h4>Standards &amp; rules</h4>
-    <div class="tbl"><div class="t">standard_documents</div><div class="c">id · version · language · sha256 · clause_count</div></div>
-    <div class="rel">▼ has many</div>
-    <div class="tbl"><div class="t">clauses</div><div class="c">key (BG-IG:1.3.16:6.3.1.2) · number · title · text · search (tsvector) · embedding (vector 1024)</div></div>
+  <div class="group"><h4>Standards, rules, scenarios</h4>
+    <div class="tbl"><div class="t">clauses</div><div class="c">key · number · title · text · tsvector · embedding (vector 1024)</div></div>
     <div class="rel">▼ referenced by key</div>
-    <div class="tbl"><div class="t">rules</div><div class="c">id (GE-CON-002) · status · level · service · requirement · quote · quote_english · check · reviewer</div></div>
-    <div class="rel">▼ history</div>
-    <div class="tbl"><div class="t">rule_reviews</div><div class="c">reviewer · action · note · before / after (jsonb)</div></div>
+    <div class="tbl"><div class="t">rules → rule_reviews</div><div class="c">status · level · requirement · quote · linked scenarios · full review history</div></div>
+    <div class="rel">▼ rule_id</div>
+    <div class="tbl"><div class="t">scenario_drafts</div><div class="c">YAML · checks · dry run · MockBank-gap note · reviewer · file path</div></div>
   </div>
 </div>
 </div>
-<div class="caption">Figure 3 — Database tables (PostgreSQL), grouped by purpose; key columns only.</div>
+<div class="caption">Figure 3 — Database tables (PostgreSQL, 4 migrations), grouped by purpose; key columns only.</div>
 
 <h3>Masking: what never reaches the database or a model</h3>
 <table>
   <tr><th style="width:30%">Data</th><th>Treatment</th></tr>
   <tr><td>Authorization, Cookie, PSU-ID headers</td><td>Value replaced (<code>Bearer ***(masked)</code>)</td></tr>
-  <tr><td>Tokens, codes, secrets in JSON, forms and URLs</td><td><code>access_token</code>, <code>refresh_token</code>, <code>code_verifier</code>, … masked at any depth; the OAuth <code>code</code> in forms and query strings</td></tr>
-  <tr><td>XS2A error codes</td><td><b>Kept readable</b> (<code>"code":"FORMAT_ERROR"</code> is evidence, not a secret) — a bug found and fixed in Phase 1</td></tr>
+  <tr><td>Tokens, codes, secrets in JSON, forms, URLs</td><td><code>access_token</code>, <code>refresh_token</code>, <code>code_verifier</code>, … masked at any depth; the OAuth <code>code</code> in forms and query strings</td></tr>
+  <tr><td>Credentials written in free text</td><td><code>Bearer …</code> / <code>Basic …</code> in error messages, alerts and JSON strings masked (added in Phase 6)</td></tr>
+  <tr><td>XS2A error codes</td><td><b>Kept readable</b> (<code>"code":"FORMAT_ERROR"</code> is evidence, not a secret)</td></tr>
   <tr><td>IBANs</td><td>Country, check digits and last 4 kept: <code>GE29**************4917</code></td></tr>
-  <tr><td>Large bodies</td><td>Cut at 64 KB and flagged</td></tr>
 </table>
-<div class="callout ok">Verified on all 12 imported runs (139 exchanges): no tokens or codes in any form remain in the database. The same
-masker is applied to every prompt a model receives, as a second layer.</div>
-
+<div class="callout ok"><b>The Ask agent's SQL cannot escape.</b> It logs in as its own database role <code>aqt_agent</code>, which can only
+read the <code>agent</code> views: one prepared statement, read-only, 5-second timeout. A first design switched role inside the main
+connection; probing showed the SQL could switch back (<code>set_config('role', …)</code>, a second statement), so it was replaced.
+The database now refuses every escape attempt, and a test proves it.</div>
 <h3>Audit</h3>
-<p>Every model call, successful or not, is a row in <code>ai_calls</code>: feature, provider, model, who triggered it,
-the masked request, the answer, token counts, duration and a prompt hash. Rule decisions are rows in
-<code>rule_reviews</code> with the fields before and after each change.</p>
+<p>Every model call — summaries, drafting, the Ask agent's tool rounds, eval runs — is a row in <code>ai_calls</code> (feature, provider,
+model, who, masked request, answer, tokens, duration, prompt hash). Rule decisions are rows in <code>rule_reviews</code>, scenario
+approvals link the rule, alerts record who acknowledged them.</p>
 </div>
 
 <!-- ============================== 6 AI LAYER ============================== -->
@@ -374,37 +362,36 @@ the masked request, the answer, token counts, duration and a prompt hash. Rule d
 <div class="diagram">
 <div class="legend"><span class="l-code">code (deterministic)</span><span class="l-ai">AI model</span><span class="l-person">person</span><span class="l-data">stored data</span><span class="l-ext">external system</span></div>
 <div class="flow">
-  <div class="box code"><b>Feature</b>summary, rule drafting, …</div><div class="arrow">→</div>
+  <div class="box code"><b>Feature</b>summary, drafting, Ask agent, eval</div><div class="arrow">→</div>
   <div class="box code"><b>ChatFactory</b>provider + model + effort per feature</div><div class="arrow">→</div>
-  <div class="box code"><b>AuditingChat</b>masks outgoing text · records every call in <code>ai_calls</code></div><div class="arrow">→</div>
+  <div class="box code"><b>AuditingChat</b>masks every turn · records every call · tool calls</div><div class="arrow">→</div>
   <div class="stack">
-    <div class="box ext"><b>Claude</b>beta endpoint · effort · refusal fallback</div>
+    <div class="box ext"><b>Claude</b>default · beta endpoint · refusal fallback</div>
     <div class="or">or</div>
-    <div class="box ext"><b>Ollama (local)</b>num_ctx 16k · 10 min timeout</div>
+    <div class="box ext"><b>Ollama (local)</b>opt-in · num_ctx 16k</div>
   </div>
 </div>
 <div class="flow"><div class="box ext" style="flex-basis:200pt"><b>Embeddings: bge-m3 (local)</b>clause and rule search; nothing leaves the machine</div></div>
 </div>
-<div class="caption">Figure 4 — Every model call goes through the same wrapper; features only see a common chat interface.</div>
+<div class="caption">Figure 4 — Every model call goes through the same wrapper. Tool calling (Ask agent) uses one provider-neutral message format.</div>
 <table>
   <tr><th style="width:22%">Feature</th><th style="width:22%">Default</th><th>Notes</th></tr>
-  <tr><td>Run summary</td><td>Claude, effort medium</td><td>Switchable to local (button in the portal, <code>--provider ollama</code>, <code>AQT_AI_SUMMARY_PROVIDER</code>)</td></tr>
-  <tr><td>Rule drafting</td><td>Claude, effort high</td><td>Reads only public standards; local model available for trials</td></tr>
-  <tr><td>Scenario drafting</td><td>Claude, effort high</td><td>Phase 3</td></tr>
-  <tr><td>Ask-the-agent</td><td>Claude, effort medium</td><td>Phase 4; switchable to local</td></tr>
+  <tr><td>Run summary</td><td>Claude, effort medium</td><td>Local opt-in (button, <code>--provider ollama</code>)</td></tr>
+  <tr><td>Rule drafting</td><td>Claude, effort high</td><td>One repair round for quotes the verifier rejects</td></tr>
+  <tr><td>Scenario drafting</td><td>Claude, effort high</td><td>Up to 3 attempts with engine errors and MockBank results fed back</td></tr>
+  <tr><td>Ask agent</td><td>Claude, effort medium</td><td>Up to 8 tool rounds; read-only tools</td></tr>
   <tr><td>Embeddings</td><td>bge-m3 (local)</td><td>Multilingual: English questions find Georgian clauses</td></tr>
 </table>
 <h3>Safeguards in the provider layer</h3>
 <ul>
-  <li><b>Refusal fallback:</b> our prompts contain security-testing material (signatures, tokens, auth flows) that can trip a
-    model's safety filters; a declined request is re-run on Anthropic's recommended fallback model instead of failing.</li>
-  <li><b>Context window:</b> Ollama silently cuts prompts longer than its default window; every local call now sets 16k tokens.</li>
-  <li><b>Timeouts</b> are recorded as failures (not as user cancellation), so they appear in the audit log.</li>
-  <li>The exact request sent to Claude is checked by a test against a local fake Anthropic server (model, limits, effort, fallback header, streaming) — no key needed.</li>
-  <li>Prompts and their JSON schemas are files in <code>aqt/ai/prompts/</code>, reviewed like code.</li>
+  <li><b>Refusal fallback:</b> our prompts contain security-testing material; a declined request is re-run on Anthropic's recommended fallback model.</li>
+  <li><b>Tool calling:</b> Claude's own blocks (including thinking) are sent back unchanged in a tool loop, as the API requires; tested against a fake server.</li>
+  <li><b>Context window and timeouts</b> for the local model; timeouts are audited failures.</li>
+  <li>Prompts and their JSON schemas are files in <code>aqt/ai/prompts/</code>, reviewed like code and measured with <code>aqt ai eval</code> before and after a change.</li>
 </ul>
-<div class="callout warn"><b>Not yet verified live:</b> calls to Claude. No <code>ANTHROPIC_API_KEY</code> has been set, so all live
-AI results so far come from the local <code>qwen3:8b</code>. The Claude request format is verified offline.</div>
+<div class="callout ok"><b>Claude verified live</b> (25 October): <code>aqt ai check</code> answers in about 2 s through the beta endpoint with the
+refusal fallback, and the full eval set ran against it (35 calls, 130,607 input / 23,715 output tokens). The key comes from a git-ignored
+<code>.env</code>; values are never printed.</div>
 </div>
 
 <!-- ============================== 7 SUMMARIES ============================== -->
@@ -439,6 +426,7 @@ were found and each was fixed — preferably in code:</p>
   <tr><td>Random 503s of the TBC test sandbox blamed on the bank</td><td>Prompt: temporary 5xx = environment unless persistent</td></tr>
   <tr><td>A tester clicking "Deny" treated as a critical bank fault</td><td>Prompt: <code>access_denied</code> at login = unclear, suggest a re-run</td></tr>
   <tr><td>A correct but shortened clause reference was removed</td><td>Validator matches clause numbers and restores the run's exact wording</td></tr>
+  <tr><td>Our expired certificate blamed on the bank (found by the eval set)</td><td><b>Code</b> marks local certificate checks as ours in the digest; prompt: certificate/signature problems are our side</td></tr>
 </table>
 <div class="callout ok">After the fixes, re-run on the 5 affected runs: all correct against the data. The real TBC deviation
 (global consent rejected with <code>FORMAT_ERROR</code> instead of <code>PARAMETER_NOT_SUPPORTED</code>) is found every time with the
@@ -505,6 +493,7 @@ Tool checks  ✓ quote found in the clause</pre>
 <table>
   <tr><th style="width:28%">Check</th><th>Effect</th></tr>
   <tr><td>Quote occurs in the clause</td><td>Ignores only spacing, line breaks, hyphenation, quote/dash style and case; "…" marks skipped words. Fails → rule stored as <b>invalid</b> (kept, never reviewable).</td></tr>
+  <tr><td>Repair round</td><td>Quotes that fail the check go back to the model <b>once</b> with the verifier's reason ("copy exactly or remove"); the new answer is checked again. Added after the eval set showed the local model rebuilding table rows ("Code 202: …") that the standard does not contain.</td></tr>
   <tr><td>Level vs wording</td><td>MUST/SHOULD/MAY must be backed by the quote's keywords (English and Georgian); otherwise a warning for the reviewer.</td></tr>
   <tr><td>Duplicates</td><td>Close in meaning (embeddings) <b>and</b> naming the same fields, codes and statuses; otherwise "accept availableAccounts" and "accept allPsd2" looked identical.</td></tr>
   <tr><td>Review</td><td>Approve only drafts; reject needs a reason; an edited quote is checked again; a stale update is refused; every action recorded with the reviewer's name.</td></tr>
@@ -517,174 +506,330 @@ now forbids it). On GE-XS2A 9.2.2 it changed one Georgian word inside a quote (<
 caught that too.</div>
 </div>
 
-<!-- ============================== 9 PORTAL + CLI ============================== -->
+<!-- ============================== 9 SCENARIOS ============================== -->
 <div class="section">
-<h1>9. Portal and command line</h1>
-<h3>Portal (Flask, http://localhost:5280)</h3>
+<h1>9. Feature: test scenarios from approved rules (Phase 3)</h1>
+<div class="diagram">
+<div class="legend"><span class="l-code">code (deterministic)</span><span class="l-ai">AI model</span><span class="l-person">person</span><span class="l-data">stored data</span><span class="l-ext">external system</span></div>
+<div class="flow">
+  <div class="box data"><b>Approved rule</b>requirement · quote · expected status and code</div><div class="arrow">→</div>
+  <div class="box ai"><b>AI writes YAML</b>format, templates, two examples</div><div class="arrow">→</div>
+  <div class="box code"><b>Code sets</b>id · suite · severity · specRef · origin · rules:</div><div class="arrow">→</div>
+  <div class="box code"><b>Engine loads it</b>templates exist · only the bank's XS2A API · payments need test accounts</div>
+</div>
+<div class="flow">
+  <div class="arrow">→</div>
+  <div class="box ext"><b>Dry run</b>in-process MockBank only</div><div class="arrow">→</div>
+  <div class="box code"><b>Errors fed back</b>up to 3 attempts; "MockBank gap" accepted only for a failed expectation</div><div class="arrow">→</div>
+  <div class="box person"><b>Person reviews</b>approve · edit (re-checked) · reject</div><div class="arrow">→</div>
+  <div class="box data"><b>scenarios/&lt;suite&gt;/</b>file in git · rule linked</div>
+</div>
+</div>
+<div class="caption">Figure 7 — From an approved rule to a test in the repository. Drafts never run against a real bank.</div>
+<p>When a draft fails on MockBank, the model may answer that the scenario is right and <b>MockBank does not implement the rule</b>.
+That claim is accepted only when an expectation failed (never for a tool error) and is shown to the reviewer. The first live draft
+did exactly this: GE-CON-001 (90-day consent limit) failed because MockBank had no such limit — so the limit was added to MockBank,
+and the same draft then passed on the first attempt.</p>
+<p>The <b>Coverage</b> page and <code>aqt coverage</code> show, per approved rule: its clause, the scenarios that verify it, and their last
+result on each bank — computed in code from the rules, the <code>rules:</code> field of the scenario files and the stored runs.
+<code>aqt validate</code> warns when a scenario cites a rule that is missing or not approved.</p>
+</div>
+
+<!-- ============================== 10 ASK ============================== -->
+<div class="section">
+<h1>10. Feature: the Ask agent (Phase 4)</h1>
+<p>Staff ask in plain language — "Why did TBC fail on 21 October, and has it recovered?", "Which scenarios fail most often?",
+"Which error code must a Georgian bank return for a consent over 90 days?" — on the <b>Ask</b> page or with <code>aqt ask</code>.</p>
+<div class="diagram">
+<div class="flow">
+  <div class="box person"><b>Question</b>portal or CLI</div><div class="arrow">→</div>
+  <div class="box ai"><b>Agent</b>chooses tools, up to 8 rounds · NOW given in code</div><div class="arrow">→</div>
+  <div class="box code" style="flex-basis:150pt"><b>Read-only tools</b>runs · run details · scenario history · step details · standards search · clauses · rules · SQL</div><div class="arrow">→</div>
+  <div class="box code"><b>Citation check</b>every id in the answer must appear in a tool result</div>
+</div>
+</div>
+<div class="caption">Figure 8 — The Ask agent. Tool results are masked; the answer and its tool calls are saved.</div>
 <table>
-  <tr><th style="width:18%">Page</th><th>What it does</th></tr>
-  <tr><td>Dashboard</td><td>All bank profiles with last result and pass rate; MockBank start/stop</td></tr>
-  <tr><td>New run / Run</td><td>Start a run, watch it live, SCA login button; per scenario steps and HTTP exchanges; <b>AI summary</b> panel with "Summarize with Claude" / "Local"</td></tr>
-  <tr><td>Runs, Scenarios</td><td>Run history; scenario catalogue</td></tr>
-  <tr><td><b>Standards</b></td><td>Documents, outline with rule counts, search (English or Georgian, by words and meaning), clause view, "Draft rules with Claude / Local"</td></tr>
-  <tr><td><b>Rules</b></td><td>Review queue by status and standard; quote, translation, tool checks; approve / edit (incl. area, service, expected codes) / reject / reopen; reviewer name; "How to review" guide; export to <code>rules/</code></td></tr>
+  <tr><th style="width:26%">Safeguard</th><th>How</th></tr>
+  <tr><td>Cannot change anything</td><td>Every tool reads. The SQL tool logs in as <code>aqt_agent</code> (views only, read-only, one statement, 5 s) — see chapter 5.</td></tr>
+  <tr><td>No invented ids</td><td>Run ids, scenario and rule ids and clause keys in the answer are checked against what the tools returned; unknown ones are listed and the answer is marked <i>unverified</i>.</td></tr>
+  <tr><td>No "nothing happened" guesses</td><td>Found live: the local model said TBC had not recovered after limiting its own search to before the 22nd. Fixed in code (a run's details now list the bank's later runs) and in the prompt.</td></tr>
+  <tr><td>Traceable</td><td>Each question is stored with its answer, the tools it called and their results; each model round is in <code>ai_calls</code>.</td></tr>
+</table>
+</div>
+
+<!-- ============================== 11 PIS ============================== -->
+<div class="section">
+<h1>11. Payment initiation — PIS (Phase 5)</h1>
+<p>Built from chapter 8 of the Georgian XS2A guide, read first: products <code>domestic</code> and <code>foreign</code> (mandatory) and
+<code>aspsp</code> (within the bank); initiation, status, details, cancellation, OAuth SCA with scope <code>PIS:&lt;paymentId&gt;</code>.</p>
+<div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  participant T as aqt (TPP)
+  participant B as Bank XS2A (/v1)
+  participant A as Bank OAuth
+  T->>B: POST /v1/payments/domestic (signed)
+  B-->>T: 201 ACTC, paymentId (never RCVD)
+  T->>B: GET status
+  B-->>T: ACTC + fundsAvailable
+  T->>B: POST authorisations
+  T->>A: login + confirm (PKCE, scope PIS:paymentId) → token
+  loop poll until final
+    T->>B: GET status (token)
+    B-->>T: ACSP … then ACSC (intra-bank: ACCC)
+  end
+</pre></div>
+<div class="caption">Figure 9 — A domestic payment (PIS-001), including polling until it settles.</div>
+<table class="small">
+  <tr><th style="width:24%">Scenarios</th><th>What they check (clause)</th></tr>
+  <tr><td>PIS-001 … PIS-005</td><td>Domestic payment end to end (8.3–8.10) · intra-bank payment ends in ACCC (8.10) · cancel before authorisation (8.7) · cancelling a booked payment → 405 CANCELLATION_INVALID · foreign payment accepted with <code>fundsAvailable</code> (8.5)</td></tr>
+  <tr><td>NEG-PIS-001 … 007</td><td>Field the product never allows · invalid IBAN · missing amount (table 4 → FORMAT_ERROR) · unknown product (PRODUCT_UNKNOWN) · status without the token after SCA · insufficient funds at initiation · foreign payment without creditor name</td></tr>
+</table>
+<div class="callout warn"><b>A payment moves money, so it is gated twice.</b> PIS scenarios run only when a bank profile names its
+<b>sandbox test accounts</b> (<code>variables.pis</code>) — the TBC mock has none and skips the whole suite. AI-drafted scenarios that
+send payment data without that requirement are refused in code; a live draft that slipped past the first version of this check (payment
+data sent to a signing-basket path) led to the check being widened and tested.</div>
+<p class="small muted">Also found: MockBank's sandbox IBANs had invalid check digits — a real bank would have rejected them. Not built: bulk and periodic payments, signing baskets.</p>
+</div>
+
+<!-- ============================== 12 MONITORING ============================== -->
+<div class="section">
+<h1>12. Monitoring (Phase 6)</h1>
+<div class="diagram">
+<div class="flow">
+  <div class="box data"><b>monitoring.yaml</b>schedules (every 6h / at 02:00) · webhook · retention</div><div class="arrow">→</div>
+  <div class="box code"><b>Monitor</b>portal every 30 s, or <code>aqt monitor run-due</code> from cron</div><div class="arrow">→</div>
+  <div class="box code"><b>Unattended run</b>SCA scenarios skipped (MockBank: automatic)</div><div class="arrow">→</div>
+  <div class="box code"><b>Alerts (code)</b>vs the bank's previous run</div><div class="arrow">→</div>
+  <div class="box person"><b>Alerts page / webhook</b>acknowledged by name</div>
+</div>
+</div>
+<div class="caption">Figure 10 — Monitoring. Alerts are computed after every saved run — from the CLI, the portal or a schedule.</div>
+<table>
+  <tr><th style="width:18%">Alert</th><th>When</th></tr>
+  <tr><td>regression</td><td>A scenario passed in the bank's previous run and fails now</td></tr>
+  <tr><td>fixed</td><td>It failed before and passes again</td></tr>
+  <tr><td>bank down</td><td>A critical preflight check started failing — reported once, not on every run while the bank stays down, and not doubled as a regression</td></tr>
+  <tr><td>run failed</td><td>The run itself could not complete</td></tr>
+</table>
+<p>The <b>Monitoring</b> page shows schedules (last run, next run, Run now), the pass rate per bank over 30 days, flaky scenarios and the
+slowest endpoints. On the real history it showed TBC's PRE-003/004 as flaky (the 21 October outage) and TBC's consent-status call as the
+slowest endpoint (1.9 s on average, 8.7 s at worst). Retention deletes stored HTTP exchanges after 90 days; results, summaries and alerts are kept.</p>
+</div>
+
+<!-- ============================== 13 EVALUATION ============================== -->
+<div class="section">
+<h1>13. Evaluation: Claude vs the local model</h1>
+<p>Each AI feature has a fixed eval set (<code>evals/*.yaml</code>) with known answers. <code>aqt ai eval</code> runs every case through the
+<b>real</b> feature in a temporary database (the real store is never touched) and grades it with <b>checks in code</b> — no model judges
+another model. Both providers ran the same 18 cases with the same prompts on 25 October.</p>
+<table class="small">
+  <tr><th style="width:24%">Eval set</th><th>Cases, and what is checked</th></tr>
+  <tr><td>Run summaries (4)</td><td>A sandbox outage, our expired certificate, a bank regression, an all-green run · health, findings for the right scenarios on the right side, nothing reported for passed or skipped scenarios</td></tr>
+  <tr><td>Rule drafting (4)</td><td>Three Georgian clauses (90-day consent, payment status, cancellation) and one informative clause where the right answer is "no rules" · count, required topics and levels, every quote found in the clause</td></tr>
+  <tr><td>Scenario drafting (4)</td><td>Three rules MockBank enforces (incl. a payment) and one it does not · dry-run outcome, YAML content, attempts, MockBank-gap judgement</td></tr>
+  <tr><td>Ask agent (6)</td><td>Counting, most frequent failure, a cause, recovery after an outage, a standards question, alerts · facts in the answer, every cited id looked up, a tool used</td></tr>
+</table>
+
+<div class="diagram" style="max-width:150mm;margin:8pt auto 2pt">
+<div style="display:flex;gap:14pt;justify-content:center;font-size:8.6pt;color:#3c4043;margin:0 0 4pt"><span><i style="display:inline-block;width:9pt;height:9pt;border-radius:2pt;background:#eb6834;margin-right:4pt;vertical-align:-1pt"></i>Claude (claude-opus-5-5)</span><span><i style="display:inline-block;width:9pt;height:9pt;border-radius:2pt;background:#2a78d6;margin-right:4pt;vertical-align:-1pt"></i>Local (qwen3:8b)</span></div>
+<svg viewBox="0 0 508 246" width="100%" role="img" aria-label="Share of eval checks passed per feature, Claude versus local model">
+<line x1="118.0" y1="4" x2="118.0" y2="224" stroke="#dfe1e5" stroke-width="0.75"/>
+<text x="118.0" y="238" font-size="8.5" fill="#5f6368" text-anchor="middle">0%</text>
+<line x1="283.0" y1="4" x2="283.0" y2="224" stroke="#dfe1e5" stroke-width="0.75"/>
+<text x="283.0" y="238" font-size="8.5" fill="#5f6368" text-anchor="middle">50%</text>
+<line x1="448.0" y1="4" x2="448.0" y2="224" stroke="#dfe1e5" stroke-width="0.75"/>
+<text x="448.0" y="238" font-size="8.5" fill="#5f6368" text-anchor="middle">100%</text>
+<text x="110" y="23" font-size="9.5" fill="#1d1d1f" text-anchor="end">Run summaries</text>
+<path d="M118,6 h326.0 a4,4 0 0 1 4,4 v5 a4,4 0 0 1 -4,4 h-326.0 z" fill="#eb6834"><title>Claude: 100% of checks</title></path>
+<text x="452.0" y="16" font-size="8.5" fill="#1d1d1f">100%</text>
+<path d="M118,21 h326.0 a4,4 0 0 1 4,4 v5 a4,4 0 0 1 -4,4 h-326.0 z" fill="#2a78d6"><title>local: 100% of checks</title></path>
+<text x="452.0" y="31" font-size="8.5" fill="#1d1d1f">100%</text>
+<text x="110" y="69" font-size="9.5" fill="#1d1d1f" text-anchor="end">Rule drafting</text>
+<path d="M118,52 h326.0 a4,4 0 0 1 4,4 v5 a4,4 0 0 1 -4,4 h-326.0 z" fill="#eb6834"><title>Claude: 100% of checks</title></path>
+<text x="452.0" y="62" font-size="8.5" fill="#1d1d1f">100%</text>
+<path d="M118,67 h234.33333333333337 a4,4 0 0 1 4,4 v5 a4,4 0 0 1 -4,4 h-234.33333333333337 z" fill="#2a78d6"><title>local: 72% of checks</title></path>
+<text x="360.33333333333337" y="77" font-size="8.5" fill="#1d1d1f">72%</text>
+<text x="110" y="115" font-size="9.5" fill="#1d1d1f" text-anchor="end">Scenario drafting</text>
+<path d="M118,98 h326.0 a4,4 0 0 1 4,4 v5 a4,4 0 0 1 -4,4 h-326.0 z" fill="#eb6834"><title>Claude: 100% of checks</title></path>
+<text x="452.0" y="108" font-size="8.5" fill="#1d1d1f">100%</text>
+<path d="M118,113 h326.0 a4,4 0 0 1 4,4 v5 a4,4 0 0 1 -4,4 h-326.0 z" fill="#2a78d6"><title>local: 100% of checks</title></path>
+<text x="452.0" y="123" font-size="8.5" fill="#1d1d1f">100%</text>
+<text x="110" y="161" font-size="9.5" fill="#1d1d1f" text-anchor="end">Ask agent</text>
+<path d="M118,144 h326.0 a4,4 0 0 1 4,4 v5 a4,4 0 0 1 -4,4 h-326.0 z" fill="#eb6834"><title>Claude: 100% of checks</title></path>
+<text x="452.0" y="154" font-size="8.5" fill="#1d1d1f">100%</text>
+<path d="M118,159 h313.77777777777777 a4,4 0 0 1 4,4 v5 a4,4 0 0 1 -4,4 h-313.77777777777777 z" fill="#2a78d6"><title>local: 96% of checks</title></path>
+<text x="439.77777777777777" y="169" font-size="8.5" fill="#1d1d1f">96%</text>
+<text x="110" y="207" font-size="9.5" fill="#1d1d1f" text-anchor="end" font-weight="600">All features</text>
+<path d="M118,190 h326.0 a4,4 0 0 1 4,4 v5 a4,4 0 0 1 -4,4 h-326.0 z" fill="#eb6834"><title>Claude: 100% of checks</title></path>
+<text x="452.0" y="200" font-size="8.5" fill="#1d1d1f">100%</text>
+<path d="M118,205 h304.2417582417582 a4,4 0 0 1 4,4 v5 a4,4 0 0 1 -4,4 h-304.2417582417582 z" fill="#2a78d6"><title>local: 93% of checks</title></path>
+<text x="430.2417582417582" y="215" font-size="8.5" fill="#1d1d1f">93%</text>
+</svg>
+</div>
+<div class="caption">Figure 11 — Share of eval checks passed per feature (same cases, same prompts).</div>
+
+<table>
+  <tr><th rowspan="2" style="width:22%">Feature</th><th colspan="3" style="text-align:center">Claude (claude-opus-5-5)</th><th colspan="3" style="text-align:center">Local (qwen3:8b)</th></tr>
+  <tr><th>Cases</th><th>Checks</th><th>Time</th><th>Cases</th><th>Checks</th><th>Time</th></tr>
+  <tr><td>Run summaries</td><td>4/4</td><td>25/25</td><td>25 s</td><td>4/4</td><td>25/25</td><td>78 s</td></tr><tr><td>Rule drafting</td><td>4/4</td><td>20/20</td><td>85 s</td><td>1/4</td><td>13/18</td><td>339 s</td></tr><tr><td>Scenario drafting</td><td>4/4</td><td>21/21</td><td>38 s</td><td>4/4</td><td>21/21</td><td>138 s</td></tr><tr><td>Ask agent</td><td>6/6</td><td>27/27</td><td>69 s</td><td>5/6</td><td>26/27</td><td>238 s</td></tr><tr><th>All</th><th>18/18</th><th>93/93</th><th>217 s</th><th>14/18</th><th>85/91</th><th>793 s</th></tr>
+</table>
+<div class="callout warn"><b>Run-to-run variation.</b> The same local model passed 3 of 4 rule-drafting cases in an earlier run and
+1 of 4 in this one: its rule drafting varies a lot between runs (missed duties, quotes that still fail after the repair round).
+Claude passed every case in both of its runs. Results above are one full run per model; the local run's rule, scenario and Ask
+cases were repeated once because the Ollama server crashed under load during the first attempt (an infrastructure failure, not a
+model result).</div>
+<p class="small muted">Model calls: Claude 35 (130,607 input / 23,715 output tokens); local 45 (87,586 / 40,414). Times are wall-clock per eval set on a MacBook; the local model ran on the same machine.</p>
+</div>
+
+<div class="section">
+<h3>Case by case</h3>
+<table class="small">
+  <tr><th style="width:15%">Feature</th><th style="width:25%">Case</th><th>Claude</th><th>Local</th><th style="width:11%">Time C · L</th></tr>
+  <tr><td>Run summaries</td><td><code>tbc-sandbox-outage</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">7 s · 21 s</td></tr><tr><td>Run summaries</td><td><code>our-qsealc-expired</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">7 s · 23 s</td></tr><tr><td>Run summaries</td><td><code>bank-regression</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">9 s · 18 s</td></tr><tr><td>Run summaries</td><td><code>all-green</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">2 s · 16 s</td></tr><tr><td>Rule drafting</td><td><code>ge-consent-period</code></td><td><span class="tag done">pass</span></td><td><span class="tag risk">fail</span> <span class="small">a rule about 9999-12-31</span></td><td class="small">18 s · 87 s</td></tr><tr><td>Rule drafting</td><td><code>ge-payment-status</code></td><td><span class="tag done">pass</span></td><td><span class="tag risk">fail</span> <span class="small">every quote is in the clause; a rule about fundsAvailable; a rule about JSON/application/json</span></td><td class="small">23 s · 164 s</td></tr><tr><td>Rule drafting</td><td><code>ge-payment-cancellation</code></td><td><span class="tag done">pass</span></td><td><span class="tag risk">fail</span> <span class="small">a rule about 405</span></td><td class="small">42 s · 79 s</td></tr><tr><td>Rule drafting</td><td><code>ge-informative-examples</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">3 s · 10 s</td></tr><tr><td>Scenario drafting</td><td><code>consent-period-90-days</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">10 s · 35 s</td></tr><tr><td>Scenario drafting</td><td><code>frequency-per-day-limit</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">10 s · 30 s</td></tr><tr><td>Scenario drafting</td><td><code>pis-forbidden-field</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">4 s · 20 s</td></tr><tr><td>Scenario drafting</td><td><code>mockbank-gap-one-off-consent</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">14 s · 54 s</td></tr><tr><td>Ask agent</td><td><code>count-runs</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">7 s · 48 s</td></tr><tr><td>Ask agent</td><td><code>most-failing-scenario</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">14 s · 68 s</td></tr><tr><td>Ask agent</td><td><code>why-bog-failed</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">13 s · 34 s</td></tr><tr><td>Ask agent</td><td><code>recovery-after-outage</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">14 s · 41 s</td></tr><tr><td>Ask agent</td><td><code>standard-period-invalid</code></td><td><span class="tag done">pass</span></td><td><span class="tag risk">fail</span> <span class="small">mentions GE-CON-001</span></td><td class="small">10 s · 26 s</td></tr><tr><td>Ask agent</td><td><code>alerts-on-tbc</code></td><td><span class="tag done">pass</span></td><td><span class="tag done">pass</span></td><td class="small">11 s · 22 s</td></tr>
+</table>
+
+<h3>What the evals found, and what changed</h3>
+<table class="small">
+  <tr><th style="width:32%">Finding</th><th>Change</th></tr>
+  <tr><td>Local model blamed the bank for our expired certificate</td><td>Code marks local-certificate steps as ours in the digest; prompt rule on certificate/signature problems. Passed 3/3 re-runs.</td></tr>
+  <tr><td>Local model rebuilt table rows as "Code 202: …" in quotes</td><td>Rejected quotes go back to the model once with the reason (repair round), then checked again.</td></tr>
+  <tr><td>Three eval cases contradicted the prompt (blocked scenarios, "inconclusive")</td><td>Cases corrected — Claude's "inconclusive" for our own expired certificate is right by the prompt's definition.</td></tr>
+  <tr><td>Two evals in parallel collided on the shared database role</td><td>Migrations retry that specific conflict; 12 databases created in parallel now succeed.</td></tr>
+</table>
+
+<div class="callout"><b>Decision.</b> Claude is the default for every feature: it passed 18 of 18 cases (100% of checks) and
+was about 4× faster. The local model passed 14 of 18 (93%); its weak spots are attributing blame,
+quoting tables exactly and citing the right ids in multi-step questions. It stays as an opt-in for offline use or when no data may
+leave the machine. Ollama itself remains required for the local <code>bge-m3</code> embeddings behind search.</div>
+<p class="small muted">Run it again after any prompt change: <code>aqt ai eval --provider anthropic</code> and <code>--provider ollama</code>; reports in <code>reports/evals/</code>.</p>
+</div>
+
+<!-- ============================== 14 PORTAL + CLI ============================== -->
+<div class="section">
+<h1>14. Portal and command line</h1>
+<h3>Portal (Flask, http://localhost:5280)</h3>
+<table class="small">
+  <tr><th style="width:17%">Page</th><th>What it does</th></tr>
+  <tr><td>Dashboard · Runs · Run</td><td>Banks with last result; start runs, watch live, SCA login button; steps and HTTP exchanges; AI summary panel</td></tr>
+  <tr><td>Standards · Rules</td><td>Clause outline and search (English or Georgian); rule drafting; review queue: approve / edit / reject / reopen; export</td></tr>
+  <tr><td><b>Drafts</b></td><td>Scenario drafts from approved rules: YAML, dry-run table, MockBank-gap note; approve writes the file; edit is re-checked</td></tr>
+  <tr><td><b>Coverage</b></td><td>Approved rules → scenarios → last result per bank; per-service counts (AIS / PIS / COMMON)</td></tr>
+  <tr><td><b>Ask</b></td><td>Questions answered in the background; history with what the agent looked up and the citation check</td></tr>
+  <tr><td><b>Monitoring · Alerts</b></td><td>Schedules, pass-rate lines, flaky scenarios, slowest endpoints · alerts acknowledged by name</td></tr>
 </table>
 <h3>Command line (<code>aqt</code>)</h3>
 <table class="small">
-  <tr><th style="width:44%">Command</th><th>Purpose</th></tr>
-  <tr><td><code>run --bank X [--suite ..] [--with-mock] [--sca-auto]</code></td><td>Run scenarios; saved to the store when <code>AQT_DB</code> is set</td></tr>
-  <tr><td><code>db migrate | import | status</code></td><td>Database schema, import of report folders, row counts</td></tr>
-  <tr><td><code>ai check</code> · <code>ai summarize &lt;run|latest&gt;</code></td><td>Provider check; AI triage of a run</td></tr>
-  <tr><td><code>standards fetch | ingest | list | search | show</code></td><td>Download and verify, split and store, browse and search clauses</td></tr>
-  <tr><td><code>rules draft | list | show | approve | reject | reopen | export</code></td><td>Draft rules from a clause; review; export approved rules</td></tr>
-  <tr><td><code>validate</code> · <code>list</code> · <code>mock</code> · <code>portal [--db | --no-db]</code></td><td>Check all YAML; list banks/scenarios; run MockBank; run the portal</td></tr>
+  <tr><th style="width:46%">Command</th><th>Purpose</th></tr>
+  <tr><td><code>run --bank X [--suite ..] [--with-mock] [--sca-auto] [--unattended]</code></td><td>Run scenarios; saved to the store and checked for alerts when a database is set</td></tr>
+  <tr><td><code>db migrate | import | status | prune</code></td><td>Schema, import, counts, retention</td></tr>
+  <tr><td><code>ai check | summarize | eval</code></td><td>Provider check; AI triage; eval sets</td></tr>
+  <tr><td><code>standards …</code> · <code>rules …</code></td><td>Fetch, ingest, search clauses · draft and review rules</td></tr>
+  <tr><td><code>scenarios draft | drafts | show | approve | reject</code> · <code>coverage</code></td><td>Scenario drafts from approved rules · coverage</td></tr>
+  <tr><td><code>ask "…" | ask history</code></td><td>The Ask agent</td></tr>
+  <tr><td><code>monitor status | run-due | alerts | ack | trends</code></td><td>Monitoring</td></tr>
+  <tr><td><code>validate</code> · <code>list</code> · <code>mock</code> · <code>portal</code></td><td>Check all YAML; list; run MockBank; run the portal</td></tr>
 </table>
 </div>
 
-<!-- ============================== 10 QUALITY ============================== -->
+<!-- ============================== 15 QUALITY ============================== -->
 <div class="section">
-<h1>10. Quality: tests, verification, bugs found</h1>
-<table>
-  <tr><th style="width:30%">Test file</th><th style="width:8%">Tests</th><th>Covers</th></tr>
-  <tr><td>Engine (4 files)</td><td>22</td><td>YAML, variables, JSON paths, signing, reports, every shipped YAML, MockBank end to end (teammates' port)</td></tr>
-  <tr><td><code>test_store.py</code></td><td>20</td><td>Masking, run mapping, import, PostgreSQL round trips, search, a database created by the C# tool</td></tr>
-  <tr><td><code>test_standards.py</code></td><td>18</td><td>TOC parsing, page furniture, sub-sections, Word numbering, quote verifier (English and Georgian), manifest</td></tr>
-  <tr><td><code>test_ai.py</code></td><td>29</td><td>Options, exact Claude request (fake server), audit and masking, summaries, drafting, level and duplicate checks, review workflow, export</td></tr>
-  <tr><td><code>test_portal_ai.py</code></td><td>4</td><td>Pages with and without the database, reviewer name, edit and approve, redirect safety</td></tr>
-</table>
-<p class="small muted">93 pass with <code>AQT_TEST_DB</code> (throw-away database per test module); without it 76 pass and 17 are skipped.</p>
-<div class="callout ok"><b>Port verified against the C# results:</b> the Python store maps all 12 imported runs (139 exchanges) exactly as the
-C# tool stored them; the Georgian readers give identical clauses; the Python digest equals the C# digest; the existing
-database is used unchanged.</div>
-<h3>Bugs found by testing against real data, and fixed</h3>
+<h1>15. Quality: tests, verification, bugs found</h1>
 <table class="small">
-  <tr><th style="width:36%">Bug</th><th>Effect if left</th></tr>
-  <tr><td>Run crashed when the database was down</td><td>A storage problem would fail a test run</td></tr>
-  <tr><td>Masker hid XS2A error codes</td><td>The key evidence of failures unreadable to people and the AI</td></tr>
-  <tr><td>Engine's partial token masking (12 characters kept)</td><td>Token prefixes stored; now fully masked</td></tr>
-  <tr><td>Local model timeout at 100 s, not audited</td><td>Silent failures with large models</td></tr>
-  <tr><td>Ollama truncating long prompts silently</td><td>Rules drafted from half a clause</td></tr>
-  <tr><td>Full-text search required every word</td><td>Questions found nothing</td></tr>
-  <tr><td>Contents heading not counted in Georgian numbering</td><td>Every Georgian clause number off by one</td></tr>
-  <tr><td>Clause links redirected in a loop</td><td>Standards page unusable from links</td></tr>
-  <tr><td>False duplicates from embeddings</td><td>Different rules flagged as the same</td></tr>
-  <tr><td>Unstyled input boxes</td><td>Portal looked unfinished</td></tr>
-  <tr><td>OAuth callback port not reusable on macOS (Python port)</td><td>Second login scenario of every run failed on a Mac (15/16)</td></tr>
-  <tr><td>pdfplumber footer order (Python port)</td><td>No Berlin Group headings found</td></tr>
-  <tr><td>Georgian "optional" read as "mandatory"</td><td>Wrong level warnings on Georgian rules</td></tr>
-  <tr><td>All-digit SHA-256 read as a number</td><td>Manifest crash for such a hash</td></tr>
+  <tr><th style="width:32%">Test file</th><th style="width:8%">Tests</th><th>Covers</th></tr>
+  <tr><td>Engine (5 files)</td><td>35</td><td>YAML, variables, JSON paths, signing, reports, every shipped YAML, MockBank end to end (AIS + PIS), polling, 90-day limit, payment rules, <code>.env</code></td></tr>
+  <tr><td><code>test_store.py</code> · <code>test_standards.py</code></td><td>27+</td><td>Masking, import, PostgreSQL round trips, search; readers and quote verifier</td></tr>
+  <tr><td><code>test_ai.py</code></td><td>22+</td><td>Exact Claude request incl. tools (fake server), audit, summaries, drafting and repair round, review workflow</td></tr>
+  <tr><td><code>test_scenario_drafting.py</code></td><td>11</td><td>Code-owned fields, safety checks, MockBank dry runs, MockBank gap, review, coverage</td></tr>
+  <tr><td><code>test_agent.py</code></td><td>7</td><td>Message formats, citation check, read-only SQL escape attempts, agent loop and round limit</td></tr>
+  <tr><td><code>test_monitor.py</code></td><td>16+</td><td>monitoring.yaml, due times, alerts, webhook masking, trends, retention, monitor, pages</td></tr>
+  <tr><td><code>test_evals.py</code> · <code>test_portal_ai.py</code></td><td>8 · 6</td><td>Case files well-formed, scoring separates right from wrong · portal pages</td></tr>
 </table>
-<p>Every step, decision and finding is recorded in <code>NOTE.md</code> (42 entries); <code>ARCHITECTURE.md</code> holds the current diagrams.</p>
+<p class="small muted">147 tests pass with <code>AQT_TEST_DB</code> (a throw-away database per test); without a database 111 pass and the rest are skipped. MockBank run: 28 passed, 7 skipped (TBC-only), 0 failed.</p>
+<h3>Bugs found by testing against real data or by the evals, and fixed (since the previous overview)</h3>
+<table class="small">
+  <tr><th style="width:40%">Bug</th><th>Effect if left</th></tr>
+  <tr><td>Ask agent's SQL could switch back to the main database user</td><td>The agent could read or change anything</td></tr>
+  <tr><td>MockBank had no 90-day consent limit</td><td>A correct generated test failed on MockBank</td></tr>
+  <tr><td>MockBank sandbox IBANs with wrong check digits</td><td>Payment tests rejected by a real bank's checks</td></tr>
+  <tr><td>Payment-data check missed signing-basket paths and templates</td><td>An AI draft could move money without test accounts</td></tr>
+  <tr><td>Bank down reported twice (also as a regression)</td><td>Duplicate alerts</td></tr>
+  <tr><td>"Bearer …" in free text not masked</td><td>Tokens in alerts, messages and prompts</td></tr>
+  <tr><td>Agent claimed "not recovered" without looking</td><td>Wrong answers to "has it recovered?"</td></tr>
+  <tr><td>Our expired certificate blamed on the bank (local model)</td><td>Wrong side in the triage</td></tr>
+  <tr><td>Table rows paraphrased in rule quotes</td><td>Valid rules discarded as invalid</td></tr>
+  <tr><td>Parallel migrations collided on the shared role</td><td>Evals or test runs failing when run together</td></tr>
+</table>
+<p>Every step, decision and finding is recorded in <code>NOTE.md</code> (49 entries); <code>ARCHITECTURE.md</code> holds the current diagrams.</p>
 </div>
 
-<!-- ============================== 11 STATE ============================== -->
+<!-- ============================== 16 STATE ============================== -->
 <div class="section">
-<h1>11. Current state in numbers</h1>
+<h1>16. Current state in numbers</h1>
 <table>
   <tr><th style="width:40%">Item</th><th>Value</th></tr>
-  <tr><td>Runs in the store</td><td>14 (MockBank, TBC sandbox, TBC test bank), 136 scenario results, 199 HTTP exchanges</td></tr>
-  <tr><td>AI run summaries</td><td>19 (local model)</td></tr>
+  <tr><td>Scenarios</td><td>37 files: preflight 4 · negative 17 (consents, signatures, payments) · AIS 2 · PIS 5 · TBC 7 · templates</td></tr>
+  <tr><td>MockBank run</td><td>28 passed · 7 skipped (TBC-only) · 0 failed</td></tr>
+  <tr><td>Runs in the store</td><td>16 (MockBank 11, TBC 4, Bank of Georgia 1), 206 scenario results, 333 HTTP exchanges, 100 events</td></tr>
   <tr><td>Standards / clauses</td><td>4 documents, 379 clauses, all with embeddings</td></tr>
-  <tr><td>Rules</td><td><b>4 approved</b> (BG-AUTH-003, BG-AUTH-004, BG-GEN-001, BG-SIG-002) · <b>11 drafts</b> to review · <b>9 invalid</b> (quote not verbatim)</td></tr>
-  <tr><td>AI calls audited</td><td>27, all to the local model (no Claude key yet)</td></tr>
-  <tr><td>Automated tests</td><td>93, all passing</td></tr>
-  <tr><td>Git</td><td><code>main</code>: teammates' Python port. <code>ai-layer-python</code>: the ported AI layer, as a pull request</td></tr>
+  <tr><td>Rules</td><td><b>4 approved</b> · 11 drafts to review · 9 invalid (quote not verbatim)</td></tr>
+  <tr><td>AI calls audited</td><td>89 in the main store (12 Claude, 77 local) plus the eval runs</td></tr>
+  <tr><td>Automated tests · eval cases</td><td>147, all passing · 18</td></tr>
+  <tr><td>Git</td><td><code>ai-layer-python</code> (the Python AI layer) → <code>phase3-scenarios</code> (Phases 3–6, evals), both as pull requests</td></tr>
 </table>
-<h3>Approved rules so far</h3>
-<table class="small">
-  <tr><th style="width:15%">Rule</th><th style="width:8%">Level</th><th>Requirement</th></tr>
-  <tr><td>BG-AUTH-003</td><td>MUST</td><td>The bank provides dedicated authorisation endpoints for payment initiation.</td></tr>
-  <tr><td>BG-AUTH-004</td><td>MUST</td><td>The bank creates authorisation sub-resources when authorisation is started via the signing-baskets endpoint.</td></tr>
-  <tr><td>BG-GEN-001</td><td>MUST</td><td>Content parameters in the HTTP body are JSON or XML; XML only for ISO 20022 payment or account messages.</td></tr>
-  <tr><td>BG-SIG-002</td><td>MAY</td><td>If the signing-baskets endpoint is offered, the bank lets the TPP submit payment data without starting authorisation.</td></tr>
-</table>
-<p class="small muted">Note: three of the four approved rules concern payments (PIS) and signing baskets, which the tool does not test yet (Phase 5);
-BG-SIG-002 is tagged area SIG although it is about signing baskets (SBK) — the edit form can change it now.</p>
 </div>
 
-<!-- ============================== 12 ROADMAP ============================== -->
+<!-- ============================== 17 ROADMAP ============================== -->
 <div class="section">
-<h1>12. What is left: roadmap and open items</h1>
-<h3>Immediately</h3>
+<h1>17. What is left</h1>
+<p>Every phase of the AI plan and its eval sets are complete. What remains is mostly for people, plus work outside the original plan.</p>
+<h3>For the team</h3>
 <table>
   <tr><th style="width:32%">Item</th><th>Why</th></tr>
-  <tr><td><b>Review and merge the pull request</b></td><td>The Python AI layer is on branch <code>ai-layer-python</code>; it includes a small fix to <code>aqt/oauth.py</code> (macOS port reuse) that the teammates should see.</td></tr>
-  <tr><td><b>Set <code>ANTHROPIC_API_KEY</code></b></td><td>No live Claude call has been made. Compare Claude's rule drafts and summaries with the local model on the same inputs.</td></tr>
-  <tr><td>Finish the review queue</td><td>11 drafts waiting: reject BG-CON-001..003 (request formats, not bank duties), edit then approve GE-CON-001, approve GE-CON-002, judge the 4.1 drafts with the review guide.</td></tr>
-  <tr><td>Re-draft clause BG 4.1</td><td>8 drafts failed because the model joined non-adjacent bullet items without "…"; the prompt now forbids it — draft the clause again.</td></tr>
-  <tr><td>Approve AIS rules</td><td>Phase 3 needs approved rules for what the tool can test today (consents, accounts) — e.g. the 90-day consent rules.</td></tr>
+  <tr><td><b>Merge the pull requests</b></td><td><code>ai-layer-python</code> first, then <code>phase3-scenarios</code>.</td></tr>
+  <tr><td><b>Approve account-information rules</b></td><td>GE-CON-001 (after the edit in the review guide), GE-CON-002, GE-AUTH-001 — then the Drafts and Coverage pages have real content.</td></tr>
+  <tr><td>Real bank sandboxes</td><td>Certificates, credentials and PIS test accounts for each bank profile; first runs with manual SCA.</td></tr>
+  <tr><td>Alert webhook</td><td>Set <code>AQT_ALERT_WEBHOOK</code> to a Slack/Teams channel.</td></tr>
 </table>
-
-<h3>Phase 3 — scenarios from approved rules <span class="tag next">next</span></h3>
-<ul>
-  <li><b>ScenarioDrafter:</b> from an approved rule, the AI writes a YAML scenario using the existing templates; then a loop in
-    code: <code>validate</code> → dry run against MockBank → errors fed back (a few attempts).</li>
-  <li>New scenario field <code>rules: [...]</code>; <code>aqt validate</code> warns about scenarios citing unapproved rules and approved
-    rules without a scenario.</li>
-  <li><b>Drafts review page</b> for generated scenarios (diff-style YAML view, MockBank result) — approved scenarios go to
-    <code>scenarios/</code> in git; drafts never run against real banks.</li>
-  <li><b>Coverage matrix:</b> clause → rules → scenarios → last result per bank.</li>
-  <li><b>MockBank gaps:</b> when an approved rule is not enforced by MockBank (e.g. the 90-day limit), that is a task, so generated
-    tests can be proven before they meet a real bank.</li>
-</ul>
-
-<h3>Phase 4 — ask-the-agent <span class="tag todo">planned</span></h3>
-<ul>
-  <li>A chat page and <code>aqt ask</code>: "Why did TBC fail last night?", "Since when does bank X return 503?", "Which rules cover consent expiry?".</li>
-  <li>Read-only tools over the database (search runs, scenario history, exchanges, compare runs) and over the standards
-    (clause search, rules). Answers cite run ids and clauses. A database role with read access to views only.</li>
-  <li>An evaluation set of about 30 real staff questions with known answers, before staff use it.</li>
-</ul>
-
-<h3>Phase 5 — payment initiation (PIS) <span class="tag todo">planned</span></h3>
-<ul>
-  <li>Payment templates and a <code>pis</code> suite: initiate → authorise (SCA) → status → cancellation; negative cases.</li>
-  <li>A <code>poll</code> option for request steps (wait for a final transaction status).</li>
-  <li>MockBank payment endpoints with a status lifecycle. Already designed in: <code>service: AIS | PIS | COMMON</code>.</li>
-</ul>
-
-<h3>Phase 6 — monitoring <span class="tag todo">planned</span></h3>
-<ul>
-  <li>Scheduled runs per bank, alerts when a bank that passed starts failing, trend views.</li>
-  <li>Retention: exchanges kept 90 days (configurable); results and summaries kept.</li>
-</ul>
-
 <h3>Open items and risks</h3>
 <table>
   <tr><th style="width:30%">Item</th><th>Detail</th></tr>
-  <tr><td><span class="tag risk">before staff use</span> Login and roles</td><td>The portal has no login; the reviewer name is typed in. Real staff review needs authentication and an "approver" role.</td></tr>
-  <tr><td>Data policy for run data</td><td>Masked run data goes to Claude when summaries use Claude. Confirm this is acceptable for real bank data, or set summaries to local.</td></tr>
-  <tr><td>Real bank sandboxes</td><td>Most of the 16 bank profiles are placeholders; real certificates and credentials are needed. AIS has only run against MockBank and TBC.</td></tr>
-  <tr><td>English Georgian guides</td><td>Only Georgian versions exist; translations are AI-made per rule. Ask obstandards@association.ge for English versions.</td></tr>
-  <tr><td>Local environment</td><td>On this Mac, uv-created venvs mark the install file hidden and Python 3.14 skips it: run <code>python -m aqt</code> from the repository root.</td></tr>
-  <tr><td>Not verified by clicking</td><td>Portal actions are covered by route tests and screenshots, not by browser automation; auto-summary after a run is untested.</td></tr>
-  <tr><td>Continuous integration</td><td>No CI pipeline yet (pytest with a PostgreSQL service on each push).</td></tr>
-  <tr><td>Retention</td><td>Designed (90 days for exchanges) but not implemented.</td></tr>
+  <tr><td><span class="tag risk">before staff use</span> Login and roles</td><td>The portal has no login; the reviewer name is typed in. Real staff review needs authentication and an approver role.</td></tr>
+  <tr><td>Data policy</td><td>Masked run data goes to Claude for summaries and the Ask agent. Confirm for real bank data, or switch those features to local.</td></tr>
+  <tr><td>Eval sets are small</td><td>18 cases; extend with real staff questions and real failures as they occur.</td></tr>
+  <tr><td>English Georgian guides</td><td>Only Georgian versions exist; translations are AI-made per rule.</td></tr>
+  <tr><td>Continuous integration</td><td>No CI yet (pytest with a PostgreSQL service on each push; evals on prompt changes).</td></tr>
 </table>
+<h3>Outside the AI plan</h3>
+<p>Bulk and periodic payments, signing baskets, decoupled/embedded SCA modes, client registration, OpenAPI schema validation, Excel report, <code>aqt compare</code>.</p>
 </div>
 
 <!-- ============================== 13 DECISIONS ============================== -->
 <div class="section">
-<h1>13. Key decisions</h1>
+<h1>18. Key decisions</h1>
 <table class="small">
   <tr><th style="width:28%">Decision</th><th>Choice and reason</th></tr>
   <tr><td>Language</td><td>Python (team decision; the teammates ported the engine, verified both ways against the C# client and MockBank). The AI layer was ported to match.</td></tr>
   <tr><td>Database</td><td>PostgreSQL (Docker) with pgvector: one database for runs, audit, clauses and vectors. Python uses plain SQL on the same schema; the database the C# tool created is kept.</td></tr>
-  <tr><td>Models</td><td>Claude for drafting (public documents, best accuracy); local Ollama option for features that see run data; local embeddings.</td></tr>
-  <tr><td>Local model</td><td><code>qwen3:8b</code> by default (5× faster than <code>gemma4:26b</code>, same root causes found); bigger models selectable.</td></tr>
+  <tr><td>Models</td><td>Claude by default for every feature (measured: chapter 13); local Ollama model opt-in only; local embeddings.</td></tr>
+  <tr><td>Local model</td><td><code>qwen3:8b</code> when chosen (5× faster than <code>gemma4:26b</code>); kept for offline / no-data-leaving use.</td></tr>
+  <tr><td>Scenario drafts</td><td>Code owns ids and links to the standard; MockBank-only dry runs; approval writes the file.</td></tr>
+  <tr><td>Ask agent</td><td>Read-only tools; SQL under its own database login; citations checked in code.</td></tr>
+  <tr><td>Payments</td><td>Gated to sandbox test accounts named in the profile; enforced in code for AI drafts.</td></tr>
+  <tr><td>Monitoring</td><td>Schedules in YAML (versioned); alerts in code; unattended runs never wait for a login.</td></tr>
+  <tr><td>AI quality</td><td>Eval sets graded in code, never by a model; run before and after every prompt change.</td></tr>
   <tr><td>Standards</td><td>Latest versions: Berlin Group IG 1.3.16; Georgian guides from openfinance.ge (Georgian only).</td></tr>
   <tr><td>Translation</td><td>No whole-document translation; Georgian text is the source of truth; per-rule English translation labelled as AI.</td></tr>
   <tr><td>Rules storage</td><td>Database is the source of truth (queue, history, search); approved rules exported to YAML for git.</td></tr>
   <tr><td>Approval</td><td>The team approves now; real staff later (needs login). Every action recorded with name, time and reason.</td></tr>
   <tr><td>Scope</td><td>AIS first; PIS designed in from the start, built in Phase 5.</td></tr>
-  <tr><td>Logs Q&amp;A</td><td>Agent with database tools, not vector search over logs.</td></tr>
   <tr><td>Repository</td><td>Public GitHub repository; source documents not committed (licences); no secrets committed.</td></tr>
 </table>
 </div>
 
 <!-- ============================== 14 RUN ============================== -->
 <div class="section">
-<h1>14. How to run it</h1>
+<h1>19. How to run it</h1>
 <pre>python -m venv .venv && source .venv/bin/activate
 pip install -e ".[test,ai]"
 docker compose up -d                                   # PostgreSQL + pgvector on localhost:5435
@@ -694,13 +839,18 @@ aqt db import reports
 # a full test run against the built-in fake bank, saved to the database
 aqt run --bank MOCK --with-mock --sca-auto --db "Host=localhost;Port=5435;Database=aqt;Username=aqt;Password=aqt_dev"
 
-# AI (local model needs Ollama with qwen3:8b and bge-m3; Claude needs ANTHROPIC_API_KEY)
+# AI: put ANTHROPIC_API_KEY=... in .env (git-ignored); Ollama with bge-m3 for search (qwen3:8b optional)
 aqt ai check
-aqt ai summarize latest --provider ollama
+aqt ai summarize latest
+aqt ai eval --provider anthropic                       # eval sets; reports in reports/evals/
 
 # standards and rules
 aqt standards fetch && aqt standards ingest
-aqt rules draft GE-XS2A:0.8.RC3:9.1.1.10 --provider ollama
+aqt rules draft GE-XS2A:0.8.RC3:9.1.1.10
+aqt scenarios draft GE-CON-001                         # needs an approved rule; dry run on MockBank
+aqt coverage
+aqt ask "Why did TBC fail on 21 October?"
+aqt monitor status                                     # schedules in monitoring.yaml
 
 # web portal (store/AI pages on when the database is reachable)
 aqt portal                                             # http://localhost:5280

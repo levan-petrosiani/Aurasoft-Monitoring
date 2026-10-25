@@ -725,3 +725,25 @@ still accepts.
 **Decision (user: "maybe drop the local model if it's failing because it's weak"):** every feature already defaults to Claude. The local model stays as an opt-in only (offline use, or when no data may leave the machine), and its weaknesses are now documented by the evals. Ollama itself stays, for the `bge-m3` embeddings behind clause and rule search. Nothing was deleted.
 
 **Tests:** 147 passed with `AQT_TEST_DB`.
+
+## 2026-10-25 · 50. Claude vs the local model, measured; overview PDF regenerated
+
+**What:**
+- Ran every eval case with Claude (`claude-opus-5-5`) and with the local model (`qwen3:8b`), same cases and prompts.
+- Regenerated `docs/overview/system-overview.pdf` (26 pages, same style). It now covers Phases 3–6, the eval sets and a new chapter 13, "Evaluation: Claude vs the local model" (chart, per-feature and per-case tables, findings, decision).
+- Chart colours: Claude orange, local model blue (user's choice). The pair passed the dataviz palette validator for colour-blindness and contrast.
+
+**Results (one full run each):**
+- **Claude: 18/18 cases, 93/93 checks, 217 s in total.**
+- **Local: 14/18 cases, 85/91 checks, 793 s:**
+  - summaries 4/4 (the certificate fix holds);
+  - scenarios 4/4;
+  - Ask 5/6 (did not name rule GE-CON-001);
+  - rules 1/4 (missed duties, a quote still wrong after the repair round). Its first run passed 3/4 rule cases, so the local model varies a lot between runs.
+
+**Found on the way:**
+- **Two parallel evals collided** on the shared `aqt_agent` role ("tuple concurrently updated") while creating temporary databases. Migrations now retry that specific conflict; 12 databases created in parallel succeed. One Claude case had errored this way, before the model was called; it was re-run.
+- **One eval case was wrong:** payment cancellation (8.7) required "a rule about Authorization". Claude explained that the clause's last sentence is a TPP duty, not a bank duty, which the drafting prompt says not to turn into a rule. Claude is right. The case now requires the 405 rule instead.
+- **The Ollama server crashed under load** during the local run (connection refused). The affected local features were re-run alone and merged (`merge_reports`-style: re-run cases replace errored ones).
+
+**Decision:** unchanged and now measured. Claude is the default; the local model stays opt-in (offline, no data leaving the machine).
