@@ -32,3 +32,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# ./aura state (pid files, logs)
+.aura/

@@ -17,6 +17,13 @@ and every response checked against what the standard expects.
 
 ## Quick start for teammates (everything, from a fresh clone)
 
+**One command (macOS / Linux):** `./aura up` sets up `.venv` on first use, starts PostgreSQL in Docker, applies the
+schema, starts Ollama if it is installed and not running, and opens the portal on http://localhost:5280/.
+`./aura down` stops the portal (with its built-in MockBank), the database and an Ollama that `./aura up` started;
+your data stays in the Docker volume. Also `./aura status` and `./aura logs`. MockBank settings pass through, e.g.
+`MockBank__MaxFrequencyPerDay=10 ./aura up` for the demo video's planted bug. Needs Docker running; on Windows use WSL
+or Git Bash, or the manual steps below.
+
 Everything (the Python tool and the AI layer, Phases 0–6, eval sets) is on `main`.
 
 ```bash

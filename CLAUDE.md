@@ -16,6 +16,7 @@ Standards and AI layers (`pip install -e .[ai]`).
 
 ```bash
 python -m venv .venv && .venv\Scripts\activate && pip install -e .[test]   # once
+./aura up | down | status | logs                          # whole local stack: venv, Docker DB, migrate, Ollama, portal
 pytest                                                   # unit + end-to-end tests
 aqt validate                                             # load and check every YAML file
 aqt run --bank MOCK --with-mock --sca-auto               # full run, no real bank

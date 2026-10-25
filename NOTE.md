@@ -909,3 +909,26 @@ TBC. The `tbc-sandbox.example` fixtures in `evals/` are invented test data and s
 **What:** deleted `banks/LOCAL.yaml` (BIC ALTAGE22, `https://localhost:10001/`). Nothing referenced it.
 **Why:** it pointed at a vendor's local server that is not part of this standalone repo.
 **Verified:** `aqt validate`, `pytest`.
+
+## 2026-10-25 · 58. One command for the local stack: ./aura
+
+**What:** an executable `aura` script at the repository root (bash, macOS/Linux).
+- `./aura up`, step by step: create `.venv` and install `.[test,ai]` on first use; `docker compose up -d` and wait for
+  PostgreSQL; `aqt db migrate`; start Ollama only if it is installed and not already running, and warn when `bge-m3`
+  or the Claude key is missing; start the portal in the background (log and pid in `.aura/`, git-ignored), wait for it
+  to answer, and open the browser (`--no-open` skips that).
+- `./aura down` stops only `aqt` processes on the portal and MockBank ports, so another program on the same port is
+  never killed. It stops an Ollama only if `./aura up` started it, and it runs `docker compose stop` (the data stays in
+  the volume).
+- Also `./aura status` and `./aura logs`. MockBank settings pass through the environment.
+
+**Why:** the user asked to shut everything down and to have a single command that brings it all back and takes it
+down again.
+
+**Checked:**
+- Pulled the teammate's 3 commits first (fast-forward; validate and tests pass).
+- `./aura down` stopped the portal from 13:59 (ports 5280, 7443, 7080) and `aqt-postgres` (5435). No project port is
+  left listening.
+- `./aura up` came back in about 2 s: pages answered 200 and MockBank started inside the portal. A second `up` saw the
+  running portal and did nothing.
+- `./aura down` cleaned up again. Ollama and the other projects' containers were left alone on purpose.

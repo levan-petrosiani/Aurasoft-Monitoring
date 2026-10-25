@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# Aura Monitoring: the whole local stack with one command (macOS / Linux; on Windows use WSL or Git Bash).
+#
+#   ./aura up       Python env, database (Docker), schema, Ollama, then the portal on http://localhost:5280/
+#   ./aura down     stop the portal (with its built-in MockBank) and the database; data is kept
+#   ./aura status   what is running
+#   ./aura logs     follow the portal's log
+#
+# Options for `up`: --no-open (don't open the browser); anything else goes to `aqt portal` (e.g. --no-monitor).
+# Environment: AQT_PORTAL_PORT (default 5280). MockBank settings pass through, e.g. for the demo's planted bug:
+#   MockBank__MaxFrequencyPerDay=10 ./aura up
+set -euo pipefail
+
+cd "$(dirname "$0")"
+ROOT=$(pwd)
+STATE="$ROOT/.aura"
+PORT="${AQT_PORTAL_PORT:-5280}"
+URL="http://localhost:$PORT/"
+MOCK_PORTS=(7443 7080)
+
+say()  { printf '\033[1;36m▸\033[0m %s\n' "$*"; }
+ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
+die()  { printf '  \033[31m✗\033[0m %s\n' "$*" >&2; exit 1; }
+
+python_bin() {
+  if [[ -x .venv/bin/python ]]; then echo .venv/bin/python
+  elif [[ -x .venv/Scripts/python.exe ]]; then echo .venv/Scripts/python.exe
+  fi
+}
+
+# PIDs listening on a TCP port (empty if none).
+pids_on_port() { lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null || true; }
+
+# True when a PID is an aqt process (so we never stop someone else's server on the same port).
+is_aqt() { ps -o command= -p "$1" 2>/dev/null | grep -q -- "-m aqt"; }
+
+wait_for() {  # wait_for <seconds> <command...>
+  local seconds=$1; shift
+  for ((i = 0; i < seconds * 2; i++)); do
+    if "$@" >/dev/null 2>&1; then return 0; fi
+    sleep 0.5
+  done
+  return 1
+}
+
+db_ready() { docker exec aqt-postgres pg_isready -U aqt -d aqt; }
+portal_ready() { curl -fsS -o /dev/null "$URL"; }
+ollama_ready() { curl -fsS -o /dev/null http://localhost:11434/api/tags; }
+
+up() {
+  local open_browser=1 portal_args=()
+  for arg in "$@"; do
+    if [[ $arg == --no-open ]]; then open_browser=0; else portal_args+=("$arg"); fi
+  done
+  mkdir -p "$STATE"
+
+  say "Python environment"
+  local py; py=$(python_bin)
+  if [[ -z $py ]]; then
+    local base; base=$(command -v python3.12 || command -v python3.13 || command -v python3.11 || command -v python3 || true)
+    [[ -n $base ]] || die "Python 3.11+ not found. Install it, then run ./aura up again."
+    "$base" -c 'import sys; sys.exit(sys.version_info < (3, 11))' || die "$base is older than 3.11."
+    "$base" -m venv .venv
+    py=$(python_bin)
+    "$py" -m pip install -q --upgrade pip
+    "$py" -m pip install -q -e ".[test,ai]"
+    ok "created .venv and installed the tool"
+  else
+    ok "$("$py" --version) in .venv"
+  fi
+
+  say "Database (Docker)"
+  docker info >/dev/null 2>&1 || die "Docker is not running. Start Docker Desktop, then run ./aura up again."
+  docker compose up -d --quiet-pull >/dev/null 2>&1 || docker compose up -d
+  wait_for 60 db_ready || die "PostgreSQL did not become ready (docker logs aqt-postgres)."
+  ok "PostgreSQL + pgvector on localhost:5435"
+  "$py" -m aqt db migrate | sed 's/^ */  /'
+
+  say "Local models (Ollama)"
+  if ollama_ready; then
+    ok "Ollama already running on localhost:11434"
+  elif command -v ollama >/dev/null 2>&1; then
+    nohup ollama serve >"$STATE/ollama.log" 2>&1 &
+    echo $! >"$STATE/ollama.pid"
+    if wait_for 20 ollama_ready; then ok "started Ollama (./aura down stops it again)"
+    else warn "Ollama did not start; clause search and local models are off (see .aura/ollama.log)"; fi
+  else
+    warn "Ollama not installed: clause search and local models are off (https://ollama.com, then: ollama pull bge-m3)"
+  fi
+  if ollama_ready && ! curl -fsS http://localhost:11434/api/tags | grep -q '"bge-m3'; then
+    warn "embedding model missing: run  ollama pull bge-m3"
+  fi
+  if [[ -f .env ]] && grep -q '^ANTHROPIC_API_KEY=.\+' .env || [[ -n ${ANTHROPIC_API_KEY:-} ]]; then
+    ok "Claude key found (.env or environment)"
+  else
+    warn "no ANTHROPIC_API_KEY in .env: AI summaries, drafting and Ask need it"
+  fi
+
+  say "Portal"
+  local running; running=$(pids_on_port "$PORT")
+  if [[ -n $running ]]; then
+    if is_aqt "$running"; then ok "already running at $URL (pid $running)"
+    else die "port $PORT is used by another program (pid $running); set AQT_PORTAL_PORT to another port"; fi
+  else
+    for p in "${MOCK_PORTS[@]}"; do
+      local other; other=$(pids_on_port "$p")
+      if [[ -n $other ]] && ! is_aqt "$other"; then
+        warn "port $p is used by another program (pid $other): the built-in MockBank cannot start there"
+      fi
+    done
+    nohup "$py" -m aqt portal --port "$PORT" ${portal_args[@]+"${portal_args[@]}"} >"$STATE/portal.log" 2>&1 &
+    echo $! >"$STATE/portal.pid"
+    if wait_for 30 portal_ready; then
+      ok "running at $URL (log: ./aura logs)"
+    else
+      tail -20 "$STATE/portal.log" >&2
+      die "the portal did not start; full log in .aura/portal.log"
+    fi
+  fi
+  if [[ $open_browser == 1 ]] && command -v open >/dev/null 2>&1; then open "$URL"; fi
+  say "Up. Stop everything with: ./aura down"
+}
+
+down() {
+  say "Portal and MockBank"
+  local stopped=0 pids=()
+  [[ -f $STATE/portal.pid ]] && pids+=("$(cat "$STATE/portal.pid")")
+  for p in "$PORT" "${MOCK_PORTS[@]}"; do
+    for pid in $(pids_on_port "$p"); do pids+=("$pid"); done
+  done
+  for pid in $(printf '%s\n' ${pids[@]+"${pids[@]}"} | sort -u); do
+    if kill -0 "$pid" 2>/dev/null && is_aqt "$pid"; then
+      kill "$pid" 2>/dev/null && stopped=$((stopped + 1))
+      wait_for 10 bash -c "! kill -0 $pid" || kill -9 "$pid" 2>/dev/null || true
+    fi
+  done
+  rm -f "$STATE/portal.pid"
+  if [[ $stopped -gt 0 ]]; then ok "stopped $stopped aqt process(es)"; else ok "nothing running"; fi
+
+  say "Ollama"
+  if [[ -f $STATE/ollama.pid ]] && kill -0 "$(cat "$STATE/ollama.pid")" 2>/dev/null; then
+    kill "$(cat "$STATE/ollama.pid")" && ok "stopped the Ollama that ./aura up started"
+  else
+    ok "left as it is (not started by ./aura)"
+  fi
+  rm -f "$STATE/ollama.pid"
+
+  say "Database"
+  if docker info >/dev/null 2>&1; then
+    docker compose stop >/dev/null 2>&1 && ok "aqt-postgres stopped (data kept in the aqt-pgdata volume)"
+  else
+    ok "Docker is not running"
+  fi
+  say "Down."
+}
+
+status() {
+  local pid
+  pid=$(pids_on_port "$PORT")
+  if [[ -n $pid ]]; then ok "portal       $URL (pid $pid)"; else warn "portal       not running"; fi
+  pid=$(pids_on_port 7443)
+  if [[ -n $pid ]]; then ok "MockBank     https://localhost:7443 (pid $pid)"; else warn "MockBank     not running (starts with a MOCK run)"; fi
+  if docker info >/dev/null 2>&1 && db_ready >/dev/null 2>&1; then ok "database     localhost:5435"; else warn "database     not running"; fi
+  if ollama_ready; then ok "Ollama       localhost:11434"; else warn "Ollama       not running"; fi
+}
+
+case "${1:-}" in
+  up)     shift; up "$@" ;;
+  down)   down ;;
+  status) status ;;
+  logs)   touch "$STATE/portal.log" 2>/dev/null || mkdir -p "$STATE"; tail -f "$STATE/portal.log" ;;
+  *)      sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
