@@ -793,3 +793,40 @@ deviation to explain, and MockBank passes everything by default, so the script p
 passed and 3 failed (NEG-CON-004, NEG-SIG-001, NEG-SIG-002), with the reasons the script quotes. All figures in the
 deck and script come from today's runs, the database and the evals; the manual-baseline comparison is left as a
 placeholder because it was never measured.
+
+## 2026-10-25 · 54. Hosting the portal: jury mode, Dockerfile, data copy
+
+**Why:** the hackathon accepts an optional test URL with credentials. A teammate will host the portal on Railway, and
+the portal was built for localhost only: it listened on 127.0.0.1, refused other host names, and had no login, so
+anyone with the link could approve rules or spend the Claude key.
+
+**What:**
+- `aqt/portal/access.py` (`PortalAccess`), **jury mode**:
+  - public host names in `AQT_PORTAL_HOSTS` (anything else is still refused as possible DNS rebinding);
+  - HTTP Basic login `AQT_PORTAL_USER` (default `jury`) / `AQT_PORTAL_PASSWORD`, compared in constant time;
+  - AI actions started from the portal (summaries, Ask, rule and scenario drafts) capped per UTC day
+    (`AQT_PORTAL_AI_PER_DAY`, default 20, answered with 429 when used up);
+  - deleting runs turned off;
+  - a yellow "Hosted demo · synthetic data only" bar with the AI actions left.
+- `aqt portal --host` (default 127.0.0.1) and `$PORT`. A public `--host` without jury mode is refused, so hosting cannot
+  silently drop the login.
+- `Dockerfile` (Python 3.12, `.[ai]`, `aqt db migrate` when `AQT_DB` is set, then the portal on 0.0.0.0) and a
+  `.dockerignore` that keeps `.env`, certificates, reports and downloaded standards out of the image.
+- README "Hosting the portal": variables, Railway steps, and copying the local data (data-only `pg_dump`, restored
+  after the first deploy has created the schema). CLAUDE.md and ARCHITECTURE.md updated.
+
+**Checked end to end:** built the image and ran it in jury mode against a throwaway database:
+- migrations applied; every page answered 401 without the login, 200 with it, and 403 for another host name;
+- the data copy restored 25 rules, 20 runs and 379 clauses with their embeddings. Its one error was `monitor_state`,
+  which the new portal had already written, so the dump command now leaves that table out;
+- MOCK (28 passed, 7 skipped) and the TBC sandbox (11/11) both ran inside the container, and the hosted Compare page
+  showed both banks.
+
+The test container, database, dump and image were removed afterwards.
+
+**Not on the hosted copy:**
+- Ollama: clause search and ingesting standards do not work there.
+- Manual SCA: it needs the tester's own machine.
+
+**Tests:** 158 passed with `AQT_TEST_DB`, 4 of them new (password required for a public portal; host, login and
+delete rules; the daily AI cap; `--host 0.0.0.0` refused without jury mode). 122 without a database.

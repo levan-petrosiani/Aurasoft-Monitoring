@@ -20,7 +20,7 @@ flowchart LR
 
     subgraph Hosts["Entry points"]
         Cli["aqt/cli.py (aqt)<br/>run · mock · portal · list · compare · validate<br/>db · ai · standards · rules<br/>scenarios · coverage · ask (cli_ai.py)"]
-        Portal["aqt/portal (Flask :5280)<br/>RunService → reports/portal-python<br/>Compare · AI summary · Standards · Rules<br/>Drafts · Coverage · Ask<br/>Origin + Host checks (no login)"]
+        Portal["aqt/portal (Flask :5280)<br/>RunService → reports/portal-python<br/>Compare · AI summary · Standards · Rules<br/>Drafts · Coverage · Ask<br/>local: Host + Origin checks, no login<br/>hosted (Dockerfile): jury login, AI budget"]
     end
 
     subgraph AiLayer["Optional store + AI layer (pip install -e .[ai])"]
@@ -284,11 +284,15 @@ Everything is computed in code from the run files; `--sca-auto` (CLI) and the po
 
 ## 7. Tech facts
 
+- Hosting: the `Dockerfile` runs `aqt db migrate` (with `AQT_DB`) and `aqt portal --host 0.0.0.0` on `$PORT`. The portal
+  refuses a public address unless jury mode is configured (`AQT_PORTAL_HOSTS`, `AQT_PORTAL_PASSWORD`); MockBank and the
+  OAuth callback stay on the container's loopback, so hosted runs use MockBank and the TBC mock with automatic SCA.
+
 - Python 3.11+; PyYAML, cryptography, pyOpenSSL, Flask; pytest. Optional `ai` extra: psycopg 3 + pgvector, anthropic,
   pdfplumber (Ollama is called over HTTP).
 - Ports: portal 5280, MockBank 7443 (HTTPS, mTLS) and 7080 (HTTP pages), OAuth callback 5199, PostgreSQL 5435,
   Ollama 11434.
-- Tests: 154 with `AQT_TEST_DB`; without a database 118 pass and the 36 database tests are skipped. MOCK run: 28 passed, 7 skipped
+- Tests: 158 with `AQT_TEST_DB`; without a database 122 pass and the 36 database tests are skipped. MOCK run: 28 passed, 7 skipped
   (TBC-only); public TBC sandbox: 11/11 in 5 runs out of 5.
 - Reports keep the C# `summary.json` shape (camelCase, nulls omitted); interop with the C# client and MockBank was
   verified in both directions before the C# code was removed.

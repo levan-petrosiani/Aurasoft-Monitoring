@@ -1,0 +1,23 @@
+# Never put secrets or local data into the image
+.env
+certs/*
+!certs/README.md
+*.pfx
+*.p12
+*.key
+reports/
+standards/sources/**/*.pdf
+standards/sources/**/*.docx
+standards/index/
+
+# Not needed to run the portal
+.git/
+.venv/
+**/__pycache__/
+*.egg-info/
+.pytest_cache/
+src/
+tests/ApiTestTool.*/
+tests/Shared/
+docs/overview/*.pdf
+*.pdf

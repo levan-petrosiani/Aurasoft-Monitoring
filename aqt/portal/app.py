@@ -12,6 +12,7 @@ from flask import Flask, abort, make_response, redirect, render_template, reques
 
 from ..errors import ConfigurationError
 from ..oauth import is_loopback_host
+from .access import PortalAccess
 from ..reporting import pretty_json
 from ..results import Outcome, format_rate, pass_rate
 from ..runner import PREFLIGHT_SUITE
@@ -48,6 +49,11 @@ def local_time(dt, fmt="%Y-%m-%d %H:%M:%S") -> str:
 
 _REVIEWER_COOKIE = "aqt_reviewer"
 
+# Portal actions that call a model (counted against the hosted demo's daily budget, see access.py).
+_MODEL_CALLS = {"run_summarize", "standards_draft", "drafts_new", "ask_post"}
+# Turned off when the portal is hosted for visitors.
+_JURY_BLOCKED = {"run_delete"}
+
 
 def _local_path(url: str | None, default: str) -> str:
     """Only redirect back to a path on this portal."""
@@ -59,8 +65,9 @@ def _local_path(url: str | None, default: str) -> str:
 
 def create_app(root: str | None = None, data_directory: str | None = None, mock_xs2a_url: str = "https://localhost:7443/",
                database: str | None = None, use_database: bool = True, auto_summarize: bool = False,
-               monitor: bool = False) -> Flask:
+               monitor: bool = False, access: PortalAccess | None = None) -> Flask:
     root = root or os.environ.get("AQT_HOME") or _REPO_ROOT
+    access = access if access is not None else PortalAccess.from_env()
     data_directory = data_directory or os.path.join(root, "reports", "portal-python")
 
     app = Flask(__name__)
@@ -80,26 +87,34 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
         ai.monitor.runs = runs
         if monitor:
             ai.monitor.start(runs)
-    app.config.update(catalog=catalog, mock_bank=mock_bank, runs=runs, ai=ai, ai_problem=ai_problem)
+    app.config.update(catalog=catalog, mock_bank=mock_bank, runs=runs, ai=ai, ai_problem=ai_problem, access=access)
 
     @app.before_request
     def only_from_this_portal():
-        """The portal has no login and listens on 127.0.0.1 only. Two browser attacks could still reach it, and both are
-        refused here: a page on another site that posts a form to the portal (cross-site request forgery; the browser's
-        Origin header names the other site) and a site whose name resolves to 127.0.0.1 (DNS rebinding; the Host header
-        is not a local name)."""
-        if not is_loopback_host(urlsplit("//" + request.host).hostname):
-            abort(403, "The portal only answers on localhost.")
+        """Locally the portal has no login and listens on 127.0.0.1 only; hosted (jury mode, see access.py) it answers
+        on its configured public names and asks for a password. Refused here: a Host that is neither (DNS rebinding:
+        a site whose name resolves to this machine), a missing or wrong login, a page on another site that posts a
+        form to the portal (cross-site request forgery; the browser's Origin header names the other site), and in
+        jury mode deleting runs and model calls beyond the day's budget."""
+        if not access.allows_host(urlsplit("//" + request.host).hostname):
+            abort(403, "The portal does not answer on this host name.")
+        if not access.check_login(request.authorization):
+            return make_response("Login required.", 401, {"WWW-Authenticate": 'Basic realm="Aura Monitoring", charset="UTF-8"'})
         if request.method == "POST":
             origin = request.headers.get("Origin")
             if origin is None and request.referrer:
                 origin = request.referrer
             if origin is not None and urlsplit(origin).netloc != request.host:
                 abort(403, "Form posted from another site; refused (cross-site request forgery protection).")
+            if access.public and request.endpoint in _JURY_BLOCKED:
+                abort(403, "Turned off on the hosted demo.")
+            if request.endpoint in _MODEL_CALLS and not access.take_ai_call():
+                abort(429, f"The hosted demo allows {access.ai_per_day} AI actions per day, and today's are used up. "
+                           "Earlier summaries, rules and answers stay visible.")
 
     @app.context_processor
     def ai_context():
-        return {"ai": ai, "ai_problem": ai_problem, "reviewer": request.cookies.get(_REVIEWER_COOKIE, "")}
+        return {"ai": ai, "ai_problem": ai_problem, "reviewer": request.cookies.get(_REVIEWER_COOKIE, ""), "access": access}
 
     app.jinja_env.globals.update(badge_css=badge_css, local_time=local_time, format_rate=format_rate,
                                  Outcome=Outcome, COMPLETED=COMPLETED, pretty_json=pretty_json)
@@ -534,19 +549,28 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
 
 
 def run_portal(cli) -> int:
-    """aqt portal [--port 5280] [--root dir] [--data dir] [--db connection | --no-db] [--auto-summarize] [--no-monitor]"""
-    port = int(cli.get("port") or 5280)
+    """aqt portal [--host 127.0.0.1] [--port 5280] [--root dir] [--data dir] [--db connection | --no-db] [--auto-summarize]
+    [--no-monitor]. --port falls back to $PORT (set by hosts such as Railway)."""
+    host = cli.get("host") or "127.0.0.1"
+    port = int(cli.get("port") or os.environ.get("PORT") or 5280)
+    access = PortalAccess.from_env()
+    if not is_loopback_host(host) and not access.public:
+        raise ConfigurationError(f"--host {host} makes the portal reachable from other machines; set AQT_PORTAL_HOSTS "
+                                 "(its public host names) and AQT_PORTAL_PASSWORD first (see 'Hosting the portal' in the README).")
     app = create_app(cli.get("root"), cli.get("data"), database=cli.get("db"), use_database=not cli.has("no-db"),
-                     auto_summarize=cli.has("auto-summarize"), monitor=not cli.has("no-monitor"))
+                     auto_summarize=cli.has("auto-summarize"), monitor=not cli.has("no-monitor"), access=access)
     runs: RunService = app.config["runs"]
     print(f"API Test Portal (Python): http://localhost:{port}/")
     print(f"  banks/scenarios from {app.config['catalog'].root_directory}")
     print(f"  runs stored in {runs.data_directory}")
     print(f"  store and AI pages: {'on' if app.config['ai'] else 'off - ' + app.config['ai_problem']}")
+    if access.public:
+        print(f"  hosted (jury mode): {', '.join(access.hosts)}; login as '{access.user}'; "
+              f"{access.ai_per_day} AI actions per day; deleting runs is off")
     print("  Press Ctrl+C to stop.", flush=True)
     try:
-        # Local tool: listens on the loopback interface only and has no login of its own.
-        app.run(host="127.0.0.1", port=port, threaded=True, debug=False, use_reloader=False)
+        # Locally: loopback only, no login. Hosted: --host 0.0.0.0 with AQT_PORTAL_HOSTS + AQT_PORTAL_PASSWORD.
+        app.run(host=host, port=port, threaded=True, debug=False, use_reloader=False)
     finally:
         app.config["mock_bank"].stop()
     return 0

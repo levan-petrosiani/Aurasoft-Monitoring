@@ -27,6 +27,10 @@
     </nav>
 </header>
 
+{% if access and access.public %}
+<div class="alert alert-warn small" style="margin:0;border-radius:0;text-align:center">Hosted demo · synthetic data only
+    (MockBank and TBC's public mock sandbox) · {{ access.ai_left_today() }} of {{ access.ai_per_day }} AI actions left today</div>
+{% endif %}
 <main class="page" id="page">
 {% block content %}{% endblock %}
 </main>

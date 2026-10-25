@@ -35,3 +35,52 @@ endpoints: {xs2a: "https://xs2a.realbank.example/"}
 """, encoding="utf-8")
     assert main(["run", "--bank", str(profile), "--sca-auto"]) == CONFIGURATION_ERROR
     assert "--sca-auto is only for MockBank and public mocks" in capsys.readouterr().err
+
+
+# ---- hosted demo (jury mode, aqt/portal/access.py) --------------------------------------------------------------
+
+def _hosted(tmp_path, **kw):
+    from aqt.portal.access import PortalAccess
+    access = PortalAccess(hosts=["demo.example.app"], password="s3cret", **kw)
+    return create_app(REPO_ROOT, str(tmp_path), use_database=False, access=access).test_client()
+
+
+def _login(user="jury", password="s3cret"):
+    import base64
+    return {"Authorization": "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()}
+
+
+def test_a_public_portal_needs_a_password():
+    from aqt.errors import ConfigurationError
+    from aqt.portal.access import PortalAccess
+    with pytest.raises(ConfigurationError, match="AQT_PORTAL_PASSWORD"):
+        PortalAccess(hosts=["demo.example.app"])
+    assert PortalAccess().public is False and PortalAccess().check_login(None)
+
+
+def test_hosted_portal_answers_on_its_name_only_and_asks_for_the_login(tmp_path):
+    client = _hosted(tmp_path)
+    host = {"Host": "demo.example.app"}
+    response = client.get("/", headers=host)
+    assert response.status_code == 401 and "Basic" in response.headers["WWW-Authenticate"]
+    assert client.get("/", headers={**host, **_login(password="wrong")}).status_code == 401
+    page = client.get("/", headers={**host, **_login()})
+    assert page.status_code == 200 and "Hosted demo" in page.get_data(as_text=True)
+    assert client.get("/", headers={"Host": "other.example.app", **_login()}).status_code == 403
+    post = {**host, **_login(), "Origin": "https://demo.example.app"}
+    assert client.post("/runs/x/delete", headers=post).status_code == 403            # turned off when hosted
+    assert client.post("/reviewer", data={"name": "Ana"}, headers=post).status_code == 302
+
+
+def test_hosted_portal_caps_model_calls_per_day(tmp_path):
+    client = _hosted(tmp_path, ai_per_day=2)
+    post = {"Host": "demo.example.app", **_login(), "Origin": "https://demo.example.app"}
+    codes = [client.post("/ask", data={"question": "q"}, headers=post).status_code for _ in range(3)]
+    assert 429 not in codes[:2] and codes[2] == 429
+
+
+def test_portal_refuses_to_listen_publicly_without_jury_mode(monkeypatch):
+    from aqt.cli import CONFIGURATION_ERROR, main
+    for name in ("AQT_PORTAL_HOSTS", "AQT_PORTAL_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
+    assert main(["portal", "--host", "0.0.0.0", "--no-db"]) == CONFIGURATION_ERROR

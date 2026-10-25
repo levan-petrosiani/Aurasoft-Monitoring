@@ -40,7 +40,7 @@ ollama pull qwen3:8b                                     # optional: the local m
 aqt ai check                                             # Claude and Ollama reachable
 aqt standards fetch && aqt standards ingest              # download + split the standards (once)
 aqt portal                                               # http://localhost:5280 — every page incl. AI, Monitoring
-AQT_TEST_DB="host=localhost port=5435 user=aqt password=aqt_dev" pytest   # all 154 tests
+AQT_TEST_DB="host=localhost port=5435 user=aqt password=aqt_dev" pytest   # all 158 tests
 ```
 
 On macOS with uv-created venvs, if `aqt` is not found, use `python -m aqt ...` from the repository root. The overview
@@ -77,7 +77,7 @@ A browser UI on top of the same engine: pick a bank and suites, start a run, wat
 browse every run's results (scenarios, steps, failures, full HTTP requests/responses, report files).
 
 ```bash
-aqt portal                 # http://localhost:5280/   (--port, --root <dir>, --data <dir>)
+aqt portal                 # http://localhost:5280/   (--port, --root <dir>, --data <dir>; hosting: see below)
 ```
 
 | Page | What it shows |
@@ -189,7 +189,7 @@ Reports go to `reports/<BIC>-<timestamp>/`: `report.html`, `summary.json`, `juni
 |---|---|
 | `aqt run --bank <BIC\|file> [--suite a,b] [--scenario ID,..] [--report html,json,junit] [--out dir] [--verbose] [--no-preflight-gate] [--sca-auto] [--wait <s>] [--with-mock]` | Runs scenarios against one bank |
 | `aqt mock` | Runs MockBank until Ctrl+C |
-| `aqt portal [--port 5280] [--data dir]` | Runs the web portal |
+| `aqt portal [--host 127.0.0.1] [--port 5280] [--data dir]` | Runs the web portal (`--host 0.0.0.0` only in [jury mode](#hosting-the-portal-jury-mode-eg-railway)) |
 | `aqt list banks` / `aqt list scenarios [--suite x]` | Lists profiles / scenarios |
 | `aqt compare [--bank BIC,BIC] [--last 5] [--out reports]` | Banks side by side from the saved reports: pass rate, latency p50/p95 per operation, deviations, scenarios that are not reproducible (`aqt/benchmark.py`, no AI) |
 | `aqt validate` | Loads every profile, template and scenario and reports mistakes |
@@ -310,7 +310,7 @@ The TestTool posted some bad requests to `v2/consents`; the ported scenarios use
 ## Verification
 
 ```bash
-pytest                                            # 154 tests (118 without a database; set AQT_TEST_DB for the rest)
+pytest                                            # 158 tests (122 without a database; set AQT_TEST_DB for the rest)
 aqt validate
 aqt run --bank MOCK --with-mock --sca-auto        # 28 passed, 7 skipped (tbc suite)
 aqt run --bank TBC-MOCK --suite preflight,tbc --sca-auto   # 11/11
@@ -398,6 +398,62 @@ aqt portal                              # store/AI pages on when the database is
 - Database tests run when `AQT_TEST_DB` is set (`host=localhost port=5435 user=aqt password=aqt_dev`); each test
   module creates and drops its own database.
 
+## Hosting the portal (jury mode, e.g. Railway)
+
+Locally the portal has no login and answers on localhost only. To put it online for visitors (the hackathon jury), it
+runs in **jury mode**: it answers on the public host names you list, asks for a login (HTTP Basic), caps the AI actions
+started from the portal per day (so visitors cannot spend the Claude key without limit) and turns off deleting runs.
+A yellow bar on every page says it is a hosted demo with synthetic data. The portal refuses `--host 0.0.0.0` unless
+`AQT_PORTAL_HOSTS` and `AQT_PORTAL_PASSWORD` are set (`aqt/portal/access.py`).
+
+| Variable | Value |
+|---|---|
+| `AQT_PORTAL_HOSTS` | Public host name(s), comma-separated, e.g. `aura-demo.up.railway.app` |
+| `AQT_PORTAL_PASSWORD` | The password to give the jury (the user name is `jury`, or set `AQT_PORTAL_USER`) |
+| `AQT_PORTAL_AI_PER_DAY` | AI actions (summaries, Ask, rule and scenario drafts) per UTC day; default 20 in jury mode |
+| `AQT_DB` | PostgreSQL connection, e.g. Railway's `${{Postgres.DATABASE_URL}}` |
+| `AQT_AGENT_DB_PASSWORD` | Password for the ask-agent's read-only login (any random string) |
+| `ANTHROPIC_API_KEY` | Claude key for AI actions (optional; without it the AI buttons report the problem) |
+| `PORT` | Set by the host; the portal listens on it |
+
+**Railway, step by step:**
+1. New project → **Deploy from GitHub repo** (this repository). Railway builds the `Dockerfile`: Python 3.12, `.[ai]`,
+   `aqt db migrate` on start (when `AQT_DB` is set), then `aqt portal --host 0.0.0.0`.
+2. Add a database: **New → Database → PostgreSQL with pgvector** (a template; plain PostgreSQL lacks the `vector`
+   extension the migrations need).
+3. In the portal service's **Variables**, set the variables above (`AQT_DB` = `${{Postgres.DATABASE_URL}}` or whatever
+   the database service is called).
+4. **Settings → Networking → Generate Domain**, then put that name into `AQT_PORTAL_HOSTS` and redeploy.
+5. Open the domain, log in as `jury`, start a MOCK run (built-in MockBank, automatic SCA) and a TBC-MOCK run.
+
+**Copy your data (standards, rules, runs) into the hosted database.** A fresh database has none of the standards and
+rules drafted so far. After the first deploy has created the schema, copy the rows from your local database (data
+only; the dump is a local file, never commit it):
+
+```bash
+# on the machine with the data (docker compose database)
+docker exec aqt-postgres pg_dump -U aqt -d aqt --data-only --schema=public -Fc \
+  --exclude-table=aqt_schema_migrations --exclude-table=monitor_state --exclude-table='"__EFMigrationsHistory"' \
+  -f /tmp/aqt-data.dump
+docker cp aqt-postgres:/tmp/aqt-data.dump ./aqt-data.dump
+
+# into the hosted database: Railway → database → Connect → the *public* URL
+docker run --rm -v "$PWD:/d" pgvector/pgvector:pg17 pg_restore --data-only --disable-triggers --no-owner \
+  -d "postgresql://...public-url..." /d/aqt-data.dump
+```
+
+The dump contains what the store holds: runs and HTTP exchanges (secrets already masked), AI calls, rules, standards
+text. Hand it over directly, not through git or chat.
+
+**Not on the hosted copy:** Ollama (local embeddings), so clause search and `aqt standards ingest` do not work there;
+everything else does, and the copied clauses keep their embeddings. Manual SCA (a person logging in at a bank) needs
+the tester's own machine, so hosted runs use MockBank and the TBC mock with automatic SCA. Try the image locally:
+
+```bash
+docker build -t aqt-portal .
+docker run --rm -p 5280:5280 -e AQT_PORTAL_HOSTS=localhost -e AQT_PORTAL_PASSWORD=demo aqt-portal   # http://localhost:5280, jury / demo
+```
+
 ## Guardrails
 
 Each control is enforced in code (and covered by tests), not only described:
@@ -417,9 +473,10 @@ Each control is enforced in code (and covered by tests), not only described:
 | Alerts invented by a model | Regressions, fixes and bank-down alerts are computed in code after every run | `aqt/monitor/alerts.py` |
 | Unattended runs waiting for a login | Scheduled runs skip scenarios that need SCA | `skip_sca_reason` in `aqt/runner.py` |
 | Login-less portal abused from the browser | Cross-site form posts and non-local `Host` names are refused; listens on 127.0.0.1 only | `only_from_this_portal` in `aqt/portal/app.py` |
+| Hosted portal used by strangers or running up the Claude bill | Jury mode: listening publicly needs a password; only the listed host names; AI actions capped per day; deleting runs off | `aqt/portal/access.py` |
 | Keeping request data forever | Stored HTTP exchanges are pruned after 90 days | `aqt db prune`, `monitoring.yaml` |
 
-Known gaps: the portal has no login (reviewers type their name), and the tool has run against MockBank and the public
+Known gaps: locally the portal has no login (reviewers type their name; hosted, it has one shared jury login), and the tool has run against MockBank and the public
 TBC sandbox, not yet against a bank's real sandbox with real certificates.
 
 ## Third-party components and licences

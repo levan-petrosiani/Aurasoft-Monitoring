@@ -61,6 +61,7 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
 | `aqt/cli_ai.py` | `aqt db | ai | standards | rules | scenarios | coverage | ask` (imports the optional packages only when used) |
 | `tests/` | pytest: YAML, signing, reports, every shipped YAML file, end-to-end MockBank run on free ports |
 | `docker-compose.yml` | PostgreSQL + pgvector for the store (localhost:5435) |
+| `Dockerfile` | The portal as a hosted demo in jury mode (README: "Hosting the portal") |
 | `banks/<BIC>.yaml` | Bank profiles; `extends: _shared.yaml`; `_`-prefixed files are not run |
 | `scenarios/<suite>/*.yaml` | Test cases; reusable headers/bodies in `scenarios/_templates` |
 | `rules/` | Approved rules exported from the database (`aqt rules export`); the database is the source of truth |
@@ -76,8 +77,9 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
   (`AQT_QWAC_PASSWORD`, `AQT_QSEALC_PASSWORD`, `ANTHROPIC_API_KEY`).
 - **`--sca-auto` is for MockBank / public mocks only** — never add it to a real bank's flow; `allows_headless_sca`
   (`aqt/oauth.py`) enforces it for the CLI and the portal.
-- The portal has no login: keep `only_from_this_portal` (`aqt/portal/app.py`, Origin/Referer and Host checks) in front
-  of every route.
+- The portal has no login locally: keep `only_from_this_portal` (`aqt/portal/app.py`, Host, login, Origin/Referer
+  checks) in front of every route. Hosted, it runs in jury mode (`aqt/portal/access.py`): listening publicly needs
+  `AQT_PORTAL_HOSTS` + `AQT_PORTAL_PASSWORD`; new portal actions that call a model go into `_MODEL_CALLS` (daily budget).
 - Codes, tokens and other secrets are masked in reports; any new output or store must mask them too.
 - Every scenario needs a `specRef` naming the clause it tests.
 - Unattended (scheduled) runs never wait for a bank login: scenarios with an SCA step are skipped
