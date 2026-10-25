@@ -2,7 +2,7 @@ id: PRE-003
 title: Auth server publishes a complete OAuth2/OIDC discovery document
 suite: preflight
 severity: Major
-specRef: "RFC 8414 / OpenID Connect Discovery 1.0; NBG XS2A OAuth SCA approach"
+specRef: "RFC 8414 §2 (authorization server metadata, incl. registration_endpoint); RFC 8705 §5 (mtls_endpoint_aliases); OpenID Connect Discovery 1.0; NBG XS2A OAuth SCA approach"
 origin: TPP/Blazor/Processes/Psd2ProcessBase.cs#ValidateGetOAuthUrl
 requires:
   - endpoints.discovery
