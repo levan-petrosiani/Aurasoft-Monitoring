@@ -896,3 +896,10 @@ TBC. The `tbc-sandbox.example` fixtures in `evals/` are invented test data and s
 **Why:** the repo is meant to be standalone (CLAUDE.md hard constraint) and is public.
 **Not changed:** `origin:` scenario fields, `LOCAL.yaml` `bank.name`, README/NOTE/docs mentions.
 **Verified:** `pytest` (22 passed), `aqt validate` (23 scenarios valid).
+
+## 2026-10-25 · 36. LOCAL profile name without the vendor (user's request)
+
+**What:** `banks/LOCAL.yaml` `bank.name` is now "Local XS2A" (was the vendor's name). A leftover merge conflict in
+`banks/TBC-MOCK.yaml` (line-ending noise against the upstream header edit) was resolved to the upstream text.
+**Why:** the repo stays standalone; the working copy had to match `main`.
+**Verified:** `pytest`.

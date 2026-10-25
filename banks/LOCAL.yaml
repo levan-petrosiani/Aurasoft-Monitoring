@@ -4,7 +4,7 @@ extends: _shared.yaml
 
 bank:
   bic: ALTAGE22
-  name: AltaSoft local XS2A
+  name: Local XS2A
 
 endpoints:
   xs2a: https://localhost:10001/
