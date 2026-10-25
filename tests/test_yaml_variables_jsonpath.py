@@ -1,3 +1,4 @@
+import os
 import re
 from datetime import datetime, timezone
 
@@ -62,3 +63,15 @@ def test_variables():
     with pytest.raises(ConfigurationError, match="Unknown variable"):
         v.resolve("{{nope}}")
     assert v.try_resolve("{{nope}}") is None
+
+
+def test_dotenv_sets_missing_variables_only(tmp_path, monkeypatch):
+    from aqt.cli import load_dotenv
+    (tmp_path / ".env").write_text('# secrets\nAQT_T_A=one\nexport AQT_T_B="two words"\nAQT_T_C=keep\nnot a pair\n', encoding="utf-8")
+    monkeypatch.setenv("AQT_T_C", "already set")
+    monkeypatch.delenv("AQT_T_A", raising=False)
+    monkeypatch.delenv("AQT_T_B", raising=False)
+    assert load_dotenv(str(tmp_path / ".env")) == ["AQT_T_A", "AQT_T_B"]
+    assert (os.environ["AQT_T_A"], os.environ["AQT_T_B"], os.environ["AQT_T_C"]) == ("one", "two words", "already set")
+    for name in ("AQT_T_A", "AQT_T_B"):
+        monkeypatch.delenv(name)

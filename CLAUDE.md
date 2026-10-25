@@ -33,6 +33,7 @@ aqt scenarios drafts | approve|reject <draft> --by <name>  # review scenario dra
 aqt coverage                                             # approved rules -> scenarios -> last result per bank
 aqt ask "<question>" --provider ollama                   # ask-agent (read-only tools); aqt ask history
 aqt monitor status|run-due|alerts|trends                 # monitoring (monitoring.yaml); aqt db prune = retention
+aqt ai eval --provider ollama                            # eval sets (evals/*.yaml), report in reports/evals/
 AQT_TEST_DB="host=localhost port=5435 user=aqt password=aqt_dev" pytest   # include database tests
 ```
 
@@ -62,6 +63,7 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
 | `scenarios/<suite>/*.yaml` | Test cases; reusable headers/bodies in `scenarios/_templates` |
 | `rules/` | Approved rules exported from the database (`aqt rules export`); the database is the source of truth |
 | `standards/` | `sources.yaml` manifest (URL, version, SHA-256); downloaded files under `sources/` are git-ignored |
+| `evals/` | Eval sets for the AI features (`aqt ai eval`, `aqt/ai/evals.py`): cases with known answers, scored in code |
 | `docs/ai/` | AI feature plan and design notes |
 
 ## Hard constraints
@@ -100,7 +102,8 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
 - Providers (`aqt/ai/chat.py`): Claude via the official `anthropic` SDK (`claude-opus-5-5`) or a local model via Ollama,
   per feature (`AiOptions`, env `AQT_AI_<FEATURE>_PROVIDER/_MODEL/_EFFORT`). Drafting defaults to Claude; summaries
   and the ask-agent can switch to local. Embeddings come from local Ollama `bge-m3`. Never hard-code models.
-- Prompts are files in `aqt/ai/prompts/` (with their JSON schemas); review prompt changes like code.
+- Prompts are files in `aqt/ai/prompts/` (with their JSON schemas); review prompt changes like code, and run
+  `aqt ai eval` for the affected feature before and after (eval cases in `evals/*.yaml`, scored in code, never by a model).
 - Store: PostgreSQL (`docker compose up -d`, port 5435; `--db` or env `AQT_DB`). Schema changes = a new numbered SQL
   file in `aqt/store/migrations/`.
   CLI and portal runs must still work without a database — a store failure is a notice, never a failed run.

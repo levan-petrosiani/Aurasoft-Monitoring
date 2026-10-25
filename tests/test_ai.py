@@ -301,10 +301,12 @@ def _answer(*rules):
 
 def test_drafts_are_checked_numbered_recorded_and_duplicates_flagged(db):
     key = _seed_clause(db, "TS")
-    result = RuleDrafter(db.store, _factory(db, [_answer(
+    first = _answer(
         ("MUST", "The ASPSP rejects validUntil beyond 90 days with PERIOD_INVALID.", "If the value exceeds 90 days from the request, the ASPSP shall return the error PERIOD_INVALID."),
         ("MUST", "The ASPSP replaces 9999-12-31 by the maximum date.", "A value of 9999-12-31 must be replaced by the maximum allowed date."),
-        ("MAY", "The ASPSP shortens the term.", "A value of 9999-12-31 shall be replaced by the maximum allowed date."))])).draft(key, "tester")
+        ("MAY", "The ASPSP shortens the term.", "A value of 9999-12-31 shall be replaced by the maximum allowed date."))
+    # The wrong quote goes back once (repair round); this model answers the same again, so the rule stays invalid.
+    result = RuleDrafter(db.store, _factory(db, [first, first])).draft(key, "tester")
     assert [r.id for r in result.rules] == ["TS-CON-001", "TS-CON-002", "TS-CON-003"]
     assert [r.status for r in result.rules] == ["draft", "invalid", "draft"]
     assert any(n.startswith("Quote check failed") for n in result.rules[1].check_notes)
@@ -314,6 +316,17 @@ def test_drafts_are_checked_numbered_recorded_and_duplicates_flagged(db):
     again = RuleDrafter(db.store, _factory(db, [_answer(("MUST", "The ASPSP rejects validUntil beyond 90 days with PERIOD_INVALID.",
                                                          "the ASPSP shall return the error PERIOD_INVALID"))])).draft(key)
     assert (again.rules[0].id, again.rules[0].similar_to) == ("TS-CON-004", "TS-CON-001")
+
+
+def test_a_quote_not_in_the_clause_goes_back_once_and_a_corrected_one_is_accepted(db):
+    key = _seed_clause(db, "TF")
+    chats = _factory(db, [_answer(("MUST", "Rule E.", "Code 9999-12-31: replaced by the maximum allowed date")),
+                          _answer(("MUST", "Rule E.", "A value of 9999-12-31 shall be replaced by the maximum allowed date."))])
+    rule = RuleDrafter(db.store, chats).draft(key).rules[0]
+    assert rule.status == "draft" and "Quote found in the clause." in rule.check_notes
+    with db.store.connect() as conn:
+        feedback = conn.execute("SELECT request FROM ai_calls ORDER BY time_utc DESC LIMIT 1").fetchone()[0][-1]["text"]
+    assert "could not find these quotes" in feedback and "code 9999-12-31" in feedback.lower()
 
 
 def test_review_actions_record_the_reviewer_and_guard_the_workflow(db):
@@ -343,7 +356,8 @@ def test_review_actions_record_the_reviewer_and_guard_the_workflow(db):
 
 def test_invalid_draft_becomes_reviewable_when_the_quote_is_fixed(db):
     key = _seed_clause(db, "TQ")
-    rule = RuleDrafter(db.store, _factory(db, [_answer(("MUST", "Rule C.", "the bank must return PERIOD_INVALID"))])).draft(key).rules[0]
+    wrong = _answer(("MUST", "Rule C.", "the bank must return PERIOD_INVALID"))
+    rule = RuleDrafter(db.store, _factory(db, [wrong, wrong])).draft(key).rules[0]
     assert rule.status == "invalid"
     fixed = RuleBook(db.store).edit(rule.id, "Ana", RuleEdit(quote="the ASPSP shall return the error PERIOD_INVALID"))
     assert fixed.status == "draft" and "Quote fixed by the reviewer and found in the clause." in fixed.check_notes

@@ -1,0 +1,122 @@
+# Eval cases for rule drafting (aqt ai eval --feature rules). Clause texts are copied verbatim from the ingested
+# standards so the cases do not change when the standards are re-ingested.
+description: 'Rule drafting: one clause in, rules out. Checked in code: number of rules, required topics and their level,
+  quotes found in the clause.'
+cases:
+- name: ge-consent-period
+  why: 'Two MUST duties: reject a validUntil more than 90 days ahead with PERIOD_INVALID; shorten 9999-12-31 to the maximum.'
+  clause:
+    standard: GE-XS2A
+    version: 0.8.RC3
+    number: 9.1.1.10
+    title: თანხმობის ვადა
+    language: ka
+    text: თანხმობის სასურველ ვადას მმპ უთითებს ელემენტში validUntil. იმ შემთხვევაში, თუ აღნიშნული ველის მნიშვნელობა აღემატება
+      მოთხოვნიდან 90 დღეს, აუცილებელია ამსმპ-მა დააბრუნოს შეცდომა PERIOD_INVALID. გამონაკლისს შეადგენს მნიშვნელობა „9999-12-31“,
+      რომლის მიღების შემთხვევაში აუცილებელია ამსმპ-მა თანხმობის ვადა შეცვალოს მაქსიმალურ დასაშვებ მნიშვნელობაზე (არაუმეტეს
+      90 დღისა) და 9.2.3 თავით განსაზღვრული სერვისში დააბრუნოს უკვე შეცვლილი თარიღი.
+  expect:
+    rules:
+    - 1
+    - 3
+    cover:
+    - any:
+      - PERIOD_INVALID
+      level: MUST
+    - any:
+      - '9999-12-31'
+      level: MUST
+    noInvalid: true
+- name: ge-payment-status
+  why: MUST support the status call, JSON, fundsAvailable for ACTC/ACWC/ACCP, and require Authorization after PSU authentication.
+  clause:
+    standard: GE-XS2A
+    version: 0.8.RC3
+    number: '8.5'
+    title: გადახდის სტატუსი
+    language: ka
+    text: |-
+      გამოძახება:
+
+      GET /v1/{payment-service}/{payment-product}/{paymentId}/status
+
+      აღნიშნული მოთხოვნის მხარდაჭერა აუცილებელია ყველა სერვისისა და პროდუქტისათვის, რომელსაც ამსმპ მხარს უჭერს. მოთხოვნის პარამეტრები და დასაბრუნებელი მნიშვნელობები რეგულირდება (2)-ის 5.4 თავის მიხედვით, დამატებითი მოთხოვნები მოცემულია წინამდებარე თავში.
+
+      აუცილებელია, ამსმპ მხარს უჭერდეს სტატუსის დაბრუნებას JSON ფორმატში და მან არავითარ შემთხვევაში არ უნდა უარყოს მმპ-ის მოთხოვნა, თუ მმპ-მა Accept სათაურში მიუთითა application/json -ის მხარდაჭერა. XML ფორმატის მხარდაჭერა არააუცილებელია.
+
+      აუცილებელია, ამსმპ-მა მხარი დაუჭიროს fundsAvailable ატრიბუტს და დააბრუნოს შესაბამისი მნიშვნელობა, თუ ტრანზაქციის სტატუსია "ACTC", "ACWC" ან "ACCP" როგორც ეს განსაზღვრულია (2)-ის 14.13 თავით.
+
+      თუ გადახდის ინიცირებისას გამოყენებული იქნა Authorization სათაური ან მომხმარებელმა გაიარა ავთენტიფიკაცია ამ გადახდის ინიცირების ფარგლებში, გამოძახებისას Authorization სათაურის გამოყენება აუცილებელია.
+  expect:
+    rules:
+    - 1
+    - 5
+    cover:
+    - any:
+      - fundsAvailable
+      level: MUST
+    - any:
+      - JSON
+      - application/json
+    noInvalid: true
+- name: ge-payment-cancellation
+  why: Cancellation must be supported; 202/204/405 semantics; Authorization required after PSU authentication.
+  clause:
+    standard: GE-XS2A
+    version: 0.8.RC3
+    number: '8.7'
+    title: გადახდის გაუქმების მოთხოვნა
+    language: ka
+    text: |-
+      გამოძახება:
+
+      DELETE /v1/{payment-service}/{payment-product}/{paymentId}
+
+      აღნიშნული მოთხოვნის მხარდაჭერა აუცილებელია ყველა სერვისისა და პროდუქტისათვის, რომელსაც ამსმპ მხარს უჭერს. მოთხოვნის პარამეტრები და დასაბრუნებელი მნიშვნელობები რეგულირდება (2)-ის 5.6 თავის მიხედვით.
+
+      ქვემოთ მოცემულია რამდენიმე მნიშვნელოვანი HTTP სტატუსის კოდი, რომელიც აღნიშნულმა გამოძახებამ შეიძლება დააბრუნოს:
+
+      კოდი
+
+      აღწერა
+
+      202
+
+      მოთხოვნა მიღებულია, თუმცა იგი არასაკმარისია და საჭიროა სმმ-ის დასტური. ამ კოდის დაბრუნებისას აუცილებელია ამსმპ-მა ასევე დააბრუნოს პასუხის ტანი (2)-ის და (10)-ის მოთხოვნების შესაბამისობაში (რათა მმპ-მა შესძლოს დაიწყოს სმმ-ის ავთენტიფიკაციისა და მოთხოვნის ავტორიზაციის პროცესი)
+
+      204
+
+      გადახდა წარმატებით წაიშალა მმპ-ის მოთხოვნით. სმმ-ის ჩარევა არ მოითხოვება
+
+      405
+
+      გადახდის გაუქმება შეუძლებელია, ვინაიდან ამ ტიპის გადახდების წაშლა მხარდაჭერილი არ არის, გადახდის სტატუსი ამის საშუალებას აღარ იძლევა ან გასულია გაუქმებისათვის დათქმული ვადა.
+
+      ცხრილი 7: HTTP სტატუსის კოდები გადახდის გაუქმების მოთხოვნისათვის
+
+      თუ გადახდის ინიცირებისას გამოყენებული იქნა Authorization სათაური ან მომხმარებელმა გაიარა ავთენტიფიკაცია ამ გადახდის ინიცირების ფარგლებში, გამოძახებისას Authorization სათაურის გამოყენება აუცილებელია.
+  expect:
+    rules:
+    - 1
+    - 5
+    cover:
+    - any:
+      - DELETE
+      - cancel
+    - any:
+      - Authorization
+    noInvalid: true
+- name: ge-informative-examples
+  why: 'Informative section (''examples, not a substitute for the normative chapters''): the right answer is no rules.'
+  clause:
+    standard: GE-XS2A
+    version: 0.8.RC3
+    number: 9.1.2
+    title: თანხმობის მოთხოვნის დოკუმენტის კონკრეტული მაგალითები (ინფორმაციული)
+    language: ka
+    text: აღნიშნული თავი განსაზღვრავს თანხმობის მოთხოვნის რამდენიმე გავრცელებულ მაგალითს, რომელიც მკითხველმა შეიძლება გამოიყენოს
+      წინამდებარე დოკუმენტის მოთხოვნების უკეთ გასაგებად. ამ თავის მიზანი არაა ნორმატიული თავების მოთხოვნათა ჩანაცვლება.
+  expect:
+    rules:
+    - 0
+    - 0

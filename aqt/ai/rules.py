@@ -174,6 +174,24 @@ class RuleDrafter:
         if answer is None:
             return DraftResult(clause_key, [], None, "failed", error, elapsed())
 
+        # One repair round, decided in code: quotes that do not occur in the clause go back to the model once, with the
+        # verifier's reason, to be copied exactly or dropped. The answer is checked again below like any other.
+        failing = [(str(d.get("quote") or ""), problem) for d in answer.get("rules") or []
+                   if isinstance(d, dict) and (problem := check_quote(str(d.get("quote") or ""), clause.text))]
+        if failing:
+            feedback = "\n".join(f"- {problem}" for _, problem in failing)
+            messages += [{"role": "assistant", "content": result.text},
+                         {"role": "user", "content": "The tool could not find these quotes in the clause text:\n" + feedback +
+                          "\nCopy each quote character for character from CLAUSE TEXT (for a table row: its cells in order, "
+                          "separated by a space, without column names), or remove that rule. Reply again with the whole JSON."}]
+            call_id = uuid.uuid4()
+            client = self._chats.create(opt.RULE_DRAFTING, CallContext(None, triggered_by, call_id))
+            try:
+                retry = client.complete(SYSTEM_PROMPT, messages, DRAFTS_SCHEMA if settings.provider == opt.OLLAMA else None)
+                answer = parse_answer(retry.text) if retry.finish_reason != "refusal" else answer
+            except (ProviderError, TimeoutError, ValueError):
+                pass  # keep the first answer; its failing quotes are marked invalid below
+
         rules = self._check_and_number([d for d in answer.get("rules") or [] if isinstance(d, dict)], clause, settings, call_id)
         now = datetime.now(timezone.utc)
         self._store.add_rules(rules, [RuleReviewRow(

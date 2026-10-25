@@ -3,7 +3,7 @@
 Snapshot of the system as it is **now**. Update this file at the end of every phase (see `docs/ai/PLAN.md`).
 Diagrams are Mermaid (render in GitHub, GitLab, Rider, VS Code).
 
-**Last updated:** 2026-10-25, after Phase 6 (monitoring: schedules, alerts, trends, retention). Phase 5 (payment initiation: MockBank payments, `pis` suite, polling) was finished earlier the same day. Phase 4 (the ask-agent: read-only tools, its own database login, Ask page) was finished earlier the same day.
+**Last updated:** 2026-10-25, after the eval sets (`evals/*.yaml`, `aqt ai eval`) that close the AI plan. Phase 6 (monitoring: schedules, alerts, trends, retention) was finished earlier the same day. Phase 5 (payment initiation: MockBank payments, `pis` suite, polling) was finished earlier the same day. Phase 4 (the ask-agent: read-only tools, its own database login, Ask page) was finished earlier the same day.
 Phase 3 (scenarios drafted from approved rules, MockBank dry runs, Drafts and Coverage pages) was finished earlier the same day. Before that (2026-10-24) the Store, Standards and AI layers were ported to Python. Everything is
 Python now: engine, CLI, MockBank, portal, and the optional store/AI layer (`aqt/store`, `aqt/standards`, `aqt/ai`,
 `aqt/cli_ai.py`, `aqt/portal/ai_services.py`). The C# implementation is in git history (last C# commit `8abf9f6`).
@@ -224,6 +224,17 @@ flowchart LR
     Detect -.-> Webhook["webhook (masked)"]
     Saved --> Trends["trends (code)<br/>pass rate · flaky · slowest endpoints"]
     Yaml --> Prune["retention: daily prune<br/>of old exchanges"]
+```
+
+## 5e. Eval sets
+
+```mermaid
+flowchart LR
+    Cases[("evals/*.yaml<br/>cases with known answers")] --> Temp[("temporary database<br/>seeded per case")]
+    Temp --> Feature["the real feature<br/>summary · rules · scenarios · ask"]
+    Feature -->|audited| Model{{"Claude or local model"}}
+    Feature --> Score["checks in code<br/>health/sides · topics/levels/quotes<br/>dry run/MockBank gap · facts/citations"]
+    Score --> Report[("reports/evals/<br/>time-provider.md / .json")]
 ```
 
 ## 6. Store schema

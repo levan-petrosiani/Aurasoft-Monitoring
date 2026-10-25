@@ -696,3 +696,32 @@ still accepts.
 - `aqt monitor run-due --schedule mock-nightly` ran 28/28; no alerts against the previous MockBank run, which is correct; schedule state and retention were recorded.
 - On real history the Monitoring page shows pass-rate lines for MOCKGE22 and TBCBGE22. Flaky: TBC PRE-003/004 (the 21 October outage) and an early MockBank AIS-002. Slowest: TBC consent status, 1.9 s on average, 8.7 s at most.
 - Tests: 137 passed with `AQT_TEST_DB`; 105 passed and 32 skipped without it.
+
+## 2026-10-25 · 49. Eval sets; first results; Claude live; fixes the evals found
+
+**What:**
+- **Eval sets** `evals/*.yaml`, run with `aqt ai eval` (`aqt/ai/evals.py`):
+  - summaries: 4 runs with known causes;
+  - rules: 4 real clause texts copied verbatim, including an informative clause where the right answer is "no rules";
+  - scenarios: 4 approved rules, one of which MockBank does not enforce;
+  - ask: 6 questions over a seeded dataset of runs, alerts, a clause and a rule.
+
+  Each case runs the real feature in a temporary database (`TemporaryDatabase`, also used by the tests) and is scored in code, never by a model. Calls are audited in the real `ai_calls`. Reports go to `reports/evals/<time>-<provider>.md/.json`.
+- **`.env` loader** in `aqt/cli.py`: the user put `ANTHROPIC_API_KEY` in `.env` (git-ignored). Existing variables win and values are never printed.
+
+**Why:** the last open item of the plan (§7: an eval set per AI feature before staff use it). Facts in code apply to grading too.
+
+**First results, local qwen3:8b:** summary 3/4, rules 3/4, scenarios 4/4, ask 4/6 (checks 90/96). Investigating the failures:
+- **Summary, our expired certificate.** It found the right scenarios but blamed the bank: the prompt said "Failed = bank-side", and a failing local certificate check is Failed. Fixed in code and prompt:
+  - the digest now marks localCertificates steps as "our own certificates, checked locally, no request to the bank";
+  - the prompt now says that our certificate/signature problems are our-side.
+
+  The case was also unrealistic (the step had no `localCertificates` kind). It then passed 3/3 on the side check.
+- **Eval case errors, mine.** Two cases forbade findings for *blocked* scenarios, which the prompt explicitly allows. Corrected. The certificate case accepted only `broken`, but Claude's `inconclusive` is right by the prompt's own definition; it now accepts both.
+- **Rules, payment cancellation.** In a table of status codes the model rebuilt rows as "კოდი 202: …" ("Code 202: …"), text that does not exist, so the verifier (which stays strict) rejected 3 rules. A prompt rule on table quotes did not help the small model. Fixed in code: `RuleDrafter` now sends quotes that fail the verifier back **once**, with the verifier's reason ("copy exactly or remove"), and the answer is checked again. Passed live locally; tested.
+
+**Claude** (`claude-opus-5-5`, first live calls, beta endpoint with the refusal fallback): `aqt ai check` OK in 2 s. Briefly, on the 4 cases the local model failed: all 4 pass (after the `inconclusive` correction), in 6–43 s each against 30–250 s locally.
+
+**Decision (user: "maybe drop the local model if it's failing because it's weak"):** every feature already defaults to Claude. The local model stays as an opt-in only (offline use, or when no data may leave the machine), and its weaknesses are now documented by the evals. Ollama itself stays, for the `bge-m3` embeddings behind clause and rule search. Nothing was deleted.
+
+**Tests:** 147 passed with `AQT_TEST_DB`.

@@ -304,6 +304,7 @@ aqt coverage                            # approved rules -> scenarios -> last re
 aqt ask "Why did TBC fail last night?" --provider ollama    # the ask-agent; aqt ask history
 aqt monitor status | run-due | alerts | ack <id|all> --by "Your Name" | trends   # monitoring (monitoring.yaml)
 aqt db prune --days 90                  # retention: delete stored exchanges older than 90 days
+aqt ai eval --provider ollama           # eval sets (evals/*.yaml); --feature summary,rules,scenarios,ask --case NAME
 aqt portal                              # store/AI pages on when the database is reachable (--no-db turns them off)
 ```
 
@@ -338,6 +339,16 @@ aqt portal                              # store/AI pages on when the database is
   stays down) and `run_failed`. If `AQT_ALERT_WEBHOOK` holds a Slack/Teams-style incoming-webhook URL, alerts are
   posted there (masked). Retention deletes stored exchanges after `retention.exchangesDays` (90), daily; results,
   summaries and alerts are kept. The Ask agent can query alerts too.
+- **Eval sets** (`evals/*.yaml`): fixed cases with known answers for each AI feature — run summaries (an outage, our
+  expired certificate, a bank regression, all green), rule drafting (real clause texts, including an informative one
+  where the right answer is "no rules"), scenario drafting (approved rules, including one MockBank does not enforce),
+  and the ask-agent (questions over a seeded dataset). `aqt ai eval` runs them through the real features against the
+  chosen model, each case in a temporary database (the real store is never touched), and scores them **in code**:
+  health and finding sides, rule topics/levels/quotes, dry-run outcome and MockBank-gap judgement, facts in answers and
+  verified citations. Model calls are audited as usual. The report goes to `reports/evals/<time>-<provider>.md/.json`;
+  run it per provider to compare Claude and the local model, and again after changing a prompt.
+- **API key:** put `ANTHROPIC_API_KEY=...` in a `.env` file in the tool's folder (git-ignored); `aqt` reads it at start
+  without overriding variables that are already set.
 - **Providers:** Claude (`claude-opus-5-5`, refusal fallback, effort per feature) by default; switch a feature to the
   local model with `--provider ollama` or `AQT_AI_<FEATURE>_PROVIDER=ollama` (e.g. `AQT_AI_SUMMARY_PROVIDER`).
 - Database tests run when `AQT_TEST_DB` is set (`host=localhost port=5435 user=aqt password=aqt_dev`); each test
@@ -357,6 +368,6 @@ every existing rule quote still verifies).
 
 ## Not done yet
 
-Eval sets for the AI features; bulk/periodic payments and signing baskets; Playwright and decoupled SCA modes, onboarding (client
+Bulk/periodic payments and signing baskets; Playwright and decoupled SCA modes, onboarding (client
 registration), OpenAPI schema validation, Excel report, `aqt compare`. The AIS and PIS suites have been verified against
 MockBank (28 scenarios pass); they have not yet been run against a real local XS2A + AuthServer or a bank sandbox.

@@ -151,3 +151,28 @@ def _created_by_csharp_tool(conn) -> bool:
         found = cur.fetchone() is not None
     conn.rollback()
     return found
+
+
+class TemporaryDatabase:
+    """A new database on the same server, migrated, dropped on close (evals and tests). Needs CREATEDB."""
+
+    def __init__(self, connection: str, prefix: str = "aqt_tmp_"):
+        import uuid
+        self.name = prefix + uuid.uuid4().hex[:12]
+        self._server = to_libpq(connection)
+        with connect(self._server + " dbname=postgres", register_vector=False) as conn:
+            conn.autocommit = True
+            conn.execute(f"CREATE DATABASE {self.name}")
+        self.connection = self._server + f" dbname={self.name}"
+        migrate(self.connection)
+
+    def close(self):
+        with connect(self._server + " dbname=postgres", register_vector=False) as conn:
+            conn.autocommit = True
+            conn.execute(f"DROP DATABASE IF EXISTS {self.name} WITH (FORCE)")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()

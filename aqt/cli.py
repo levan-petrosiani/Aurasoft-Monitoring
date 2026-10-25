@@ -414,6 +414,27 @@ Exit codes: 0 all passed, 1 failures or errors in the run, 2 invalid input or co
     return SUCCESS
 
 
+def load_dotenv(path: str) -> list[str]:
+    """Reads KEY=VALUE lines from a git-ignored .env file (e.g. ANTHROPIC_API_KEY) into the environment. Variables that
+    are already set win; values are never printed. Returns the names that were set."""
+    if not os.path.isfile(path):
+        return []
+    loaded = []
+    with open(path, encoding="utf-8-sig") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, _, value = line.removeprefix("export ").partition("=")
+            name, value = name.strip(), value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            if name and name not in os.environ:
+                os.environ[name] = value
+                loaded.append(name)
+    return loaded
+
+
 def main(argv: list[str]) -> int:
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -423,6 +444,7 @@ def main(argv: list[str]) -> int:
     if os.name == "nt":
         os.system("")  # enables ANSI colours in the Windows console
 
+    load_dotenv(os.path.join(os.environ.get("AQT_HOME") or Paths._find_root(), ".env"))
     cancel = threading.Event()
 
     def on_sigint(signum, frame):

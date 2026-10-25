@@ -105,7 +105,8 @@ def _append_scenario(out: list[str], s):
     for step in s.steps:
         if step.outcome == "Passed" and not step.warnings:
             continue
-        out.append(f'Step "{step.name}" ({step.kind}{", cleanup" if step.is_cleanup else ""}) {step.outcome}')
+        out.append(f'Step "{step.name}" ({step.kind}{", cleanup" if step.is_cleanup else ""}) {step.outcome}'
+                   + (" — our own QWAC/QSealC, checked locally; no request was sent to the bank" if step.kind == "localCertificates" else ""))
         out.extend("  failure: " + f for f in step.failures)
         out.extend("  warning: " + w for w in step.warnings)
         for x in step.exchanges:

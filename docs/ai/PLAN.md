@@ -108,7 +108,7 @@ DSL reference, templates).
 | 5. PIS ✅ | §9 | Payment consent → SCA → status, on MockBank |
 | 6. Monitoring ✅ | Scheduled runs (`monitoring.yaml`, portal monitor, `aqt monitor run-due`), regression alerts (+ webhook), trends, retention | Nightly MockBank run; a regression shows on Alerts and in the webhook |
 
-Each AI feature gets a small eval set (inputs + expected outcome) before staff use it.
+Each AI feature gets a small eval set (inputs + expected outcome) before staff use it. ✅ Built 2026-10-25: `evals/*.yaml`, `aqt ai eval` (see NOTE.md step 49 for the first results).
 
 ## 8. Decisions
 
@@ -124,6 +124,7 @@ Each AI feature gets a small eval set (inputs + expected outcome) before staff u
 | 6 | MockBank | Grows with the rules: when a rule is approved and MockBank doesn't enforce it, that is a task, so generated scenarios can be proven |
 | 7 | Scenario drafts | Code owns id, suite, severity, `specRef`, `origin`, `rules:`; the model writes title, description, steps. At most 3 attempts with engine errors / dry-run failures fed back. A failed dry run the model calls a MockBank gap (`MOCK_GAP`) is accepted only for a failed expectation (not a tool error) and is shown to the reviewer, who decides. Drafts live in `scenario_drafts`; approval writes the file and links the rule (`rule_reviews` action `linked`) |
 | 9 | Monitoring | Schedules live in `monitoring.yaml` (versioned like scenarios), their last run in `monitor_state`. Unattended runs skip SCA scenarios except on MockBank (no one to log in; `--sca-auto` stays MockBank-only). Alerts are computed in code against the bank's previous run, deduplicated per run/kind/scenario; bank_down is not repeated while a bank stays down. Notification = optional webhook, masked |
+| 10 | Local model | Every feature defaults to Claude. After the first evals (NOTE.md step 49) the local model stays **opt-in only** (`--provider ollama`, "… locally" buttons) for offline/no-data-leaving use; its weak spots are known (blame attribution, quoting tables, citing ids). Ollama stays required for `bge-m3` embeddings (clause/rule search) |
 | 8 | Ask-agent safety | Read-only tools in code plus one SQL tool. The SQL tool logs in as `aqt_agent` (own login, member of nothing): SELECT on views in schema `agent` only, no headers/bodies/AI audit, one prepared statement, read-only, 5 s timeout. `SET ROLE` from the main user was tried first and rejected: the SQL could switch back with `set_config('role', …)` or a second statement. Ids in answers are checked against tool results in code |
 
 ## 9. PIS — built in Phase 5 (2026-10-25)

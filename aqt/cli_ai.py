@@ -19,6 +19,7 @@ USAGE = """  aqt db migrate|status [--db <connection>]           create/upgrade 
   aqt db prune [--days N]                             retention: delete stored exchanges older than N days (monitoring.yaml)
   aqt ai check [--provider anthropic|ollama] [--model name]   one-line call to each AI provider, audited
   aqt ai summarize <run-id|latest> [--bank BIC] [--provider ..] [--model ..] [--show-input]   AI triage of a stored run
+  aqt ai eval [--feature summary,rules,scenarios,ask] [--case name] [--provider ..] [--model ..]   eval sets (evals/*.yaml)
   aqt standards fetch|ingest [--standard ID] [--no-embed] | list | search "<text>" [--standard ID] | show <clause-key>
   aqt rules draft <clause-key> [--provider ..] [--model ..] | list [--status s] [--standard ID] | show <id>
   aqt rules approve|reject|reopen <id> --by <name> [--note ..] | export        rules from the standards
@@ -163,8 +164,48 @@ def cmd_ai(cli) -> int:
         return _ai_check(cli)
     if sub == "summarize":
         return _ai_summarize(cli)
+    if sub == "eval":
+        return _ai_eval(cli)
     raise ConfigurationError("Usage: aqt ai check [--provider anthropic|ollama] [--model name] [--db <connection>]\n"
-                             "       aqt ai summarize <run-id|latest> [--bank BIC] [--provider ..] [--model ..] [--show-input]")
+                             "       aqt ai summarize <run-id|latest> [--bank BIC] [--provider ..] [--model ..] [--show-input]\n"
+                             "       aqt ai eval [--feature summary,rules,scenarios,ask] [--case name] [--provider ..] [--model ..]")
+
+
+def _ai_eval(cli) -> int:
+    """Runs the eval sets (evals/*.yaml) against the configured model(s); each case in a temporary database."""
+    from .ai import evals, options as opt
+    from .cli import Paths
+    Out = _out()
+    features = cli.get_list("feature") or list(evals.FEATURES)
+    unknown = [f for f in features if f not in evals.FEATURES]
+    if unknown:
+        raise ConfigurationError(f"Unknown feature(s) {', '.join(unknown)} (use {', '.join(evals.FEATURES)})")
+    options = opt.AiOptions.from_environment()
+    for f in features:
+        feature = evals.MODEL_FEATURE[f]
+        if cli.get("provider"):
+            options = options.with_provider(feature, cli.get("provider"))
+        if cli.get("model"):
+            options.features[feature].model = cli.get("model")
+    connection = _connection(cli)
+    from .store import AqtStore
+    store = AqtStore(connection)
+    try:
+        store.migrate()
+    except Exception as ex:  # noqa: BLE001
+        raise ConfigurationError(f"The evals need the database server (temporary databases): {ex}") from ex
+    paths = Paths(cli)
+    runner = evals.EvalRunner(connection, options, paths.root, main_store=store, progress=Out.muted)
+    results = runner.run(features, cli.get("case"))
+    if not results:
+        raise ConfigurationError("No eval cases matched")
+    json_path, md_path = evals.write_report(results, runner.memory.calls, cli.get("out") or os.path.join(paths.root, "reports", "evals"))
+    print()
+    for s in evals.summarize(results):
+        (Out.ok if s["casesPassed"] == s["cases"] else Out.error)(
+            f"{s['feature']:<10} {s['model']:<28} cases {s['casesPassed']}/{s['cases']} · checks {s['checksPassed']}/{s['checks']} · {s['seconds']} s")
+    Out.muted(f"Report: {md_path}")
+    return SUCCESS if all(r.passed for r in results) else TESTS_FAILED
 
 
 def _ai_check(cli) -> int:
