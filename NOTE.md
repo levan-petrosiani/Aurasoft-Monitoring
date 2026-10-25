@@ -747,3 +747,8 @@ still accepts.
 - **The Ollama server crashed under load** during the local run (connection refused). The affected local features were re-run alone and merged (`merge_reports`-style: re-run cases replace errored ones).
 
 **Decision:** unchanged and now measured. Claude is the default; the local model stays opt-in (offline, no data leaving the machine).
+
+## 2026-10-25 · 51. Merged into main
+
+**What:** merged `ai-layer-python` (the Python store, standards and AI layers) and then `phase3-scenarios` (Phases 3–6, eval sets, model comparison, overview PDF) into `main`, each with its own merge commit as the pull requests would have. Neither needed conflict resolution: `main` had not moved since the branches were cut. The README quick start no longer mentions the branch.
+**Why:** the user asked for the pull requests to be merged so teammates get everything by pulling `main`. `gh` is not installed, so the merges were done in git and pushed; GitHub marks pull requests whose commits are in `main` as merged.

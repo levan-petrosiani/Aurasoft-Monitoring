@@ -13,12 +13,10 @@ and every response checked against what the standard expects.
 
 ## Quick start for teammates (everything, from a fresh clone)
 
-Until the pull requests are merged, the complete tool (Python port + AI layer, Phases 0–6, evals) is on branch
-`phase3-scenarios`; `main` has only the engine.
+Everything (the Python tool and the AI layer, Phases 0–6, eval sets) is on `main`.
 
 ```bash
 git clone git@github.com:levan-petrosiani/Aurasoft-Monitoring.git && cd Aurasoft-Monitoring
-git checkout phase3-scenarios
 python3 -m venv .venv && source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e ".[test,ai]"
 
