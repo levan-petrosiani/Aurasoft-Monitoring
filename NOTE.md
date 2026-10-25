@@ -851,3 +851,21 @@ and NEG-CON-006 got `FORMAT_ERROR` where they expect `PARAMETER_NOT_SUPPORTED`, 
 expects 401. These are not yet reviewed as TBC deviations, because those tests encode our reference behaviour, so the
 deck does not use them. Compare shows that run as TBC's latest (85.7%); the deck's screenshot is taken from the
 targeted CLI runs only.
+
+## 2026-10-25 · 56. Demo script rewritten for the guidelines' storyboard
+
+**What:** `docs/demo-script.md` now follows the storyboard on page 2 of the Demo Evaluation Guidelines, slot by slot:
+- the persona: a TPP team checking TBC before integrating;
+- the input, labelled as synthetic;
+- the uncut TBC run, then a MockBank run for payments;
+- compliance (`_links`, discovery warnings with their RFCs), security (corrupt signature refused on MockBank),
+  latency and Compare;
+- the two reports and the time per check.
+
+`TBC-AIS-002`'s `specRef` now names the Berlin Group basis ("hyperlinks are returned in `_links`"), so the clause is
+shown on screen next to the warning rather than only in a code comment.
+
+**Why the setup changed:** the earlier script planted a signature bug, but this storyboard shows a corrupt signature
+being *refused*. The portal now plants only `MockBank__MaxFrequencyPerDay=10`. Checked: 27 passed, 1 failed
+(NEG-CON-004), 7 skipped, with NEG-SIG-001 and NEG-SIG-002 passing; the failure is left for the AI explanation. TBC's
+sandbox has no payments, so payments come from the MockBank run. No manual-hours figure, because none was measured.

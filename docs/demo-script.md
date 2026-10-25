@@ -1,58 +1,67 @@
 # Demo video script
 
-For the hackathon's demo video: 2–3 minutes, voice-over required, synthetic data only, MP4 or a downloadable link.
-Target length 2:50; the hard limit is 3:00, and anything longer is cut off during scoring.
+Follows the storyboard in the hackathon's Demo Evaluation Guidelines (page 2) and the requirements on page 3:
+- 2–3 minutes (anything longer is cut off during scoring); target 2:45;
+- an MP4 or a downloadable link (not streaming-only); test it in an incognito window;
+- an uncut screen capture is preferred; voice-over is required (silent videos are penalised);
+- synthetic data only, since videos may be published.
 
-- **Persona:** Nino, an integration engineer at a fintech (TPP) about to connect to Georgian banks.
-- **Data (synthetic only):** TBC's public mock sandbox, and our MockBank set up as a "test bank" with three deliberately
-  planted deviations. No real bank, no real customer data.
+On Demo Day the video plays straight after the pitch, with no introduction, so it has to stand on its own.
 
-## Before recording (about 10 minutes)
+- **Persona:** a TPP integration team about to integrate with TBC Bank.
+- **Scenario:** before writing any code, find out how TBC's API differs from the standard.
+- **Data:** TBC's public mock sandbox and our MockBank. Both are synthetic, and the video says so.
 
-1. Restart the portal so its built-in MockBank has the planted deviations: it stops checking signatures, and it allows
-   up to 10 requests per day instead of 4.
+## Before recording (about 15 minutes)
+
+1. **Start the portal with one planted bug.** MockBank then allows 10 consent requests a day instead of 4. Signatures
+   are still verified, so the security test shows a refusal.
    ```bash
-   MockBank__VerifySignatures=false MockBank__MaxFrequencyPerDay=10 python -m aqt portal
+   pkill -f "aqt portal"
+   MockBank__MaxFrequencyPerDay=10 python -m aqt portal
    ```
-   Expected MOCK run: 25 passed, 3 failed, 7 skipped.
-   - `NEG-CON-004`: frequencyPerDay 7 is accepted (201 instead of 400).
-   - `NEG-SIG-001`: a request with a corrupted signature is accepted.
-   - `NEG-SIG-002`: a Digest that does not match the body is accepted.
-
-   After recording, restart the portal without these variables.
-2. Rehearse the whole flow once, so you know what the AI summary will say. It needs `.env` (`ANTHROPIC_API_KEY`) and
-   the database (`docker compose up -d`).
-3. Screen setup:
-   - Browser at 125% zoom, 1920×1080, one window only.
-   - Never show `.env`, terminal history or `certs/`.
-   - Close unrelated tabs and turn on Do Not Disturb.
-4. Open these tabs in advance:
-   - the Dashboard;
-   - `banks/TBC-MOCK.yaml` and `scenarios/negative/NEG-SIG-001-corrupt-signature.yaml` in an editor;
-   - the Rules page with a Georgian draft rule showing.
+   Expected MOCK run: 27 passed, 1 failed (NEG-CON-004), 7 skipped. TBC: 11 passed with 3 warnings.
+   After recording, restart without the variable.
+2. **Rehearse once and keep that MOCK run.** Click **Summarize** on it, so the AI summary is ready to open in the video
+   (a live model call can take 10–20 s). Also note a draft rule on the **Rules** page to approve on camera.
+3. **TBC runs:** always choose **preflight + tbc**. All suites makes TBC look like 85.7%, because the generic tests
+   don't fit its sandbox.
+4. **Screen setup:**
+   - 1920×1080, browser at 125% zoom, Do Not Disturb on.
+   - Never show `.env`, `certs/` or terminal history.
+   - Open tabs in this order:
+     1. Dashboard;
+     2. `banks/TBC-MOCK.yaml` in an editor;
+     3. Scenarios page;
+     4. New run;
+     5. Compare;
+     6. Rules.
+5. **Caption:** add a text overlay for 0:20–0:50: "Synthetic data only: TBC public mock sandbox + our MockBank" (in
+   the recorder, or as a card in the editor).
 
 ## Script
 
-| Time | Screen | Voice-over |
-|---|---|---|
-| **0:00–0:20** Set the scene | Portal Dashboard | "Nino is an integration engineer at a fintech. She has to connect to every Georgian bank's open-banking API, and each bank implements NBG's standard a little differently. Aura Monitoring tests a bank's API the way a real TPP would, and explains what deviates." |
-| **0:20–0:50** The input | Editor: the TBC profile, then the NEG-SIG-001 scenario with its `specRef`. Portal: New run → TBC-MOCK, suites preflight + tbc, automatic SCA → Start | "The input is synthetic: TBC's public mock sandbox, and our own test bank where we planted three bugs. A bank is one YAML profile. Every test is a YAML scenario that cites the clause of the standard it checks. Let's run TBC." |
-| **0:50–1:50** System at work (uncut) | The live run fills in, 11/11 in about 15 s. Open TBC-AIS-001 and show a request with `X-Jws-Signature` and a masked token. New run → MOCK (the test bank) → 3 failures. Open NEG-SIG-001: "Status 201, expected 400 or 401". Click **Summarize** to show the AI summary | "Every request goes over mutual TLS with our QWAC certificate and is signed with our QSealC, with an OAuth login using PKCE. Tokens are masked in every report. TBC: eleven of eleven. Now our test bank: three failures. It accepted a request with a corrupted signature, which is a security hole, and a consent above the daily limit. The AI summary groups the failures, says whether it's the bank's side or ours, and suggests the next step. The counts come from code, not the model." |
-| **1:50–2:30** Track evidence | **Compare** page: the overview, the latency chart, the deviations with their clauses, the "5/5" column. Then **Rules**: a Georgian clause with an AI-drafted rule and its verified quote; type a reviewer name and click **Approve** | "Compare puts banks side by side: compliance, latency per operation, TBC at 323 milliseconds median, and every deviation with its clause. '5 of 5' shows the results are reproducible. New checks come from the standard itself: AI drafts a rule from the Georgian text, code verifies the quote really exists, and a person approves it by name. Every AI call is audited." |
-| **2:30–2:50** Output & impact | `report.html` from the run, then the Compare page again | "What Nino gets: a report per bank she can hand to the bank's team, JUnit for CI, and monitoring that alerts on regressions. A full suite against a bank takes about fifteen seconds, where checking by hand takes [manual baseline]. One tool for TPPs, banks and NBG." |
+| Time | Their instruction | Screen | Voice-over |
+|---|---|---|---|
+| **0:00–0:20** | Workflow, persona, scenario | Portal Dashboard | "A TPP integration team is about to connect to TBC Bank. Before writing any code, they want to know how TBC's open-banking API differs from the standard. This is Aura Monitoring, our Auditor Tool, and this is that check." |
+| **0:20–0:50** | The input; flag what is synthetic | Overlay: *Synthetic data only*. `banks/TBC-MOCK.yaml` (endpoints, features). Scenarios page, `tbc` suite with its `specRef`s. New run → **TBC-MOCK** → **preflight + tbc** → **automatic SCA** → **Start** | "Everything here is synthetic: TBC's public mock sandbox and our own MockBank, with no real customer data. A bank is one YAML profile: its endpoints and features. Each test is a YAML scenario that names the clause it checks. We pick TBC, the preflight and TBC suites, and start." |
+| **0:50–1:50** | Uncut capture: API calls, processing, steps | The TBC run live (about 15 s) → 11 passed, 3 warnings. Open **TBC-AIS-001**: consent → OAuth discovery and token → accounts, balances, transactions, each with its time in ms. Expand one request: `X-Jws-Signature`, `Digest`, masked token. Then **New run → MOCK** (built-in MockBank, automatic SCA) → PIS-001 to 005, payments created, authorised and polled to ACSC | "The whole run takes about fifteen seconds, uncut. Every call is made the way a licensed TPP makes it: mutual TLS with our QWAC certificate, each request signed with our QSealC, and an OAuth login with PKCE. Consent, accounts, balances, transactions: each request is timed and checked against the standard, and tokens are masked in every report. Eleven of eleven checks ran end to end. TBC's sandbox has no payments, so we also run our MockBank: domestic, own-bank and foreign payments, created, authorised and followed to their final status." |
+| **1:50–2:30** | Compliance, security, latency, cross-bank: shown, not asserted | 1. TBC run → **TBC-AIS-002** warning `$.accounts[0]._links is missing`, with its spec reference; then **PRE-003**'s two warnings with RFC 8414 §2 and RFC 8705 §5. 2. MOCK run → **NEG-SIG-001** passed: corrupted signature refused. 3. **Compare** → overview (p50 / p95) and the latency chart, MockBank vs TBC. 4. *If time allows:* MOCK run → **NEG-CON-004** failed → the prepared **AI summary**; **Rules** → type a name → **Approve** | "A real deviation: TBC's savings accounts come back without _links, while its loans have them. Berlin Group puts links in _links, so a TPP can't reach savings balances without a workaround. The fix is to return _links, as for loans. Two optional discovery fields are flagged too, each with its RFC. Security, tested on MockBank: a corrupted signature is refused. Compare puts the banks side by side: TBC at 323 milliseconds median, 559 at p95. *[If time allows:]* The one planted bug, explained by AI with its clause. And new rules stay drafts until a person approves them." |
+| **2:30–2:50** | Final artefact; quantify the gain | The TBC run's `report.html`, then the Compare overview | "What the team takes away: the Incompatibility Report, every deviation with its clause and a fix, and the Quality Report, banks side by side. Three deviations flagged on TBC, and the full check in about fifteen seconds instead of testing each endpoint by hand. The next bank is one YAML profile. Aura Monitoring." |
 
-The narration is about 330 words, around 2:30 at a calm pace, which leaves room for the screen to catch up.
+The narration is about 380 words, around 2:35 at a calm pace (2:45 with the optional AI lines). If a rehearsal runs
+long, drop the AI lines first, then the expanded request in 0:50–1:50.
 
-## Recording tips
+## Rules for the voice-over
 
-- Record the screen uncut, as the guidelines prefer. Recording the voice separately and laying it over is fine.
-- 0:50–1:50 is the tightest segment. If the AI summary takes more than about 10 s to appear, drop the TBC request
-  detail.
-- Export as MP4 and check the length is under 3:00. Test the download link in an incognito window before submitting.
+- Say only what the screen shows. The numbers come from the runs on 25 October 2026: 11/11 in 5 of 5 TBC runs, p50
+  323 ms, p95 559 ms, about 15 s per TBC suite. If a rehearsal shows different numbers, say those.
+- No figure for manual hours: we never measured one. "Instead of testing each endpoint by hand" is the comparison we
+  can stand behind.
+- Call MockBank's failure a *planted* bug, never a bank's.
 
-## Still open
+## After recording
 
-- `[manual baseline]`: fill in a realistic estimate of how long checking one bank by hand takes, or drop the
-  comparison. Don't use a number you can't back up.
-- The figures quoted (11/11 in 5 of 5 runs, p50 323 ms, about 15 s per TBC suite) are from runs on 25 October 2026.
-  If a rehearsal shows different numbers, say those instead.
+- Export as MP4 and check the length is between 2:00 and 3:00.
+- Upload it, open the link in an incognito window, and check it **downloads**.
+- Restart the portal without `MockBank__MaxFrequencyPerDay`.

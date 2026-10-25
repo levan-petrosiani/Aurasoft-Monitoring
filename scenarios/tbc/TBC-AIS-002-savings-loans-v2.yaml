@@ -2,7 +2,7 @@ id: TBC-AIS-002
 title: TBC savings and loans (v2) — detailed consent, OAuth SCA, savings and loans with balances
 suite: tbc
 severity: Critical
-specRef: "TBC Open Banking AIS v2: /v2/consents/account-access, /v2/savings, /v2/loans; OAuth SCA with PKCE"
+specRef: "TBC Open Banking AIS v2: /v2/consents/account-access, /v2/savings, /v2/loans; OAuth SCA with PKCE; Berlin Group NextGenPSD2: hyperlinks are returned in _links"
 requires:
   - features.tbcApi
 
