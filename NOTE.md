@@ -752,3 +752,32 @@ still accepts.
 
 **What:** merged `ai-layer-python` (the Python store, standards and AI layers) and then `phase3-scenarios` (Phases 3–6, eval sets, model comparison, overview PDF) into `main`, each with its own merge commit as the pull requests would have. Neither needed conflict resolution: `main` had not moved since the branches were cut. The README quick start no longer mentions the branch.
 **Why:** the user asked for the pull requests to be merged so teammates get everything by pulling `main`. `gh` is not installed, so the merges were done in git and pushed; GitHub marks pull requests whose commits are in `main` as merged.
+
+## 2026-10-25 · 52. Hackathon guidelines: cross-bank comparison, latency, portal and SCA guardrails, licences
+
+**Why:** the hackathon's evaluation guidelines (Open Banking track) ask for four test layers (standard compatibility,
+performance and reliability, latency, security), a cross-bank comparison shown on screen, reports that explain
+deviations, visible guardrails, and a README with setup, architecture, third-party licences and guardrail evidence.
+Checking the repository against them showed four gaps: no latency figures beyond a per-request "slow" warning, no
+cross-bank view (`aqt compare` was on the "not done" list), a login-less portal open to cross-site form posts, and
+`--sca-auto` enforced for real banks only in the portal, not the CLI.
+
+**What:**
+- `aqt/benchmark.py` (no AI, no DB): reads saved runs, maps every request to an operation (`GET /accounts/{id}/balances`;
+  host, `/0.8`, `/v1` and ids removed, so TBC's and MockBank's URLs match), and computes per bank over its last N runs:
+  pass rate, p50/p95/max latency per operation, 5xx or no answer, slow responses, the latest run's deviations with the
+  first failure and clause, and per scenario "passed k of n" to show whether results are reproducible.
+- `aqt compare [--bank A,B] [--last N]` (text) and the portal **Compare** page (SVG chart: p50 bar + p95 line per bank,
+  hover for max and samples; tables). Bank colours are fixed slots of the validated categorical palette, and a bank
+  keeps its colour when others are filtered out.
+- Ran the public TBC sandbox 3 more times: 5 of 5 runs passed 11/11; TBC p50 323 ms, p95 559 ms over 114 requests.
+- Portal: `only_from_this_portal` refuses POSTs whose `Origin`/`Referer` is another site (CSRF) and any request whose
+  `Host` is not a local name (DNS rebinding). Forms from the portal itself, curl and tests (no Origin) still work.
+- `allows_headless_sca` moved to `aqt/oauth.py` and is now used by the CLI too: `aqt run --sca-auto` on a real bank
+  profile exits with code 2 and explains why.
+- README: links to the architecture and overview at the top, a **Guardrails** table (risk → control → file) and a
+  **Third-party components and licences** table (licences read from the installed packages' metadata), Compare page and
+  command, refreshed verification numbers. CLAUDE.md and ARCHITECTURE.md (new section 5f) updated.
+
+**Tests:** 154 passed with `AQT_TEST_DB` (7 new: operations, percentiles, comparison and flaky detection, CLI and portal
+page, cross-site posts, DNS rebinding, `--sca-auto` refusal); 118 without a database. MOCK run 28 passed, 7 skipped.

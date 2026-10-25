@@ -1,4 +1,4 @@
-"""aqt command line: run, mock, list, validate, version, help — and db, ai, standards, rules (aqt/cli_ai.py, which needs
+"""aqt command line: run, mock, list, compare, validate, version, help — and db, ai, standards, rules (aqt/cli_ai.py, which needs
 the `ai` extra). Same commands, options and exit codes as the C# tool."""
 
 import os
@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from . import TOOL_VERSION, profiles, reporting, scenarios
 from .context import RunContext
 from .errors import ConfigurationError, OperationCancelled
-from .oauth import headless_authorizer, is_loopback_host
+from .oauth import allows_headless_sca, headless_authorizer, is_loopback_host
 from .results import Outcome, RunResult, ScenarioResult, format_rate
 from .runner import ScenarioRunner, is_preflight
 from .scenarios import TemplateLibrary
@@ -217,6 +217,9 @@ def cmd_run(cli: CliArgs, cancel: threading.Event) -> int:
     paths = Paths(cli)
 
     profile = profiles.load(bank, paths.banks)
+    if cli.has("sca-auto") and not allows_headless_sca(profile):
+        raise ConfigurationError(f"--sca-auto is only for MockBank and public mocks (a localhost XS2A URL or features.headlessSca: true); "
+                                 f"{profile.bank.bic} needs a person to log in at the bank. Run without --sca-auto.")
     templates = TemplateLibrary.load(paths.scenarios)
     all_scenarios = scenarios.load_all(paths.scenarios)
     selected = scenarios.filter_scenarios(all_scenarios, cli.get_list("suite"), cli.get_list("scenario"))
@@ -308,6 +311,20 @@ def cmd_list(cli: CliArgs) -> int:
     raise ConfigurationError("Usage: aqt list banks|scenarios [--suite name]")
 
 
+def cmd_compare(cli: CliArgs) -> int:
+    """Banks side by side from the saved CLI reports: pass rate, latency per operation, deviations, reproducibility."""
+    from . import benchmark
+    last = cli.get("last") or str(benchmark.DEFAULT_LAST_RUNS)
+    if not last.isdigit() or int(last) < 1:
+        raise ConfigurationError(f"--last needs a number of runs, got '{last}'")
+    directory = cli.get("out") or os.path.join(os.getcwd(), "reports")
+    comparison = benchmark.compare(benchmark.load_reports(directory), cli.get_list("bank"), int(last))
+    if not comparison.banks:
+        raise ConfigurationError(f"No saved runs{' for ' + cli.get('bank') if cli.has('bank') else ''} in {directory}. Run 'aqt run' first.")
+    print(benchmark.render_text(comparison))
+    return SUCCESS
+
+
 def cmd_validate(cli: CliArgs) -> int:
     paths = Paths(cli)
     ok = True
@@ -391,6 +408,7 @@ Usage:
   aqt mock                     run MockBank (a fake bank) until Ctrl+C
   aqt portal [--port 5280] [--db conn | --no-db] [--auto-summarize]   run the web portal (store/AI pages need the database)
   aqt list banks|scenarios [--suite name]
+  aqt compare [--bank BIC,BIC] [--last 5] [--out reports]   banks side by side: pass rate, latency p50/p95, deviations
   aqt validate
   aqt version
 
@@ -475,6 +493,8 @@ def main(argv: list[str]) -> int:
             return cmd_list(cli)
         if command == "validate":
             return cmd_validate(cli)
+        if command == "compare":
+            return cmd_compare(cli)
         if command in ("version", "--version"):
             print(TOOL_VERSION)
             return SUCCESS

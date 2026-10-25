@@ -218,6 +218,13 @@ def is_loopback_host(host: str | None) -> bool:
         return False
 
 
+def allows_headless_sca(profile) -> bool:
+    """Automatic SCA (--sca-auto, the portal's auto SCA) is only for a server on this machine (MockBank) or a public mock
+    whose profile says features.headlessSca: true. Never for a real bank."""
+    features = profile.features if isinstance(profile.features, dict) else {}
+    return is_loopback_host(urlsplit(profile.endpoints.xs2a).hostname) or features.get("headlessSca") is True
+
+
 class OAuthCallbackListener:
     """
     Minimal HTTP listener for the OAuth redirect (e.g. http://localhost:5199/callback) on the loopback interfaces.

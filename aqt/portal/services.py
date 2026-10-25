@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 from .. import profiles, reporting, scenarios
 from ..context import RunContext
 from ..errors import ConfigurationError, OperationCancelled
-from ..oauth import headless_authorizer, is_loopback_host
+from ..oauth import allows_headless_sca, headless_authorizer, is_loopback_host
 from ..profiles import BankProfile
 from ..results import Outcome, RunResult, ScenarioResult, format_rate, format_time, parse_time
 from ..runner import ScenarioRunner, is_preflight
@@ -89,8 +89,7 @@ class CatalogService:
     @staticmethod
     def allows_headless_sca(profile: BankProfile) -> bool:
         """Automatic SCA is offered for local servers and for profiles with features.headlessSca: true."""
-        features = profile.features if isinstance(profile.features, dict) else {}
-        return CatalogService.is_local(profile) or features.get("headlessSca") is True
+        return allows_headless_sca(profile)
 
 
 # ---- MockBank ----------------------------------------------------------------------------------------------------

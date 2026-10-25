@@ -10,6 +10,10 @@ and every response checked against what the standard expects.
 - **Standalone:** no AltaSoft server models. The core tool needs no database; the optional store/AI layer
   (`pip install -e .[ai]`) adds PostgreSQL, AI run summaries and rules drafted from the standards.
 - **Data-driven:** banks are YAML profiles in `banks/`, tests are YAML scenarios in `scenarios/`.
+- **Architecture:** [ARCHITECTURE.md](ARCHITECTURE.md) (diagrams of the current system); the full overview, including the
+  model comparison, is [docs/overview/system-overview.pdf](docs/overview/system-overview.pdf).
+- **Guardrails** (where each control lives in the code): [Guardrails](#guardrails) ·
+  **Third-party components and licences:** [Licences](#third-party-components-and-licences)
 
 ## Quick start for teammates (everything, from a fresh clone)
 
@@ -23,6 +27,8 @@ pip install -e ".[test,ai]"
 # 1. No bank, no database: everything against the built-in MockBank
 aqt validate
 aqt run --bank MOCK --with-mock --sca-auto               # 28 passed, 7 skipped (TBC-only)
+aqt run --bank TBC-MOCK --suite preflight,tbc --sca-auto # the public TBC sandbox over the internet: 11 passed
+aqt compare                                              # both banks side by side: pass rate, latency p50/p95
 pytest                                                   # database tests are skipped without AQT_TEST_DB
 
 # 2. Store + AI layer
@@ -34,7 +40,7 @@ ollama pull qwen3:8b                                     # optional: the local m
 aqt ai check                                             # Claude and Ollama reachable
 aqt standards fetch && aqt standards ingest              # download + split the standards (once)
 aqt portal                                               # http://localhost:5280 — every page incl. AI, Monitoring
-AQT_TEST_DB="host=localhost port=5435 user=aqt password=aqt_dev" pytest   # all 147 tests
+AQT_TEST_DB="host=localhost port=5435 user=aqt password=aqt_dev" pytest   # all 154 tests
 ```
 
 On macOS with uv-created venvs, if `aqt` is not found, use `python -m aqt ...` from the repository root. The overview
@@ -80,6 +86,7 @@ aqt portal                 # http://localhost:5280/   (--port, --root <dir>, --d
 | **New run** | Bank, suites or individual scenarios, options (built-in MockBank, automatic SCA, preflight gate) |
 | **Run** | Live progress while running, a **"Bank login needed"** button when a scenario waits for SCA, then results per scenario with steps and HTTP exchanges; links to `report.html`, `summary.json`, `junit.xml`; Run again / Delete |
 | **Runs** | History of all runs |
+| **Compare** | Banks side by side over their last N runs: pass rate, latency p50/p95 per operation (chart + table), deviations in the latest run with the clause, scenarios across banks with "passed 4 of 5" to show whether results are reproducible |
 | **Scenarios** | The scenario catalogue grouped by suite |
 | **Standards / Rules** | Clauses of the standards; AI rule drafts to approve, edit or reject (store/AI layer) |
 | **Drafts** | AI scenario drafts from approved rules, with the MockBank dry run; approve writes the YAML file |
@@ -94,6 +101,9 @@ aqt portal                 # http://localhost:5280/   (--port, --root <dir>, --d
 - Manual SCA: the login page opens in your browser and redirects to `http://localhost:5199/callback` on
   the machine running the portal, so use the portal on the same machine (it is a local tool; it has no
   login of its own and listens on localhost only).
+- Because there is no login, the portal refuses forms posted from another site (the browser's `Origin`/`Referer` must be
+  the portal itself) and requests whose `Host` is not a local name (DNS rebinding), see `only_from_this_portal` in
+  `aqt/portal/app.py`. Reviewers type their name; a real login is the first thing to add before shared use.
 
 ## Try it without any bank (MockBank)
 
@@ -181,12 +191,16 @@ Reports go to `reports/<BIC>-<timestamp>/`: `report.html`, `summary.json`, `juni
 | `aqt mock` | Runs MockBank until Ctrl+C |
 | `aqt portal [--port 5280] [--data dir]` | Runs the web portal |
 | `aqt list banks` / `aqt list scenarios [--suite x]` | Lists profiles / scenarios |
+| `aqt compare [--bank BIC,BIC] [--last 5] [--out reports]` | Banks side by side from the saved reports: pass rate, latency p50/p95 per operation, deviations, scenarios that are not reproducible (`aqt/benchmark.py`, no AI) |
 | `aqt validate` | Loads every profile, template and scenario and reports mistakes |
 | `aqt version` | Prints the version |
 
 Common options: `--root <dir>` (folder with `banks/` and `scenarios/`), `--banks <dir>`, `--scenarios <dir>`.
 
 Exit codes: `0` all passed, `1` failures or errors in the run, `2` invalid input or configuration.
+
+`--sca-auto` is refused (exit code 2) unless the profile's XS2A URL is on this machine (MockBank) or the profile says
+`features.headlessSca: true` (public mocks such as TBC's): a real bank always needs a person to log in.
 
 Preflight scenarios always run first. If a **Critical** preflight scenario fails (e.g. TLS or the
 signature is not accepted), the other scenarios are marked **Blocked** instead of failing one by one
@@ -296,10 +310,11 @@ The TestTool posted some bad requests to `v2/consents`; the ported scenarios use
 ## Verification
 
 ```bash
-pytest                                            # 22 tests
+pytest                                            # 154 tests (118 without a database; set AQT_TEST_DB for the rest)
 aqt validate
-aqt run --bank MOCK --with-mock --sca-auto        # 16 passed, 7 skipped (tbc suite)
+aqt run --bank MOCK --with-mock --sca-auto        # 28 passed, 7 skipped (tbc suite)
 aqt run --bank TBC-MOCK --suite preflight,tbc --sca-auto   # 11/11
+aqt compare                                       # side by side, with latency per operation
 ```
 
 - The tests cover YAML typing and binding (unknown/missing properties), variables, JSON paths, signing and
@@ -383,6 +398,55 @@ aqt portal                              # store/AI pages on when the database is
 - Database tests run when `AQT_TEST_DB` is set (`host=localhost port=5435 user=aqt password=aqt_dev`); each test
   module creates and drops its own database.
 
+## Guardrails
+
+Each control is enforced in code (and covered by tests), not only described:
+
+| Risk | Control | Where |
+|---|---|---|
+| Secrets in reports, the store or a model prompt | Tokens, OAuth codes, `Authorization`/`PSU-ID` headers, `Bearer`/`Basic` credentials in free text and IBANs are masked before anything is written or sent | `aqt/store/masking.py` (`SensitiveDataMasker`), `aqt/steps.py`, `aqt/oauth.py` |
+| Secrets in git | `certs/` contents, `*.pfx`, `.env` and `reports/` are git-ignored; keys come from environment variables or the local `.env` | `.gitignore`, `load_dotenv` in `aqt/cli.py` |
+| Automatic SCA against a real bank | `--sca-auto` and the portal's auto SCA only for a local server or `features.headlessSca: true` | `allows_headless_sca` in `aqt/oauth.py` |
+| Real payments | Payment scenarios need the profile's sandbox test accounts (`variables.pis.*`); AI drafts that send payment data without them are refused | `require:` in `scenarios/pis/`, `check_scenario` in `aqt/ai/scenario_drafting.py` |
+| AI inventing requirements | A rule's quote must occur in the indexed standard text, checked in code; failing drafts are marked `invalid` | `aqt/standards/quote.py`, `aqt/ai/rules.py` |
+| AI output used without review | Rules and scenarios stay drafts until a named person approves them; every change is a `rule_reviews` row; AI scenario drafts only ever run on an in-process MockBank | `RuleBook` in `aqt/ai/rules.py`, `ScenarioReview` in `aqt/ai/scenario_drafting.py`, `aqt/dryrun.py` |
+| Wrong facts in AI summaries and answers | Counts, run-to-run changes and scenario ids are computed in code and the model's output is checked against them; ids in Ask answers that the agent never looked up are flagged | `build_digest` / `RunSummary.validate` in `aqt/ai/summaries.py`, `check_citations` in `aqt/ai/agent.py` |
+| The ask-agent changing or leaking data | Its SQL logs in as a separate read-only role that can only SELECT from views without headers or bodies: one prepared statement, 5 s timeout | `aqt/store/migrations/0003_ask_agent.sql`, `agent_query` in `aqt/store/store.py` |
+| No record of what the AI did | Every model call is an `ai_calls` row: model, prompt hash, tokens, duration, output, who triggered it | `AuditSink` in `aqt/ai/chat.py` |
+| Model quality drifting | Eval sets with known answers, scored in code; run before and after every prompt change | `evals/*.yaml`, `aqt/ai/evals.py` (`aqt ai eval`) |
+| Alerts invented by a model | Regressions, fixes and bank-down alerts are computed in code after every run | `aqt/monitor/alerts.py` |
+| Unattended runs waiting for a login | Scheduled runs skip scenarios that need SCA | `skip_sca_reason` in `aqt/runner.py` |
+| Login-less portal abused from the browser | Cross-site form posts and non-local `Host` names are refused; listens on 127.0.0.1 only | `only_from_this_portal` in `aqt/portal/app.py` |
+| Keeping request data forever | Stored HTTP exchanges are pruned after 90 days | `aqt db prune`, `monitoring.yaml` |
+
+Known gaps: the portal has no login (reviewers type their name), and the tool has run against MockBank and the public
+TBC sandbox, not yet against a bank's real sandbox with real certificates.
+
+## Third-party components and licences
+
+The tool's own code is in this repository (no licence granted; all rights reserved by the authors). It uses:
+
+| Component | Used for | Licence |
+|---|---|---|
+| [PyYAML](https://pyyaml.org/) | Bank profiles and scenarios | MIT |
+| [cryptography](https://cryptography.io/) | Certificates, JWS signatures, `Digest` | Apache-2.0 or BSD-3-Clause |
+| [pyOpenSSL](https://www.pyopenssl.org/) | mTLS; client certificates in MockBank | Apache-2.0 |
+| [Flask](https://flask.palletsprojects.com/) (with Werkzeug, Jinja2) | Web portal | BSD-3-Clause |
+| [pytest](https://pytest.org/) | Tests | MIT |
+| [psycopg 3](https://www.psycopg.org/) | PostgreSQL driver (store) | LGPL-3.0 (used as an unmodified library) |
+| [pgvector-python](https://github.com/pgvector/pgvector-python) | Vector search on standard clauses | MIT |
+| [pdfplumber](https://github.com/jsvine/pdfplumber) (with pdfminer.six) | Reading the standards' PDFs | MIT |
+| [anthropic](https://github.com/anthropics/anthropic-sdk-python) SDK | Calls to Claude | Apache-2.0 |
+| [PostgreSQL 17](https://www.postgresql.org/) + [pgvector](https://github.com/pgvector/pgvector) (Docker image `pgvector/pgvector:pg17`) | Store | PostgreSQL License |
+| [Ollama](https://ollama.com/) | Runs local models | MIT |
+| [bge-m3](https://huggingface.co/BAAI/bge-m3) | Local embeddings | MIT |
+| [Qwen3 8B](https://huggingface.co/Qwen/Qwen3-8B) (optional) | Local chat model | Apache-2.0 |
+| Claude (`claude-opus-5-5`), Anthropic API | Rule and scenario drafting, summaries, Ask (default) | Commercial API under Anthropic's terms; data sent is masked first, and every feature can switch to the local model |
+| [Mermaid](https://mermaid.js.org/) | Diagrams in `ARCHITECTURE.md` and the overview | MIT |
+
+The standards (NBG GE-XS2A, Berlin Group NextGenPSD2) are not redistributed: `standards/sources.yaml` lists their public
+URLs and SHA-256 hashes, and `aqt standards fetch` downloads them locally (git-ignored).
+
 ## Moved from C#
 
 The C# solution (`src/`, `tests/`, `ApiTestTool.sln`, `Directory.*.props`, `nuget.config`, `dotnet-tools.json`) was
@@ -398,5 +462,5 @@ every existing rule quote still verifies).
 ## Not done yet
 
 Bulk/periodic payments and signing baskets; Playwright and decoupled SCA modes, onboarding (client
-registration), OpenAPI schema validation, Excel report, `aqt compare`. The AIS and PIS suites have been verified against
+registration), OpenAPI schema validation, Excel report, a portal login. The AIS and PIS suites have been verified against
 MockBank (28 scenarios pass); they have not yet been run against a real local XS2A + AuthServer or a bank sandbox.

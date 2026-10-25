@@ -22,6 +22,7 @@ aqt run --bank MOCK --with-mock --sca-auto               # full run, no real ban
 aqt run --bank TBC-MOCK --suite preflight,tbc --sca-auto # public TBC mock
 aqt mock                                                 # MockBank only (https :7443, http :7080)
 aqt portal                                               # web UI on http://localhost:5280/
+aqt compare [--bank A,B] [--last 5]                      # banks side by side: pass rate, latency p50/p95, deviations
 pip install -e .[ai] && docker compose up -d             # store/AI layer: PostgreSQL on localhost:5435
 aqt db migrate|import|status                             # store
 aqt ai check                                             # Claude + Ollama reachable, audited
@@ -48,7 +49,8 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
 | Path | Role |
 |---|---|
 | `aqt/` | Engine: `yamljson` + `binding` (YAML → dataclasses, unknown properties rejected), `profiles`, `scenarios`, `runner`, `steps` (request/tls/sca/localCertificates + expectations), `variables`, `jsonpath`, `signing` (JWS + Digest), `certificates`, `oauth` (PKCE, callback listener, headless approval), `httpclient` (mTLS, retries), `reporting`. No UI, no AI |
-| `aqt/cli.py` | `aqt` command (`run`, `mock`, `portal`, `list`, `validate`, `version`) |
+| `aqt/cli.py` | `aqt` command (`run`, `mock`, `portal`, `list`, `compare`, `validate`, `version`) |
+| `aqt/benchmark.py` | Cross-bank comparison from saved runs: latency p50/p95 per operation, deviations, reproducibility (no AI, no DB) |
 | `aqt/mockbank/` | In-memory fake ASPSP enforcing real XS2A checks (pyOpenSSL for optional client certificates); the reference target for new scenarios |
 | `aqt/portal/` | Flask UI; `services.py` (`RunService`) queues runs and stores them in `reports/portal-python/`; `ai_services.py` writes them to the store and serves the AI summary, Standards, Rules, Drafts, Coverage and Ask pages |
 | `aqt/store/` | PostgreSQL store (psycopg, plain SQL): `migrations/*.sql`, `masking.py`, `importer.py`, `store.py`, `coverage.py` |
@@ -72,7 +74,10 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
   Never reference B7.PSD2/AltaSoft projects.
 - **Never commit secrets:** `certs/` contents, `*.pfx`, API keys. Keys come from environment variables
   (`AQT_QWAC_PASSWORD`, `AQT_QSEALC_PASSWORD`, `ANTHROPIC_API_KEY`).
-- **`--sca-auto` is for MockBank / public mocks only** — never add it to a real bank's flow.
+- **`--sca-auto` is for MockBank / public mocks only** — never add it to a real bank's flow; `allows_headless_sca`
+  (`aqt/oauth.py`) enforces it for the CLI and the portal.
+- The portal has no login: keep `only_from_this_portal` (`aqt/portal/app.py`, Origin/Referer and Host checks) in front
+  of every route.
 - Codes, tokens and other secrets are masked in reports; any new output or store must mask them too.
 - Every scenario needs a `specRef` naming the clause it tests.
 - Unattended (scheduled) runs never wait for a bank login: scenarios with an SCA step are skipped

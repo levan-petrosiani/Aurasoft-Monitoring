@@ -19,8 +19,8 @@ flowchart LR
     end
 
     subgraph Hosts["Entry points"]
-        Cli["aqt/cli.py (aqt)<br/>run · mock · portal · list · validate<br/>db · ai · standards · rules<br/>scenarios · coverage · ask (cli_ai.py)"]
-        Portal["aqt/portal (Flask :5280)<br/>RunService → reports/portal-python<br/>AI summary · Standards · Rules<br/>Drafts · Coverage · Ask"]
+        Cli["aqt/cli.py (aqt)<br/>run · mock · portal · list · compare · validate<br/>db · ai · standards · rules<br/>scenarios · coverage · ask (cli_ai.py)"]
+        Portal["aqt/portal (Flask :5280)<br/>RunService → reports/portal-python<br/>Compare · AI summary · Standards · Rules<br/>Drafts · Coverage · Ask<br/>Origin + Host checks (no login)"]
     end
 
     subgraph AiLayer["Optional store + AI layer (pip install -e .[ai])"]
@@ -37,6 +37,7 @@ flowchart LR
     Mock["aqt/mockbank<br/>fake ASPSP :7443 (mTLS) / :7080<br/>AIS /v2 · PIS /v1/payments"]
     Dry["aqt/dryrun.py<br/>MockDryRun: in-process MockBank<br/>on free ports, MOCK profile only"]
     Reports[("reports/&lt;BIC&gt;-&lt;time&gt;/<br/>report.html · summary.json · junit.xml")]
+    Bench["aqt/benchmark.py<br/>cross-bank comparison<br/>latency p50/p95 per operation<br/>reproducibility (no AI, no DB)"]
 
     subgraph Targets["Banks under test"]
         Real["Bank sandboxes"]
@@ -54,6 +55,9 @@ flowchart LR
     Engine -- "mTLS + JWS" --> Real
     Engine --> TbcMock
     Engine --> Reports
+    Reports --> Bench
+    Cli -- "compare" --> Bench
+    Portal -- "/compare" --> Bench
 
     Cli -- "run --db / AQT_DB" --> Store
     Portal -- "background writes" --> Store
@@ -261,12 +265,30 @@ tool created; a database created by the C# tool is recognised (its EF Core histo
 `scenario_drafts` (Phase 3). `0003` adds the schema `agent` (read-only views), the login role `aqt_agent` and
 `agent_questions` (Phase 4). `0004` adds `monitor_state`, `alerts` and the agent view `agent.alerts` (Phase 6).
 
+## 5f. Cross-bank comparison and latency
+
+```mermaid
+flowchart LR
+    Runs[("saved runs<br/>reports/*/summary.json<br/>+ portal runs")] --> Last["last N runs per bank"]
+    Last --> Op["every request → operation<br/>GET /accounts/{id}/balances<br/>(host, /0.8, /v1 and ids removed)"]
+    Op --> Lat["p50 · p95 · max · 5xx/none<br/>per bank and operation"]
+    Last --> Cells["per scenario and bank:<br/>latest outcome + passed k of n"]
+    Last --> Dev["deviations in the latest run<br/>first failure + clause"]
+    Lat --> Out["aqt compare (text)<br/>portal Compare (SVG chart + tables)"]
+    Cells --> Out
+    Dev --> Out
+```
+
+Everything is computed in code from the run files; `--sca-auto` (CLI) and the portal's auto SCA share one rule,
+`allows_headless_sca` in `aqt/oauth.py`: a server on this machine or a profile with `features.headlessSca: true`.
+
 ## 7. Tech facts
 
 - Python 3.11+; PyYAML, cryptography, pyOpenSSL, Flask; pytest. Optional `ai` extra: psycopg 3 + pgvector, anthropic,
   pdfplumber (Ollama is called over HTTP).
 - Ports: portal 5280, MockBank 7443 (HTTPS, mTLS) and 7080 (HTTP pages), OAuth callback 5199, PostgreSQL 5435,
   Ollama 11434.
-- Tests: 137 with `AQT_TEST_DB`; without a database 105 pass and the 32 database tests are skipped. MOCK run: 28 passed, 7 skipped (TBC-only).
+- Tests: 154 with `AQT_TEST_DB`; without a database 118 pass and the 36 database tests are skipped. MOCK run: 28 passed, 7 skipped
+  (TBC-only); public TBC sandbox: 11/11 in 5 runs out of 5.
 - Reports keep the C# `summary.json` shape (camelCase, nulls omitted); interop with the C# client and MockBank was
   verified in both directions before the C# code was removed.

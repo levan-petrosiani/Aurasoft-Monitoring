@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Compare banks{% endblock %}
+{% block content %}
+<style>{{ chart_css | safe }}</style>
+<div class="title-row"><h1>Compare banks</h1></div>
+<p class="muted small">
+    The last {{ last }} run(s) of each bank side by side: standard compliance, latency per operation and whether results
+    are reproducible. Every request a run made is a latency sample; operations are matched across banks by method and
+    path (version prefixes and ids removed). Computed in code from the saved runs — no AI.
+</p>
+
+<form class="filter-row" method="get" action="/compare" style="align-items:center;flex-wrap:wrap;gap:6px 16px">
+    {% for b in all_banks %}
+    <label class="check"><input type="checkbox" name="bank" value="{{ b }}" {{ 'checked' if not chosen or b in chosen }} />
+        <span class="swatch bank-{{ colours[b] }}"></span>{{ b }}</label>
+    {% endfor %}
+    <label class="check">last <input class="input-inline" style="min-width:0;width:64px" type="number" name="last" min="1" max="50" value="{{ last }}" /> runs</label>
+    <button class="btn btn-small">Show</button>
+</form>
+
+{% if not c.banks %}
+<p class="muted">No finished runs yet. Start one on <a href="/run/new">New run</a> or with <code>aqt run</code>.</p>
+{% else %}
+
+<h2>Overview</h2>
+<table class="grid">
+    <tr><th>Bank</th><th>Runs</th><th title="latest run">Pass rate</th><th>Pass</th><th>Fail</th><th>Error</th><th>Skip</th>
+        <th>Requests</th><th>p50</th><th>p95</th><th title="5xx answers or no answer (connection, TLS, timeout)">5xx / none</th><th title="over the profile's slowResponseMs">Slow</th></tr>
+    {% for b in c.banks %}
+    <tr>
+        <td><span class="swatch bank-{{ colours[b.bic] }}"></span><b>{{ b.bic }}</b> <span class="small muted">{{ b.name }}</span></td>
+        <td>{{ b.runs | length }}</td>
+        <td><b class="{{ 'text-pass' if b.failed + b.errors == 0 else 'text-fail' }}">{{ format_rate(b.pass_rate) }}%</b></td>
+        <td>{{ b.passed }}</td><td>{{ b.failed }}</td><td>{{ b.errors }}</td><td>{{ b.skipped }}</td>
+        <td>{{ b.requests }}</td><td style="white-space:nowrap">{{ ms(b.latency.p50) }}</td><td style="white-space:nowrap">{{ ms(b.latency.p95) }}</td>
+        <td>{{ b.latency.errors }}</td><td>{{ b.slow }}</td>
+    </tr>
+    {% endfor %}
+</table>
+
+<h2>Latency per operation</h2>
+<p class="muted small">Bar = median (p50), line = 95th percentile (p95); hover for max and sample count. Banks on this
+    machine (MockBank) answer in about 1 ms, so their bars are tiny.</p>
+<div class="actions small">{% for b in c.banks %}<span><span class="swatch bank-{{ colours[b.bic] }}"></span>{{ b.bic }}</span>{% endfor %}</div>
+{{ chart | safe }}
+<details>
+    <summary class="small">Latency table</summary>
+    <table class="grid">
+        <tr><th>Operation</th>{% for b in c.banks %}<th>{{ b.bic }} p50 / p95 (n)</th>{% endfor %}</tr>
+        {% for op in c.operations %}
+        <tr><td><code>{{ op }}</code></td>
+            {% for b in c.banks %}{% set s = c.latency.get((b.bic, op)) %}
+            <td>{% if s %}{{ ms(s.p50) }} / {{ ms(s.p95) }} <span class="muted">({{ s.count }}{% if s.errors %}, {{ s.errors }} errors{% endif %})</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+            {% endfor %}</tr>
+        {% endfor %}
+    </table>
+</details>
+
+<h2>Deviations in the latest run</h2>
+{% set ns = namespace(any=false) %}
+<table class="grid">
+    <tr><th>Bank</th><th>Scenario</th><th>What went wrong</th><th>Standard</th></tr>
+    {% for b in c.banks %}{% for d in b.deviations %}{% set ns.any = true %}
+    <tr><td>{{ b.bic }}</td>
+        <td><span class="badge badge-{{ badge_css(d.outcome) }}">{{ d.outcome.value }}</span> <code>{{ d.scenario_id }}</code>
+            <div class="small">{{ d.title }}</div></td>
+        <td class="small">{{ d.detail }}</td><td class="small">{{ d.spec_ref }}</td></tr>
+    {% endfor %}{% endfor %}
+    {% if not ns.any %}<tr><td colspan="4" class="muted">None — every executed scenario passed in each bank's latest run.</td></tr>{% endif %}
+</table>
+
+<h2>Scenarios across banks</h2>
+<p class="muted small">Latest outcome per bank; "4/5" = passed in 4 of the 5 runs where it executed. A mixed count means the
+    result is not reproducible (flaky bank or test).</p>
+<table class="grid">
+    <tr><th>Scenario</th>{% for b in c.banks %}<th>{{ b.bic }}</th>{% endfor %}</tr>
+    {% for sid, title, row in c.scenarios %}
+    <tr><td><code>{{ sid }}</code> <span class="small">{{ title }}</span></td>
+        {% for b in c.banks %}{% set cell = row.get(b.bic) %}
+        <td>{% if cell %}<span class="badge badge-{{ badge_css(cell.latest) }}">{{ cell.latest.value }}</span>
+            {% if cell.executed %}<span class="small {{ 'muted' if cell.stable else 'text-fail' }}">{{ cell.passed }}/{{ cell.executed }}</span>{% endif %}
+            {% else %}<span class="muted">—</span>{% endif %}</td>
+        {% endfor %}</tr>
+    {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

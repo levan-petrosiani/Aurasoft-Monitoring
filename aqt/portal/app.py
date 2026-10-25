@@ -11,6 +11,7 @@ from urllib.parse import urlencode, urlsplit
 from flask import Flask, abort, make_response, redirect, render_template, request, send_file, url_for
 
 from ..errors import ConfigurationError
+from ..oauth import is_loopback_host
 from ..reporting import pretty_json
 from ..results import Outcome, format_rate, pass_rate
 from ..runner import PREFLIGHT_SUITE
@@ -80,6 +81,21 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
         if monitor:
             ai.monitor.start(runs)
     app.config.update(catalog=catalog, mock_bank=mock_bank, runs=runs, ai=ai, ai_problem=ai_problem)
+
+    @app.before_request
+    def only_from_this_portal():
+        """The portal has no login and listens on 127.0.0.1 only. Two browser attacks could still reach it, and both are
+        refused here: a page on another site that posts a form to the portal (cross-site request forgery; the browser's
+        Origin header names the other site) and a site whose name resolves to 127.0.0.1 (DNS rebinding; the Host header
+        is not a local name)."""
+        if not is_loopback_host(urlsplit("//" + request.host).hostname):
+            abort(403, "The portal only answers on localhost.")
+        if request.method == "POST":
+            origin = request.headers.get("Origin")
+            if origin is None and request.referrer:
+                origin = request.referrer
+            if origin is not None and urlsplit(origin).netloc != request.host:
+                abort(403, "Form posted from another site; refused (cross-site request forgery protection).")
 
     @app.context_processor
     def ai_context():
@@ -151,6 +167,24 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
     @app.get("/runs")
     def runs_page():
         return render_template("runs.html", page="runs", runs=runs.runs, data_directory=runs.data_directory)
+
+    @app.get("/compare")
+    def compare_page():
+        from .. import benchmark
+        saved = [benchmark.SavedRun(r.id, r.result) for r in runs.runs if r.result is not None and not r.is_active]
+        saved += benchmark.load_reports(os.path.join(root, "reports"))  # CLI runs
+        try:
+            last = max(1, min(50, int(request.args.get("last", benchmark.DEFAULT_LAST_RUNS))))
+        except ValueError:
+            last = benchmark.DEFAULT_LAST_RUNS
+        everything = benchmark.compare(saved, last=last)
+        chosen = [b for b in request.args.getlist("bank") if b]
+        comparison = benchmark.compare(saved, chosen, last) if chosen else everything
+        colours = benchmark.bank_colour_index(everything)  # a bank keeps its colour when others are filtered out
+        chart = benchmark.latency_chart(comparison, colours)
+        return render_template("compare.html", page="compare", c=comparison, all_banks=[b.bic for b in everything.banks],
+                               chosen=chosen, last=last, chart=chart, colours=colours, chart_css=benchmark.chart_css(),
+                               ms=benchmark.format_ms)
 
     @app.get("/runs/<run_id>")
     def run_detail(run_id):
