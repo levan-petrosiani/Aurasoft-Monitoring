@@ -781,3 +781,15 @@ cross-bank view (`aqt compare` was on the "not done" list), a login-less portal 
 
 **Tests:** 154 passed with `AQT_TEST_DB` (7 new: operations, percentiles, comparison and flaky detection, CLI and portal
 page, cross-site posts, DNS rebinding, `--sca-auto` refusal); 118 without a database. MOCK run 28 passed, 7 skipped.
+
+## 2026-10-25 · 53. Pitch deck and demo video script
+
+**What:** a 10-slide pitch deck (a Slides artifact, outside the repository) following the guidelines' pitch structure,
+and `docs/demo-script.md`: a timed voice-over script for the 3-minute demo video (persona, storyboard per time slot,
+preparation, recording tips).
+**Why:** the deck and the video are the two required submission items, due 25 October 23:59. The demo needs a
+deviation to explain, and MockBank passes everything by default, so the script plants three through MockBank settings
+(`MockBank__VerifySignatures=false`, `MockBank__MaxFrequencyPerDay=10`). Checked from the CLI on a spare port: 25
+passed and 3 failed (NEG-CON-004, NEG-SIG-001, NEG-SIG-002), with the reasons the script quotes. All figures in the
+deck and script come from today's runs, the database and the evals; the manual-baseline comparison is left as a
+placeholder because it was never measured.
