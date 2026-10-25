@@ -830,3 +830,24 @@ The test container, database, dump and image were removed afterwards.
 
 **Tests:** 158 passed with `AQT_TEST_DB`, 4 of them new (password required for a public portal; host, login and
 delete rules; the daily AI cap; `--host 0.0.0.0` refused without jury mode). 122 without a database.
+
+## 2026-10-25 · 55. Deck review fixes; PRE-003 cites RFC 8705
+
+**What:** applied an external review of the pitch deck (in the Slides artifact, not the repository).
+- Slide 2 now leads with a fix-it example: TBC savings accounts have no `_links` while TBC's loans do. It shows the
+  impact on TPPs, the standard and the fix. The two discovery warnings cite RFC 8414 §2 and RFC 8705 §5.
+- Removed the overclaim that "404 vs 403" and "numbers vs strings" were found by the tool: those were noticed by hand,
+  and no test asserts them.
+- Slide 7: "3 deviations flagged" next to "11/11 ran end to end", plus a Compare screenshot.
+- The Challenge Book's names (Auditor Tool, Incompatibility Report, Quality Report) are used on slides 3, 4 and 7.
+- Security examples are marked "on MockBank" (TBC's mock ignores signatures).
+- "Judgement by the model" is now "drafts and explanations by the model".
+
+PRE-003's `specRef` now names RFC 8705 §5, so the deck's citation for `mtls_endpoint_aliases` is backed by the
+scenario.
+
+**Found on the way:** a portal run at 13:53 ran *all* suites against TBC-MOCK. The generic negative tests NEG-CON-005
+and NEG-CON-006 got `FORMAT_ERROR` where they expect `PARAMETER_NOT_SUPPORTED`, and NEG-CON-008 got 404 where it
+expects 401. These are not yet reviewed as TBC deviations, because those tests encode our reference behaviour, so the
+deck does not use them. Compare shows that run as TBC's latest (85.7%); the deck's screenshot is taken from the
+targeted CLI runs only.
