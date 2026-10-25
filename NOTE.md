@@ -903,3 +903,9 @@ TBC. The `tbc-sandbox.example` fixtures in `evals/` are invented test data and s
 `banks/TBC-MOCK.yaml` (line-ending noise against the upstream header edit) was resolved to the upstream text.
 **Why:** the repo stays standalone; the working copy had to match `main`.
 **Verified:** `pytest`.
+
+## 2026-10-25 · 37. Remove the LOCAL (AltaSoft XS2A) profile (user's request)
+
+**What:** deleted `banks/LOCAL.yaml` (BIC ALTAGE22, `https://localhost:10001/`). Nothing referenced it.
+**Why:** it pointed at a vendor's local server that is not part of this standalone repo.
+**Verified:** `aqt validate`, `pytest`.
