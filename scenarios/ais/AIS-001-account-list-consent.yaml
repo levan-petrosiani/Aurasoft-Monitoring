@@ -8,7 +8,7 @@ description: >
   POST consent → POST _links.startAuthorisation → OAuth (PKCE) at _links.scaOAuth with scope AIS:<consentId>
   → consent becomes 'valid' → read accounts and balances with Consent-ID + Bearer token.
   Manual SCA: the tester logs in with a sandbox PSU in the browser.
-# Paths/payloads from XSA2/Api/Controllers/AIS (ConsentsController, AccountsController) and TPP/SDK.
+# Paths and payloads follow the Georgian XS2A v2 consent and accounts APIs.
 origin: TPP/Blazor/Pages/Accounts/StartAccountsProcess (same flow, automated)
 requires:
   - features.consents=accountList

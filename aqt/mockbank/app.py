@@ -285,7 +285,7 @@ class MockBankApp:
 
         return None
 
-    # ---- consents (shaped after XSA2 ConsentsController, Georgian XS2A v2) ---------------------------------------
+    # ---- consents (Georgian XS2A v2) ---------------------------------------
 
     def create_consent(self, request: Request) -> Response:
         ip = request.header("PSU-IP-Address")
@@ -593,7 +593,7 @@ class MockBankApp:
             payment.authorised_utc = utc_now()
             payment.status = "ACCC" if payment.product == "aspsp" else "ACSP"
 
-    # ---- accounts (XSA2 AccountsController, fixed sandbox data) ----------------------------------------------------
+    # ---- accounts (fixed sandbox data) ----------------------------------------------------
 
     def _authorize(self, request: Request, right: str | None, handler) -> Response:
         """Common AIS checks: Consent-ID header, token for that consent, consent valid, right granted."""

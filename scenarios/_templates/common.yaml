@@ -1,9 +1,7 @@
-# Reusable header sets and request bodies.
-# Ported from the TestTool templates (TPP/Blazor/Templates/ConsentTemplates.cs), in the
-# Georgian XS2A v2 format (consentType / validTo), not Berlin Group 1.3.
+# Reusable header sets and request bodies, in the Georgian XS2A v2 format (consentType / validTo),
+# not Berlin Group 1.3.
 
 headers:
-  # ConsentTemplates.GetBasicRequestHeaders2
   basic:
     X-Request-ID: "{{uuid}}"
     PSU-IP-Address: 192.168.1.1
@@ -12,9 +10,8 @@ headers:
     PSU-Geo-Location: "GEO:52.506931;13.144558"
     PSU-Accept-Language: ka
 
-  # ConsentTemplates.GetDefaultConsentRequestHeader / GetConsentAuthorizationRequestHeader.
-  # The SDK property is called TppRedirectUri, but the header it sends is Client-Redirect-URI
-  # (PredefinedHeaderNames.ClientRedirectUri); it is also part of the JWS signature (sigD.pars).
+  # The header is Client-Redirect-URI;
+  # it is also part of the JWS signature (sigD.pars).
   # XS2A requires the same value on consent creation and on start authorisation.
   consent:
     X-Request-ID: "{{uuid}}"
@@ -36,7 +33,6 @@ headers:
     PSU-Accept-Language: ka
 
 bodies:
-  # ConsentTemplates.GetConsentRequestBodyAccountList (defaults from ConsentRequestBasicElements)
   consent.accountList:
     access:
       payments:
@@ -46,7 +42,6 @@ bodies:
     validTo: "{{date.today+2d}}"
     frequencyPerDay: 4
 
-  # ConsentTemplates.GetConsentRequestBodyAccountList(withBalance: true)
   consent.accountListWithBalances:
     access:
       payments:
@@ -56,7 +51,6 @@ bodies:
     validTo: "{{date.today+2d}}"
     frequencyPerDay: 4
 
-  # ConsentTemplates.GetConsentRequestBodyWithAspspManaged
   consent.aspspManaged:
     access:
       payments:

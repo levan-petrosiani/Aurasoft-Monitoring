@@ -1,4 +1,4 @@
-# Local AltaSoft XS2A (developer machine), same URL the TestTool uses for "Localhost".
+# Local XS2A on the developer machine (https://localhost:10001/).
 
 extends: _shared.yaml
 
@@ -12,7 +12,7 @@ endpoints:
 tpp:
   validateServerCertificate: false   # localhost development certificate
 
-# The local AltaSoft stack supports the AIS flow with the OAuth SCA approach.
+# The local stack supports the AIS flow with the OAuth SCA approach.
 # Its AuthServer is reached through the consent's _links.scaOAuth, so no discovery URL is needed here.
 features:
   consents: [accountList, aspspManaged, detailed]

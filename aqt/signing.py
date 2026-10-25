@@ -89,7 +89,7 @@ def is_signing_header(lower_case_name: str) -> bool:
 
 
 class JwsSigner:
-    """Creates the X-Jws-Signature and Digest request headers. Ported from AltaSoft.PSD2.Crypto JwsEncoder."""
+    """Creates the X-Jws-Signature and Digest request headers."""
 
     def __init__(self, qsealc: Certificate):
         if not qsealc.has_private_key:

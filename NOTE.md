@@ -887,3 +887,12 @@ quick start, known gaps), ARCHITECTURE.md, CLAUDE.md, `banks/TBC-MOCK.yaml`, `mo
 the hosting guide PDF, and deck slides 2, 5, 7 and 9 with their speaker notes. The script adds a rule: say "the TBC
 mock", never "TBC's sandbox". The generic term "public mocks" (for `--sca-auto`) stays; it names the category, not
 TBC. The `tbc-sandbox.example` fixtures in `evals/` are invented test data and stay as they are.
+
+## 2026-10-25 · 35. Remove AltaSoft / internal-code references from comments (user's request)
+
+**What:** comments and docstrings no longer name AltaSoft or its internal code paths: `aqt/signing.py`,
+`aqt/mockbank/app.py`, `banks/LOCAL.yaml`, the first-line comment of the 14 bank profiles, `AIS-001` and
+`scenarios/_templates/common.yaml`.
+**Why:** the repo is meant to be standalone (CLAUDE.md hard constraint) and is public.
+**Not changed:** `origin:` scenario fields, `LOCAL.yaml` `bank.name`, README/NOTE/docs mentions.
+**Verified:** `pytest` (22 passed), `aqt validate` (23 scenarios valid).
