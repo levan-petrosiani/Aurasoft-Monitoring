@@ -46,6 +46,38 @@ def _remove_header(headers: list[tuple[str, str]], name: str):
 # ---- request ---------------------------------------------------------------------------------------------------
 
 def execute_request(step: Step, ctx: RunContext, variables: VariableResolver, result: StepResult):
+    poll = step.request.poll
+    deadline = time.monotonic() + poll.timeout_seconds if poll else 0
+    attempt = 0
+    while True:
+        attempt += 1
+        sent = _send(step, ctx, variables, result)
+        if sent is None:
+            return  # no response; already a failure
+        exchange, parsed, response_bytes, request_id = sent
+        if poll is None:
+            break
+        values = [jsonpath.as_text(v) for v in jsonpath.select(parsed, poll.path)] if parsed is not None else []
+        value = values[0] if values else None
+        if value in poll.until:
+            if attempt > 1:
+                result.info.append(f"{poll.path} = {value} after {attempt} request(s)")
+            break
+        if time.monotonic() + poll.interval_seconds > deadline:
+            result.failures.append(f"{poll.path} is still {value or 'missing'} after {poll.timeout_seconds} s "
+                                   f"({attempt} request(s)); expected one of {', '.join(poll.until)}")
+            break
+        if ctx.cancel.wait(poll.interval_seconds):
+            result.failures.append("Cancelled while polling")
+            break
+
+    evaluate_expectation(step.expect, exchange, parsed, request_id, response_bytes, ctx, result)
+    _save_variables(step, exchange, parsed, variables, result)
+
+
+def _send(step: Step, ctx: RunContext, variables: VariableResolver, result: StepResult):
+    """Builds and sends the request once (headers, {{uuid}} and the signature are new each time). Returns
+    (exchange, parsed JSON, response bytes, X-Request-ID), or None after recording a transport failure."""
     spec = step.request
     url = _build_url(spec, ctx, variables)
     headers = _build_headers(spec, ctx, variables)
@@ -56,13 +88,14 @@ def execute_request(step: Step, ctx: RunContext, variables: VariableResolver, re
         token = variables.try_resolve(spec.auth) if spec.auth_optional else variables.resolve(spec.auth)
         if token is not None:
             _set_header(headers, "Authorization", "Bearer " + token)
-        else:
+        elif "Sent without Authorization: no token was obtained" not in result.info:
             result.info.append("Sent without Authorization: no token was obtained")
 
     mode = SigningMode(spec.signing)
     if mode != SigningMode.NONE:
         if ctx.signer is None:
-            result.warnings.append("Request sent unsigned: no QSealC configured in the profile (tpp.qsealc)")
+            if not result.warnings:
+                result.warnings.append("Request sent unsigned: no QSealC configured in the profile (tpp.qsealc)")
         else:
             signature = ctx.signer.sign(headers, body_bytes, ctx.now(), mode)
             _set_header(headers, DIGEST_HEADER, signature.digest)
@@ -71,7 +104,7 @@ def execute_request(step: Step, ctx: RunContext, variables: VariableResolver, re
     method = spec.method.upper()
     exchange = HttpExchange(method=method, url=url, request_headers=[(k, _mask(k, v)) for k, v in headers],
                             request_body=body, started_at_utc=ctx.now())
-    result.exchange = exchange
+    _record(result, exchange)
 
     if ctx.profile.limits.delay_between_requests_ms > 0:
         time.sleep(ctx.profile.limits.delay_between_requests_ms / 1000)
@@ -83,7 +116,7 @@ def execute_request(step: Step, ctx: RunContext, variables: VariableResolver, re
         exchange.duration_ms = _ms(started)
         exchange.error = str(ex)
         result.failures.append(f"No response from {urlsplit(url).hostname}: {exchange.error}")
-        return
+        return None
 
     exchange.duration_ms = _ms(started)
     exchange.status_code = response.status
@@ -93,10 +126,7 @@ def execute_request(step: Step, ctx: RunContext, variables: VariableResolver, re
     exchange.response_body = text[:MAX_RECORDED_BODY_CHARS] + "…(truncated)" if len(text) > MAX_RECORDED_BODY_CHARS else text
 
     parsed = jsonpath.try_parse_json(text, response.media_type)
-    request_id = _find(headers, "X-Request-ID")
-
-    evaluate_expectation(step.expect, exchange, parsed, request_id, response.body, ctx, result)
-    _save_variables(step, exchange, parsed, variables, result)
+    return exchange, parsed, response.body, _find(headers, "X-Request-ID")
 
 
 def _build_url(spec: RequestSpec, ctx: RunContext, variables: VariableResolver) -> str:
@@ -253,7 +283,7 @@ def _check_content_type(expect: Expectation, exchange: HttpExchange, result: Ste
 
 
 def _check_json(expect: Expectation, parsed, exchange: HttpExchange, result: StepResult):
-    needs_json = bool(expect.json) or bool(expect.exists) or bool(expect.warn_if_missing)
+    needs_json = bool(expect.json) or bool(expect.json_one_of) or bool(expect.exists) or bool(expect.warn_if_missing)
     if needs_json and parsed is None:
         result.failures.append("Response body is empty, JSON expected" if not exchange.response_body
                                else "Response body is not valid JSON")
@@ -267,6 +297,15 @@ def _check_json(expect: Expectation, parsed, exchange: HttpExchange, result: Ste
         elif not any(jsonpath.as_text(m) == expected_text for m in matches):
             actual = "', '".join(jsonpath.as_text(m) for m in matches)
             result.failures.append(f"{path} is '{actual}', expected '{expected_text}'")
+
+    for path, accepted in (expect.json_one_of or {}).items():
+        matches = jsonpath.select(parsed, path)
+        accepted_text = [jsonpath.as_text(v) for v in accepted]
+        if not matches:
+            result.failures.append(f"{path} is missing, expected one of {', '.join(accepted_text)}")
+        elif not any(jsonpath.as_text(m) in accepted_text for m in matches):
+            actual = "', '".join(jsonpath.as_text(m) for m in matches)
+            result.failures.append(f"{path} is '{actual}', expected one of {', '.join(accepted_text)}")
 
     for path in expect.exists or []:
         if not jsonpath.exists(parsed, path):

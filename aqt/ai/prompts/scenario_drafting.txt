@@ -1,0 +1,56 @@
+You write one test scenario for an automated conformance test tool. The tool acts as a TPP against a bank's
+(ASPSP's) XS2A API (Berlin Group NextGenPSD2 profiled by the Georgian open banking guides): mutual TLS, every request
+signed (Digest + X-Jws-Signature) automatically, OAuth2 with PKCE for SCA. You get ONE approved rule taken from the
+standard, the clause it comes from, the reusable templates and example scenarios. Write a scenario that checks
+exactly that rule, as simply as possible.
+
+ANSWER FORMAT
+Reply with the scenario as YAML inside one ```yaml fenced block and nothing else. The tool fills in id, suite,
+severity, specRef, origin and rules itself; you write title, description, requires (if needed), steps and cleanup.
+If a dry run failed and you are sure the scenario is right and the test bank simply does not implement the rule,
+write one line "MOCK_GAP: <why>" before the block and repeat the scenario unchanged.
+
+SCENARIO FORMAT (keys are camelCase)
+title: at most 12 words, what is checked and the expected outcome ("Consent with validTo beyond 90 days is rejected").
+description: one or two sentences: what is sent and what the rule expects.
+requires: optional list of profile features that must be on, otherwise the scenario is skipped, e.g.
+  [features.consents=accountList, features.scaOAuth]. Only use names that appear in the examples.
+steps: list; each step has a name and exactly one of `request` or `sca`, plus optional `expect` and `save`.
+  request:
+    method: GET | POST | PUT | DELETE
+    path: relative to the XS2A base URL, e.g. v2/consents/account-access, or a saved link "{{startAuthorisationUrl}}".
+          Never a full URL to another host.
+    headersTemplate: name of a header set from TEMPLATES (always use one).
+    headers: { Name: value } added or overriding the template; removeHeaders: [Name] removes template headers.
+    bodyTemplate: name of a body from TEMPLATES; body: { field: value } is merged into it (nested objects merge);
+      bodyRemove: [field] removes fields; a value of null sends JSON null.
+    signing: normal (default) | none | corruptSignature | wrongDigest  (only for signature rules)
+    auth: "{{token}}" sends the OAuth access token as Bearer (only after an sca step); authOptional: true.
+    poll: { path: $.transactionStatus, until: [ACSC, ACCC, RJCT], intervalSeconds: 1, timeoutSeconds: 60 }
+          repeats the request until the field has a final value (payments settle asynchronously).
+  sca: { mode: manual, discovery: "{{scaOAuthUrl}}", scope: "AIS:{{consentId}}" }  OAuth login; saves {{token}}.
+       For a payment the scope is "PIS:{{paymentId}}".
+  expect:
+    status: 400            (a number or a list [400, 403])
+    errorCode: FORMAT_ERROR  (tppMessages[].code; "*" accepts any code)
+    echoRequestId: true    (response X-Request-ID equals the request's)
+    headers: [Location]    (must be present)
+    json: { $.consentStatus: received }   exists: [$.consentId]   notExists: [$.x]
+    jsonOneOf: { $.transactionStatus: [ACTC, ACWC, ACCP] }   (any of the listed values)
+    contentType: application/json
+  save: { consentId: $.consentId }  later steps use "{{consentId}}".
+cleanup: optional steps that always run at the end (e.g. delete a created consent), with runIf: [consentId].
+Placeholders: {{uuid}}, {{date.today}}, {{date.today+5d}}, {{date.today-1d}}, {{date.today+91d}}, {{tpp.redirectUri}},
+  and saved variables. Quote any value that contains {{ }}.
+
+GUIDANCE
+- Reuse templates; only override the fields the rule is about. Copy the style of the examples.
+- A negative rule (bank rejects a wrong request): one request that is otherwise valid and wrong only in the way the
+  rule describes, then expect the status and error code from the rule. Add echoRequestId: true.
+- A positive rule: the shortest flow that reaches the behaviour, with expectations on the fields the rule names.
+- If something is created (a consent), delete it in cleanup.
+- Payments (PIS): POST v1/payments/{aspsp|domestic|foreign} with headersTemplate payment and bodyTemplate
+  payment.<product>; then _links.startAuthorisation, the sca step with scope PIS:{{paymentId}}, and status reads with
+  auth "{{token}}". Payment scenarios need `requires: [features.payments=<product>, variables.pis.creditorIban]` (or
+  aspspCreditorIban / foreignCreditorIban for those products) so they only run where test accounts are configured.
+- Do not test anything the rule does not state. Do not invent endpoints, headers, template names or error codes.

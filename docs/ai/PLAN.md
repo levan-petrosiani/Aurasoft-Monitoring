@@ -1,6 +1,6 @@
 # AI layer — plan
 
-Status: Phases 0–2 done (2026-10-24), ported from C# to Python (NOTE.md steps 35–42); Phase 3 next. Live Claude calls are not verified yet (no API key).
+Status: Phases 0–6 done (Phases 3–6 on 2026-10-25), ported from C# to Python (NOTE.md steps 35–42). Open: eval sets for the AI features. Live Claude calls are not verified yet (no API key).
 something demoable. Progress is logged in `NOTE.md`; `ARCHITECTURE.md` is updated at the end of each phase.
 
 ## 1. Goals
@@ -93,7 +93,7 @@ DSL reference, templates).
 - `run.json` + reports stay as they are; the store is an index of them. `aqt db import` loads existing history.
 - Masking before write: `Authorization`, `code`, tokens, `PSU-ID`, configurable JSON paths (IBANs, names),
   reusing the engine's report masking.
-- Retention: exchanges 90 days (configurable), results and summaries kept.
+- Retention: exchanges 90 days (configurable in `monitoring.yaml`), results and summaries kept — built in Phase 6 (`aqt db prune`, daily in the monitor).
 - Ask-the-agent tools are **read-only** and run through a DB role with SELECT only on views.
 
 ## 7. Phases (hackathon order)
@@ -103,12 +103,12 @@ DSL reference, templates).
 | 0. Foundations ✅ | .NET SDK on the Mac; baseline commit; `docker-compose` Postgres; `ApiTestTool.Store` + migrations + import; runs written to the store; `ApiTestTool.AI` skeleton (config, providers, masking, audit) | Runs from CLI/portal appear in Postgres |
 | 1. Run summaries ✅ | Summary panel on the Run page, `aqt ai summarize` | Run TBC-MOCK → one-click triage of failures, Claude vs local |
 | 2. Standards + rules ✅ | Ingest BG 1.3.16 + Georgian guides; clause search; rule drafting; review queue | Pick a clause → AI drafts rules with quotes → approve in the portal |
-| 3. Scenario drafting | Draft → validate → MockBank loop; drafts page; coverage matrix | Approved rule → generated scenario → green on MockBank → coverage goes up |
-| 4. Ask-the-agent | Ask page + `aqt ask` | "Why did TBC fail last night?" → answer citing run IDs and clauses |
-| 5. PIS | §9 | Payment consent → SCA → status, on MockBank |
-| 6. Monitoring | Scheduled runs, regression alerts, trends | — |
+| 3. Scenario drafting ✅ | Draft → validate → MockBank loop; drafts page; coverage matrix (`aqt scenarios`, `aqt coverage`) | Approved rule → generated scenario → green on MockBank → coverage goes up |
+| 4. Ask-the-agent ✅ | Ask page + `aqt ask` | "Why did TBC fail last night?" → answer citing run IDs and clauses |
+| 5. PIS ✅ | §9 | Payment consent → SCA → status, on MockBank |
+| 6. Monitoring ✅ | Scheduled runs (`monitoring.yaml`, portal monitor, `aqt monitor run-due`), regression alerts (+ webhook), trends, retention | Nightly MockBank run; a regression shows on Alerts and in the webhook |
 
-Each AI feature gets a small eval set (inputs + expected outcome) before staff use it.
+Each AI feature gets a small eval set (inputs + expected outcome) before staff use it. ✅ Built 2026-10-25: `evals/*.yaml`, `aqt ai eval` (see NOTE.md step 49 for the first results).
 
 ## 8. Decisions
 
@@ -122,8 +122,20 @@ Each AI feature gets a small eval set (inputs + expected outcome) before staff u
 | 4 | Approvers | The team now (reviewer name), staff with a role later |
 | 5 | Scope | AIS first, PIS designed in now, built in Phase 5 |
 | 6 | MockBank | Grows with the rules: when a rule is approved and MockBank doesn't enforce it, that is a task, so generated scenarios can be proven |
+| 7 | Scenario drafts | Code owns id, suite, severity, `specRef`, `origin`, `rules:`; the model writes title, description, steps. At most 3 attempts with engine errors / dry-run failures fed back. A failed dry run the model calls a MockBank gap (`MOCK_GAP`) is accepted only for a failed expectation (not a tool error) and is shown to the reviewer, who decides. Drafts live in `scenario_drafts`; approval writes the file and links the rule (`rule_reviews` action `linked`) |
+| 9 | Monitoring | Schedules live in `monitoring.yaml` (versioned like scenarios), their last run in `monitor_state`. Unattended runs skip SCA scenarios except on MockBank (no one to log in; `--sca-auto` stays MockBank-only). Alerts are computed in code against the bank's previous run, deduplicated per run/kind/scenario; bank_down is not repeated while a bank stays down. Notification = optional webhook, masked |
+| 10 | Local model | Every feature defaults to Claude. After the first evals (NOTE.md step 49) the local model stays **opt-in only** (`--provider ollama`, "… locally" buttons) for offline/no-data-leaving use; its weak spots are known (blame attribution, quoting tables, citing ids). Ollama stays required for `bge-m3` embeddings (clause/rule search) |
+| 8 | Ask-agent safety | Read-only tools in code plus one SQL tool. The SQL tool logs in as `aqt_agent` (own login, member of nothing): SELECT on views in schema `agent` only, no headers/bodies/AI audit, one prepared statement, read-only, 5 s timeout. `SET ROLE` from the main user was tried first and rejected: the SQL could switch back with `set_config('role', …)` or a second statement. Ids in answers are checked against tool results in code |
 
-## 9. PIS — designed in now, built later
+## 9. PIS — built in Phase 5 (2026-10-25)
+
+Built as planned, following GE-XS2A 0.8.RC3 chapter 8: MockBank payments (`/v1/payments/{aspsp|domestic|foreign}`,
+status, details, cancellation, authorisations; lifecycle ACTC → ACSP → ACSC or ACCC for intra-bank; table-4 field checks;
+TPP-Rejection-NoFunds-Preferred), the `poll:` request option and `expect.jsonOneOf`, templates `payment.*`, the `pis`
+suite (PIS-001…005) and NEG-PIS-001…007. Gate: `requires: variables.pis.*` (sandbox test accounts in the profile),
+enforced in code for AI drafts. Not built: bulk and periodic payments, signing baskets (MockBank answers 404).
+
+The original design notes:
 
 What we do now so PIS needs no redesign:
 - `service: AIS | PIS | COMMON` on rules, scenarios (via suite) and store rows; coverage matrix split per service.

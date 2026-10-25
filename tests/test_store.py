@@ -193,13 +193,18 @@ def test_clause_search_any_word_stemming_and_meaning(db):
 
 
 def test_a_database_created_by_the_csharp_tool_is_recognised(db):
-    """migrate() on a database that has the C# tool's EF Core history marks 0001 as applied instead of running it."""
-    from aqt.store.connection import connect, migrate
+    """migrate() on a database that has the C# tool's EF Core history marks 0001 as applied instead of running it,
+    then applies the later (Python-only) migrations."""
+    from aqt.store.connection import _migration_files, connect, migrate
     with connect(db.connection, register_vector=False) as conn:
         conn.execute("DELETE FROM aqt_schema_migrations")
+        # Added by the later migrations; the C# tool never had them.
+        conn.execute("DROP TABLE scenario_drafts")
+        conn.execute("DROP SCHEMA agent CASCADE")
+        conn.execute("DROP TABLE agent_questions, monitor_state, alerts")
         conn.execute('CREATE TABLE "__EFMigrationsHistory" (migration_id varchar(150) PRIMARY KEY, product_version varchar(32))')
         conn.execute("""INSERT INTO "__EFMigrationsHistory" VALUES ('20261024084136_StandardsAndRules', '10.0.13')""")
         conn.commit()
-    assert migrate(db.connection) == []
+    assert migrate(db.connection) == [v for v, _ in _migration_files() if v != "0001"]
     with connect(db.connection, register_vector=False) as conn:
         assert conn.execute("SELECT note FROM aqt_schema_migrations WHERE version = '0001'").fetchone()[0].startswith("created by the C# tool")

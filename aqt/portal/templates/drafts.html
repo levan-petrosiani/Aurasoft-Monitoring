@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% from "ai_macros.html" import reviewer_field %}
+{% block title %}Drafts{% endblock %}
+{% block content %}
+<div class="title-row">
+    <h1>Scenario drafts</h1>
+    {% if ai %}{{ reviewer_field(reviewer, request.full_path) }}{% endif %}
+</div>
+
+{% if not ai %}
+<div class="alert alert-warn">{{ ai_problem }}</div>
+{% else %}
+<p class="muted small">
+    Test scenarios drafted by AI from <b>approved</b> rules. The tool set the id, the rule link and the spec reference, loaded each draft
+    with the engine and ran it on an in-process MockBank (never a real bank). A draft becomes a file in <code>scenarios/</code> only when you approve it.
+</p>
+
+<details class="review-help">
+    <summary>How to review a scenario</summary>
+    <ol class="small">
+        <li><b>Does it test the rule, and only the rule?</b> Read the rule above the YAML, then the steps: what is sent, what is expected.</li>
+        <li><b>Is the request otherwise valid?</b> For a negative test only the one field the rule is about should be wrong.</li>
+        <li><b>Are the expectations the rule's?</b> Status and error code as in the rule. An orange note means they differ.</li>
+        <li><b>Dry run.</b> <span class="text-pass">Passed</span> = MockBank behaves as the rule says. <span class="text-fail">Failed</span> with a
+            "MockBank gap" note = the model thinks the scenario is right and MockBank does not implement the rule; check the failing step (e.g. MockBank
+            answered 201 where the rule says 400). If you agree, approve: the scenario will fail on MockBank until MockBank is fixed, and test real banks correctly.</li>
+    </ol>
+    <p class="small">Small fix → <b>Edit</b> the YAML (checked and dry-run again on save). Wrong idea → <b>Reject</b> with a reason. Details: <code>docs/ai/REVIEW-GUIDE.md</code>.</p>
+</details>
+
+<form class="form" method="post" action="/drafts/new" style="margin-bottom:12px">
+    <div class="row">
+        <label class="field"><span>Draft a scenario for an approved rule</span>
+            <select class="input" name="rule">
+                {% for r in approved_rules %}<option value="{{ r.id }}" {{ 'selected' if r.id == rule_id }}>{{ r.id }} · {{ r.service }} · {{ r.title }}{{ ' (' ~ r.scenarios | length ~ ' scenario(s))' if r.scenarios }}</option>{% endfor %}
+            </select></label>
+    </div>
+    <div class="actions">
+        {% set disabled = '' if reviewer and approved_rules else 'disabled' %}
+        <button class="btn btn-small btn-primary" name="provider" value="anthropic" {{ disabled }}>Draft with Claude <span class="muted">{{ models.anthropic }}</span></button>
+        <button class="btn btn-small btn-ghost" name="provider" value="ollama" {{ disabled }}>Draft locally <span class="muted">{{ models.ollama }}</span></button>
+        {% if not approved_rules %}<span class="muted small">No approved rules yet — approve some on the <a href="/rules">Rules</a> page.</span>{% endif %}
+        {% if not reviewer %}<span class="muted small">Enter your name at the top first.</span>{% endif %}
+    </div>
+</form>
+
+{% for rid, provider in busy.items() %}
+<div class="alert alert-action small">Drafting a scenario for {{ rid }} with {{ provider }} (model calls and MockBank dry runs, about a minute) … <a href="{{ request.full_path }}">refresh</a></div>
+{% endfor %}
+{% for rid, error in failed_jobs.items() %}
+<div class="alert alert-fail small">Drafting for {{ rid }} failed: {{ error }}</div>
+{% endfor %}
+{% if message %}<div class="alert alert-warn small">{{ message }}</div>{% endif %}
+
+<form class="filter-row" method="get" action="/drafts">
+    {% for s in ['draft', 'failed', 'approved', 'rejected', 'all'] %}
+    <button class="chip {{ 'chip-on' if status == s }}" name="status" value="{{ s }}">{{ s }} <span class="muted">{{ counts[s] }}</span></button>
+    {% endfor %}
+    {% if rule_id %}<input type="hidden" name="rule" value="{{ rule_id }}" /><a class="chip" href="/drafts?status={{ status }}">rule {{ rule_id }} ✕</a>{% endif %}
+</form>
+
+{% if not shown %}<p class="muted">No {{ '' if status == 'all' else status }} drafts{{ ' for ' ~ rule_id if rule_id }}.</p>{% endif %}
+
+{% for d in shown %}
+{% set status_css = {'approved': 'pass', 'rejected': 'fail', 'failed': 'fail', 'draft': 'queued'}.get(d.status, 'error') %}
+{% set back = request.full_path %}
+<div class="rule-card rule-{{ 'draft' if d.status == 'failed' else d.status }}" id="draft-{{ d.id }}">
+    <div class="rule-head">
+        <code class="rule-id">{{ d.scenario_id }}</code>
+        <span class="badge badge-{{ status_css }}">{{ d.status }}</span>
+        <span class="chip">{{ d.suite }}</span>
+        <a class="chip" href="/rules?status=all#rule-{{ d.rule_id }}">rule {{ d.rule_id }}</a>
+        <span class="chip">dry run: <b class="{{ 'text-pass' if d.dry_run_outcome == 'Passed' else ('text-fail' if d.dry_run_outcome in ['Failed', 'Error'] else '') }}">{{ d.dry_run_outcome or '—' }}</b></span>
+        <b>{{ d.title }}</b>
+    </div>
+    {% set rule = ai.store.get_rule(d.rule_id) %}
+    {% if rule %}<p class="rule-req small"><span class="label">Rule</span> {{ rule.level }} — {{ rule.requirement }}</p>{% endif %}
+
+    {% if d.mock_gap %}<div class="alert alert-warn small"><b>MockBank gap (model's view):</b> {{ d.mock_gap }}</div>{% endif %}
+
+    {% if edit == d.id|string %}
+    <form class="form" method="post" action="/drafts/{{ d.id }}/edit">
+        <input type="hidden" name="back" value="{{ back }}" />
+        <label class="field"><span>Scenario YAML <span class="hint">id, suite, specRef, origin and rules are kept by the tool; checked and dry-run again on save</span></span>
+            <textarea name="yaml" rows="24" style="font-family: var(--mono, monospace)">{{ d.yaml }}</textarea></label>
+        <div class="actions">
+            <button class="btn btn-small btn-primary">Save and check</button>
+            <a class="btn btn-small btn-ghost" href="{{ back.split('?')[0] }}?status={{ status }}#draft-{{ d.id }}">Cancel</a>
+        </div>
+    </form>
+    {% else %}
+    <pre class="clause-text">{{ d.yaml or '(no scenario could be produced)' }}</pre>
+    {% endif %}
+
+    {% if d.dry_run %}
+    <details {{ 'open' if d.dry_run_outcome in ['Failed', 'Error'] }}>
+        <summary class="small">Dry run on MockBank: {{ d.dry_run.outcome }}{{ ' — ' ~ d.dry_run.reason if d.dry_run.reason }}</summary>
+        <table class="grid small">
+            <tr><th>Step</th><th>Request</th><th>Status</th><th>Outcome</th><th>Failures</th></tr>
+            {% for s in d.dry_run.steps + d.dry_run.cleanup %}
+            <tr><td>{{ s.name }}</td><td><code>{{ s.request or '' }}</code></td><td>{{ s.status or '' }}</td>
+                <td class="{{ 'text-pass' if s.outcome == 'Passed' else 'text-fail' }}">{{ s.outcome }}</td>
+                <td>{{ s.failures | join('; ') }}</td></tr>
+            {% endfor %}
+        </table>
+    </details>
+    {% endif %}
+
+    <ul class="rule-checks small">
+        {% for n in d.check_notes %}
+        <li class="{{ 'note-ok' if 'passes on MockBank' in n else ('note-fail' if 'does not load' in n or 'failed' in n else 'note-warn') }}">{{ n }}</li>
+        {% endfor %}
+    </ul>
+
+    {% if errors.get(d.id|string) %}<div class="alert alert-fail small">{{ errors.get(d.id|string) }}</div>{% endif %}
+
+    {% if d.status in ['draft', 'failed'] and edit != d.id|string %}
+    <div class="actions">
+        {% set disabled = '' if reviewer else 'disabled' %}
+        {% if d.status == 'draft' %}
+        <form method="post" action="/drafts/{{ d.id }}/approve" style="display:inline"><input type="hidden" name="back" value="{{ back }}" />
+            <button class="btn btn-small btn-primary" {{ disabled }}>Approve → scenarios/{{ d.suite }}/</button></form>
+        {% endif %}
+        {% if reviewer %}
+        <a class="btn btn-small btn-ghost" href="{{ back.split('#')[0] }}{{ '&' if '?' in back else '?' }}edit={{ d.id }}#draft-{{ d.id }}">Edit</a>
+        {% endif %}
+        <form class="reject-row" method="post" action="/drafts/{{ d.id }}/reject"><input type="hidden" name="back" value="{{ back }}" />
+            <input class="input-inline" name="note" placeholder="Reason for rejecting" />
+            <button class="btn btn-small btn-ghost btn-danger" {{ disabled }}>Reject</button></form>
+        {% if not reviewer %}<span class="muted small">Enter your name at the top to review.</span>{% endif %}
+    </div>
+    {% endif %}
+
+    <p class="muted small rule-foot">
+        drafted by {{ d.drafted_by }}{{ ' (' ~ d.model ~ ')' if d.model }} · {{ d.attempts }} attempt(s) · {{ local_time(d.created_utc, '%Y-%m-%d %H:%M') }}
+        {% if d.reviewed_by %}<span> · {{ d.status }} by <b>{{ d.reviewed_by }}</b> {{ local_time(d.reviewed_utc, '%Y-%m-%d %H:%M') }}{{ ': ' ~ d.review_note if d.review_note }}</span>{% endif %}
+        {% if d.file_path %}<span> · <code>{{ d.file_path }}</code></span>{% endif %}
+    </p>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

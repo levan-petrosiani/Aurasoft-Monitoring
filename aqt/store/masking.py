@@ -19,6 +19,9 @@ _KEYS = {"access_token", "refresh_token", "id_token", "code_verifier", "client_s
 # the XS2A error code (tppMessages[].code = FORMAT_ERROR), which must stay readable.
 _FORM_ONLY_KEYS = {"code"}
 
+# A credential written out in text (an error message, a log line, an alert): "Bearer eyJ..." / "Basic dXNl...".
+_CREDENTIAL = re.compile(r"\b(Bearer|Basic)\s+[A-Za-z0-9\-._~+/]{6,}=*", re.I)
+
 # IBAN: 2 letters, 2 check digits, 11-30 alphanumerics (Georgian IBANs are 22 characters).
 _IBAN = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b")
 
@@ -80,7 +83,7 @@ class SensitiveDataMasker:
                 return json.dumps(self._mask_node(node), ensure_ascii=False, separators=(",", ":"))
         if " " not in body and "=" in body and "\n" not in body:
             return self._mask_form(body)
-        return self._mask_ibans(body)
+        return self._mask_text(body)
 
     def _mask_node(self, node):
         if isinstance(node, dict):
@@ -89,12 +92,12 @@ class SensitiveDataMasker:
                 if isinstance(value, str) and self._is_secret(key):
                     result[key] = mask_value(value)
                 elif isinstance(value, str):
-                    result[key] = self._mask_ibans(value)
+                    result[key] = self._mask_text(value)
                 else:
                     result[key] = self._mask_node(value)
             return result
         if isinstance(node, list):
-            return [self._mask_ibans(v) if isinstance(v, str) else self._mask_node(v) for v in node]
+            return [self._mask_text(v) if isinstance(v, str) else self._mask_node(v) for v in node]
         return node
 
     def _mask_form(self, form: str) -> str:
@@ -111,6 +114,10 @@ class SensitiveDataMasker:
     def _is_secret(self, key: str) -> bool:
         lowered = key.lower()
         return lowered in _KEYS or lowered in self._extra_keys
+
+    def _mask_text(self, text: str) -> str:
+        """Free text: credentials written out ("Bearer ...") and IBANs."""
+        return self._mask_ibans(_CREDENTIAL.sub(lambda m: f"{m.group(1)} ***{_MARKER}", text))
 
     def _mask_ibans(self, text: str) -> str:
         if not self.options.mask_ibans:

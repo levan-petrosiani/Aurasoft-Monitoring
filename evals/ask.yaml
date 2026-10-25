@@ -1,0 +1,105 @@
+# Eval cases for the ask-agent (aqt ai eval --feature ask). The dataset below is seeded once into a temporary database
+# (runs, the alerts code computes from them, one clause and one approved rule); then each question is asked.
+# Checked in code: the answer contains the facts (each `contains` group needs at least one of its alternatives,
+# case-insensitive), every id it cites was in a tool result (status ok), and it looked something up.
+description: Questions with known answers over a fixed dataset.
+dataset:
+  runs:
+    - id: TBCBGE22-20261020-164442
+      bank: TBCBGE22
+      bankName: TBC Bank (sandbox)
+      started: "2026-10-20T16:44:42Z"
+      scenarios:
+        - { id: PRE-003, suite: preflight, severity: Major, outcome: Passed }
+        - { id: PRE-004, suite: preflight, severity: Critical, outcome: Passed }
+        - { id: NEG-CON-004, suite: negative, severity: Major, outcome: Passed }
+        - { id: NEG-CON-005, suite: negative, severity: Major, outcome: Failed, reason: "POST global consent: Status 201, expected 400" }
+    - id: TBCBGE22-20261021-095156
+      bank: TBCBGE22
+      bankName: TBC Bank (sandbox)
+      started: "2026-10-21T09:51:56Z"
+      scenarios:
+        - id: PRE-003
+          suite: preflight
+          severity: Major
+          outcome: Failed
+          reason: "GET discovery: Status 503, expected 200"
+          steps:
+            - { name: GET discovery document, outcome: Failed, failures: ["Status 503, expected 200"],
+                request: "GET https://tbc-sandbox.example/.well-known/oauth-authorization-server", status: 503,
+                response: '{"code":"STATE_UNAVAILABLE","message":"Shared mock state is temporarily unavailable"}' }
+        - id: PRE-004
+          suite: preflight
+          severity: Critical
+          outcome: Failed
+          reason: "GET unknown consent: Status 503, expected 400/403/404"
+        - { id: NEG-CON-004, suite: negative, severity: Major, outcome: Blocked, reason: Preflight PRE-004 failed }
+        - { id: NEG-CON-005, suite: negative, severity: Major, outcome: Blocked, reason: Preflight PRE-004 failed }
+    - id: TBCBGE22-20261022-173008
+      bank: TBCBGE22
+      bankName: TBC Bank (sandbox)
+      started: "2026-10-22T17:30:08Z"
+      scenarios:
+        - { id: PRE-003, suite: preflight, severity: Major, outcome: Passed }
+        - { id: PRE-004, suite: preflight, severity: Critical, outcome: Passed }
+        - { id: NEG-CON-004, suite: negative, severity: Major, outcome: Passed }
+        - { id: NEG-CON-005, suite: negative, severity: Major, outcome: Failed, reason: "POST global consent: Status 201, expected 400" }
+    - id: BAGAGE22-20261023-080000
+      bank: BAGAGE22
+      bankName: Bank of Georgia (sandbox)
+      started: "2026-10-23T08:00:00Z"
+      scenarios:
+        - id: PRE-002
+          title: Mutual TLS handshake with the XS2A endpoint succeeds
+          suite: preflight
+          severity: Critical
+          outcome: Failed
+          reason: "TLS handshake failed: the server rejected our client certificate (alert certificate_unknown)"
+        - { id: NEG-CON-004, suite: negative, severity: Major, outcome: Blocked, reason: Preflight PRE-002 failed }
+    - id: MOCKGE22-20261024-100000
+      bank: MOCKGE22
+      bankName: MockBank
+      started: "2026-10-24T10:00:00Z"
+      scenarios:
+        - { id: PRE-004, suite: preflight, severity: Critical, outcome: Passed }
+        - { id: NEG-CON-004, suite: negative, severity: Major, outcome: Passed }
+        - { id: NEG-CON-005, suite: negative, severity: Major, outcome: Passed }
+  clauses:
+    - standard: GE-XS2A
+      version: 0.8.RC3
+      number: 9.1.1.10
+      title: თანხმობის ვადა
+      language: ka
+      text: "თანხმობის სასურველ ვადას მმპ უთითებს ელემენტში validUntil. იმ შემთხვევაში, თუ აღნიშნული ველის მნიშვნელობა აღემატება მოთხოვნიდან 90 დღეს, აუცილებელია ამსმპ-მა დააბრუნოს შეცდომა PERIOD_INVALID. გამონაკლისს შეადგენს მნიშვნელობა „9999-12-31“, რომლის მიღების შემთხვევაში აუცილებელია ამსმპ-მა თანხმობის ვადა შეცვალოს მაქსიმალურ დასაშვებ მნიშვნელობაზე (არაუმეტეს 90 დღისა) და 9.2.3 თავით განსაზღვრული სერვისში დააბრუნოს უკვე შეცვლილი თარიღი."
+  rules:
+    - id: GE-CON-001
+      title: Consent validity longer than 90 days is rejected
+      level: MUST
+      service: AIS
+      area: CON
+      requirement: The ASPSP rejects a consent request whose validUntil is more than 90 days after the request with HTTP 400 and PERIOD_INVALID.
+      standard: GE-XS2A
+      version: 0.8.RC3
+      clauseNumber: 9.1.1.10
+      quote: "აუცილებელია ამსმპ-მა დააბრუნოს შეცდომა PERIOD_INVALID"
+      check: { kind: negative, description: validUntil 91 days ahead, expectStatus: [400], expectErrorCodes: [PERIOD_INVALID] }
+
+cases:
+  - name: count-runs
+    question: How many test runs did TBCBGE22 have in October 2026?
+    expect: { contains: [["3", "three"]] }
+  - name: most-failing-scenario
+    question: Which scenario failed most often across all banks, and on which bank?
+    expect: { contains: [["NEG-CON-005"], ["TBCBGE22", "TBC"]] }
+  - name: why-bog-failed
+    question: Why did the last Bank of Georgia (BAGAGE22) run fail?
+    expect: { contains: [["PRE-002"], ["TLS", "certificate", "handshake"]] }
+  - name: recovery-after-outage
+    question: TBC had an outage on 21 October 2026. Did it recover afterwards, and in which run?
+    expect: { contains: [["TBCBGE22-20261022-173008"]] }
+  - name: standard-period-invalid
+    question: Which error code must a Georgian bank return when a consent's validUntil is more than 90 days ahead, and which rule covers it?
+    expect: { contains: [["PERIOD_INVALID"], ["GE-CON-001"]] }
+  - name: alerts-on-tbc
+    question: What alerts were raised for TBCBGE22?
+    expect: { contains: [["bank_down", "bank down", "PRE-004", "PRE-003"]] }

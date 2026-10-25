@@ -143,6 +143,7 @@ class MockBankService:
 # ---- runs --------------------------------------------------------------------------------------------------------
 
 QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED = "Queued", "Running", "Completed", "Failed", "Cancelled"
+UNATTENDED_SCA_REASON = "Needs a person for SCA (bank login); not run in an unattended monitoring run"
 
 
 @dataclass
@@ -156,15 +157,23 @@ class RunRequest:
     # Complete SCA without a browser (auto-approving test servers only).
     auto_sca: bool = False
     preflight_gate: bool = True
+    # Started by the monitor: nobody is there to log in, so scenarios with an SCA step are skipped (unless SCA is
+    # automatic, i.e. MockBank).
+    unattended: bool = False
+    schedule: str | None = None
 
     def to_dict(self):
-        return {"bank": self.bank, "suites": self.suites, "scenarioIds": self.scenario_ids,
-                "useMockBank": self.use_mock_bank, "autoSca": self.auto_sca, "preflightGate": self.preflight_gate}
+        d = {"bank": self.bank, "suites": self.suites, "scenarioIds": self.scenario_ids,
+             "useMockBank": self.use_mock_bank, "autoSca": self.auto_sca, "preflightGate": self.preflight_gate}
+        if self.unattended:
+            d.update(unattended=True, schedule=self.schedule)
+        return d
 
     @staticmethod
     def from_dict(d):
         return RunRequest(d.get("bank", ""), list(d.get("suites") or []), list(d.get("scenarioIds") or []),
-                          bool(d.get("useMockBank")), bool(d.get("autoSca")), d.get("preflightGate", True) is not False)
+                          bool(d.get("useMockBank")), bool(d.get("autoSca")), d.get("preflightGate", True) is not False,
+                          bool(d.get("unattended")), d.get("schedule"))
 
 
 @dataclass
@@ -366,6 +375,8 @@ class RunService:
                 run.add_log(f"TPP id: {ctx.tpp_id}")
 
             runner = ScenarioRunner(ctx, preflight_gate=request.preflight_gate)
+            if request.unattended and not (request.auto_sca and CatalogService.allows_headless_sca(profile)):
+                runner.skip_sca_reason = UNATTENDED_SCA_REASON
 
             def started(s):
                 run.current_scenario = f"{s.id} — {s.title}"
@@ -412,6 +423,7 @@ class RunService:
             self._recorder.event(f"run.{status.lower()}", error or f"{record.passed} passed, {record.failed} failed, "
                                  f"{record.errors} errors, {record.skipped} skipped", run.id,
                                  "Info" if ok else ("Error" if status == FAILED else "Warning"))
+            self._recorder.run_finished(run.id)
             if status == COMPLETED and self._summaries is not None and self._summaries.auto_summarize:
                 summaries = self._summaries
                 self._recorder.then(f"auto-summary {run.id}", lambda: summaries.start(run.id, summaries.auto_provider, "auto (portal)"))

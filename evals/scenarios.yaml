@@ -1,0 +1,73 @@
+# Eval cases for scenario drafting (aqt ai eval --feature scenarios). Each case is an approved rule (seeded into a
+# temporary database); the drafter writes a scenario, the engine loads it and runs it on an in-process MockBank.
+# Checked in code: a reviewable draft came out, the dry-run outcome, what the YAML must contain, attempts used, and for
+# the last case that the model recognised that MockBank does not implement the rule.
+description: Approved rule in, checked scenario out.
+cases:
+  - name: consent-period-90-days
+    why: MockBank enforces it, so a correct scenario passes.
+    rule:
+      id: GE-CON-001
+      title: Consent validity longer than 90 days is rejected
+      level: MUST
+      service: AIS
+      area: CON
+      requirement: The ASPSP rejects a consent request whose validTo is more than 90 days after the request with HTTP 400 and PERIOD_INVALID.
+      standard: GE-XS2A
+      version: 0.8.RC3
+      clauseNumber: 9.1.1.10
+      quote: "იმ შემთხვევაში, თუ აღნიშნული ველის მნიშვნელობა აღემატება მოთხოვნიდან 90 დღეს, აუცილებელია ამსმპ-მა დააბრუნოს შეცდომა PERIOD_INVALID."
+      operation: POST /v2/consents/account-access
+      check: { kind: negative, description: Send a consent request with validTo 91 days ahead., expectStatus: [400], expectErrorCodes: [PERIOD_INVALID] }
+    expect: { status: [draft], dryRun: [Passed], yamlContains: [PERIOD_INVALID], maxAttempts: 3 }
+
+  - name: frequency-per-day-limit
+    why: A negative consent test that MockBank enforces (maximum 4 per day).
+    rule:
+      id: EV-CON-002
+      title: frequencyPerDay above the ASPSP maximum is rejected
+      level: MUST
+      service: AIS
+      area: CON
+      requirement: The ASPSP rejects a consent request whose frequencyPerDay is above its maximum (4) with HTTP 400 and FORMAT_ERROR.
+      standard: EVAL
+      version: "1"
+      clauseNumber: "1"
+      quote: frequencyPerDay above the maximum must be rejected with FORMAT_ERROR.
+      operation: POST /v2/consents/account-access
+      check: { kind: negative, description: Send frequencyPerDay 7., expectStatus: [400], expectErrorCodes: [FORMAT_ERROR] }
+    expect: { status: [draft], dryRun: [Passed], yamlContains: [FORMAT_ERROR, frequencyPerDay], maxAttempts: 3 }
+
+  - name: pis-forbidden-field
+    why: A payment scenario; it must be limited to profiles with sandbox test accounts (variables.pis), checked in code.
+    rule:
+      id: GE-PIS-001
+      title: Payment with a field the product never allows is rejected
+      level: MUST
+      service: PIS
+      area: PIS
+      requirement: The ASPSP rejects a domestic payment initiation that contains purposeCode (a field marked "never" in table 4) with HTTP 400 and FORMAT_ERROR.
+      standard: GE-XS2A
+      version: 0.8.RC3
+      clauseNumber: 8.2.1
+      quote: "აუცილებელია ამსმპ-მა უარჰყოს შეტყობინება, შეცდომის კოდით FORMAT_ERROR."
+      operation: POST /v1/payments/domestic
+      check: { kind: negative, description: Initiate a domestic payment with purposeCode., expectStatus: [400], expectErrorCodes: [FORMAT_ERROR] }
+    expect: { status: [draft], dryRun: [Passed], yamlContains: [purposeCode, FORMAT_ERROR, variables.pis], maxAttempts: 3 }
+
+  - name: mockbank-gap-one-off-consent
+    why: MockBank does not check this rule, so the right scenario fails on MockBank; the model should say so (MOCK_GAP).
+    rule:
+      id: EV-CON-004
+      title: One-off consent must have frequencyPerDay 1
+      level: MUST
+      service: AIS
+      area: CON
+      requirement: The ASPSP rejects a consent request with recurringIndicator false and frequencyPerDay greater than 1 with HTTP 400 and FORMAT_ERROR.
+      standard: EVAL
+      version: "1"
+      clauseNumber: "4"
+      quote: If recurringIndicator is false, frequencyPerDay must be 1; otherwise the request is rejected with FORMAT_ERROR.
+      operation: POST /v2/consents/account-access
+      check: { kind: negative, description: Send recurringIndicator false with frequencyPerDay 4., expectStatus: [400], expectErrorCodes: [FORMAT_ERROR] }
+    expect: { status: [draft], dryRun: [Failed], mockGap: true, yamlContains: [recurringIndicator, FORMAT_ERROR], maxAttempts: 3 }

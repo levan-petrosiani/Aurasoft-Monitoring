@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "ai_macros.html" import reviewer_field %}
+{% block title %}Ask{% endblock %}
+{% block content %}
+<div class="title-row">
+    <h1>Ask</h1>
+    {% if ai %}{{ reviewer_field(reviewer, request.full_path) }}{% endif %}
+</div>
+
+{% if not ai %}
+<div class="alert alert-warn">{{ ai_problem }}</div>
+{% else %}
+<p class="muted small">
+    Ask about runs, failures, banks, scenarios, rules or the standards. The agent looks things up with read-only tools
+    (it can only read prepared views; no request bodies, no AI audit) and cites run, scenario and rule ids. Every id in the
+    answer is checked against what the tools returned; ids it did not see are flagged. It cannot start runs or change anything.
+</p>
+
+<form class="form" method="post" action="/ask" style="margin-bottom:12px">
+    <label class="field"><span>Question</span>
+        <textarea name="question" rows="2" placeholder="Why did TBC fail last night? · Which scenarios fail most often this week? · What does the standard say about PERIOD_INVALID?"></textarea></label>
+    <div class="actions">
+        {% set disabled = '' if reviewer else 'disabled' %}
+        <button class="btn btn-small btn-primary" name="provider" value="anthropic" {{ disabled }}>Ask Claude <span class="muted">{{ models.anthropic }}</span></button>
+        <button class="btn btn-small btn-ghost" name="provider" value="ollama" {{ disabled }}>Ask locally <span class="muted">{{ models.ollama }}</span></button>
+        {% if not reviewer %}<span class="muted small">Enter your name at the top first.</span>{% endif %}
+    </div>
+</form>
+
+{% if message %}<div class="alert alert-warn small">{{ message }}</div>{% endif %}
+{% for p in pending %}
+<div class="alert alert-action small">Answering “{{ p.question }}” with {{ p.provider }} … {% if p.tools %}looked up: {{ p.tools | join(', ') }} · {% endif %}<a href="/ask">refresh</a></div>
+{% endfor %}
+{% for key, e in errors.items() %}<div class="alert alert-fail small">{{ e }}</div>{% endfor %}
+
+{% if not questions %}<p class="muted">No questions yet.</p>{% endif %}
+{% for q in questions %}
+{% set status_css = {'ok': 'pass', 'unverified': 'queued', 'failed': 'fail'}.get(q.status, 'error') %}
+<div class="rule-card" id="q-{{ q.id }}">
+    <div class="rule-head">
+        <span class="badge badge-{{ status_css }}">{{ q.status }}</span>
+        <b>{{ q.question }}</b>
+    </div>
+    {% if q.answer %}<pre class="clause-text" style="white-space: pre-wrap">{{ q.answer }}</pre>{% endif %}
+    {% if q.error %}<div class="alert alert-fail small">{{ q.error }}</div>{% endif %}
+    {% if q.citation_notes %}
+    <ul class="rule-checks small">{% for n in q.citation_notes %}<li class="note-warn">{{ n }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if q.tool_calls %}
+    <details {{ 'open' if open_id == q.id|string }}>
+        <summary class="small">What it looked up ({{ q.tool_calls | length }})</summary>
+        {% for t in q.tool_calls %}
+        <div class="small"><code>{{ t.tool }}({{ t.arguments | tojson }})</code></div>
+        <pre class="clause-text small" style="max-height: 220px; overflow:auto">{{ t.result }}</pre>
+        {% endfor %}
+    </details>
+    {% endif %}
+    <p class="muted small rule-foot">asked by {{ q.asked_by or '-' }} · {{ local_time(q.asked_utc, '%Y-%m-%d %H:%M') }} · {{ q.provider }} {{ q.model }} · {{ '%.1f' % (q.duration_ms / 1000) }} s</p>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "ai_macros.html" import reviewer_field %}
+{% block title %}Alerts{% endblock %}
+{% block content %}
+<div class="title-row">
+    <h1>Alerts</h1>
+    {% if ai %}{{ reviewer_field(reviewer, request.full_path) }}{% endif %}
+</div>
+
+{% if not ai %}
+<div class="alert alert-warn">{{ ai_problem }}</div>
+{% else %}
+<p class="muted small">
+    Computed in code after every saved run, against the same bank's previous run: <b>regression</b> (passed → failed/error),
+    <b>fixed</b> (failed → passes again), <b>bank down</b> (a critical preflight check started failing), <b>run failed</b>.
+    Sent to the webhook in <code>AQT_ALERT_WEBHOOK</code> when it is set. Acknowledge an alert once someone has looked at it.
+</p>
+{% if request.args.get('error') %}<div class="alert alert-warn small">{{ request.args.get('error') }}</div>{% endif %}
+
+<form class="filter-row" method="get" action="/alerts">
+    <button class="chip {{ 'chip-on' if show == 'open' }}" name="show" value="open">open <span class="muted">{{ open_count }}</span></button>
+    <button class="chip {{ 'chip-on' if show == 'all' }}" name="show" value="all">all</button>
+</form>
+
+{% if not alerts %}<p class="muted">No {{ 'open ' if show == 'open' }}alerts.</p>{% else %}
+<form method="post" action="/alerts/ack">
+<table class="grid">
+    <tr><th></th><th>When</th><th>Kind</th><th>Bank</th><th>What</th><th>Run</th><th>Notified</th><th>Acknowledged</th></tr>
+    {% for a in alerts %}
+    {% set css = {'regression': 'fail', 'bank_down': 'fail', 'run_failed': 'error', 'fixed': 'pass'}.get(a.kind, 'queued') %}
+    <tr>
+        <td>{% if not a.acknowledged_utc %}<input type="checkbox" name="id" value="{{ a.id }}" />{% endif %}</td>
+        <td class="small">{{ local_time(a.created_utc, '%Y-%m-%d %H:%M') }}</td>
+        <td><span class="badge badge-{{ css }}">{{ a.kind.replace('_', ' ') }}</span></td>
+        <td>{{ a.bank_bic }}</td>
+        <td class="small">{{ a.message }}</td>
+        <td class="small"><a href="/runs/{{ a.run_id }}">{{ a.run_id }}</a>{% if a.previous_run_id %}<div class="muted">vs {{ a.previous_run_id }}</div>{% endif %}</td>
+        <td class="small">{% if a.notified_utc %}✓{% elif a.notify_error %}<span class="text-fail" title="{{ a.notify_error }}">failed</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="small">{% if a.acknowledged_utc %}{{ a.acknowledged_by }} {{ local_time(a.acknowledged_utc, '%m-%d %H:%M') }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+</table>
+<div class="actions"><button class="btn btn-small btn-primary" {{ '' if reviewer else 'disabled' }}>Acknowledge selected</button>
+    {% if not reviewer %}<span class="muted small">Enter your name at the top first.</span>{% endif %}</div>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

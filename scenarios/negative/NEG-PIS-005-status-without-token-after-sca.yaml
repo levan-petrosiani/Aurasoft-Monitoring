@@ -1,0 +1,45 @@
+id: NEG-PIS-005
+title: Payment status without the token after SCA is refused
+suite: negative
+severity: Major
+specRef: "GE-XS2A 0.8.RC3 — 8.5: after the PSU authenticated for the payment, the Authorization header is mandatory"
+requires: [features.payments=aspsp, variables.pis.aspspCreditorIban]
+
+steps:
+  - name: Initiate aspsp payment
+    request:
+      method: POST
+      path: v1/payments/aspsp
+      headersTemplate: payment
+      bodyTemplate: payment.aspsp
+    expect:
+      status: 201
+    save:
+      paymentId: $.paymentId
+      startAuthorisationUrl: $._links.startAuthorisation.href
+
+  - name: Start payment authorisation
+    request:
+      method: POST
+      path: "{{startAuthorisationUrl}}"
+      headersTemplate: payment
+    expect:
+      status: 201
+    save:
+      scaOAuthUrl: $._links.scaOAuth.href
+
+  - name: SCA via OAuth (manual login)
+    sca:
+      mode: manual
+      discovery: "{{scaOAuthUrl}}"
+      scope: "PIS:{{paymentId}}"
+
+  - name: GET status without Authorization
+    request:
+      method: GET
+      path: "v1/payments/aspsp/{{paymentId}}/status"
+      headersTemplate: basic
+    expect:
+      status: [401, 403]
+      errorCode: "*"
+      echoRequestId: true

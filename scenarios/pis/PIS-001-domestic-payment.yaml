@@ -1,0 +1,77 @@
+id: PIS-001
+title: Domestic payment — initiate, authorise with OAuth SCA, settles, details
+suite: pis
+severity: Critical
+specRef: "GE-XS2A 0.8.RC3 — 8.3.1 single payment initiation, 8.5 payment status, 8.6 payment details, 8.10 lifecycle"
+description: >
+  POST /v1/payments/domestic → status right after initiation (never RCVD; fundsAvailable for ACTC/ACWC/ACCP)
+  → start authorisation → OAuth SCA with scope PIS:<paymentId> → status polled until final (ACSC/ACCC)
+  → payment details. Uses the profile's sandbox test accounts (variables.pis). Manual SCA against real banks.
+requires: [features.payments=domestic, variables.pis.creditorIban]
+
+steps:
+  - name: Initiate domestic payment
+    request:
+      method: POST
+      path: v1/payments/domestic
+      headersTemplate: payment
+      bodyTemplate: payment.domestic
+    expect:
+      status: 201
+      headers: [Location]
+      echoRequestId: true
+      exists: [$.paymentId, $._links.startAuthorisation.href]
+      notExists: [$.tppMessages]
+    save:
+      paymentId: $.paymentId
+      startAuthorisationUrl: $._links.startAuthorisation.href
+
+  - name: Status after initiation is accepted, not RCVD, with fundsAvailable
+    request:
+      method: GET
+      path: "v1/payments/domestic/{{paymentId}}/status"
+      headersTemplate: basic
+    expect:
+      status: 200
+      jsonOneOf: { $.transactionStatus: [ACTC, ACWC, ACCP] }
+      exists: [$.fundsAvailable]
+
+  - name: Start payment authorisation
+    request:
+      method: POST
+      path: "{{startAuthorisationUrl}}"
+      headersTemplate: payment
+    expect:
+      status: 201
+      echoRequestId: true
+      exists: [$.authorisationId, $.scaStatus, $._links.scaOAuth.href]
+    save:
+      scaOAuthUrl: $._links.scaOAuth.href
+
+  - name: SCA via OAuth (manual login)
+    sca:
+      mode: manual
+      discovery: "{{scaOAuthUrl}}"
+      scope: "PIS:{{paymentId}}"
+      expectScopeContains: "{{paymentId}}"
+
+  - name: Status after SCA reaches a final accepted status
+    request:
+      method: GET
+      path: "v1/payments/domestic/{{paymentId}}/status"
+      headersTemplate: basic
+      auth: "{{token}}"
+      poll: { path: $.transactionStatus, until: [ACSC, ACCC, RJCT, CANC], intervalSeconds: 1, timeoutSeconds: 60 }
+    expect:
+      status: 200
+      jsonOneOf: { $.transactionStatus: [ACSC, ACCC] }
+
+  - name: Payment details
+    request:
+      method: GET
+      path: "v1/payments/domestic/{{paymentId}}"
+      headersTemplate: basic
+      auth: "{{token}}"
+    expect:
+      status: 200
+      exists: [$.instructedAmount.amount, $.creditorAccount, $.transactionStatus]

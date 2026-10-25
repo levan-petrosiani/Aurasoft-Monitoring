@@ -21,7 +21,7 @@ SUCCESS = 0
 TESTS_FAILED = 1
 CONFIGURATION_ERROR = 2
 
-_FLAGS = {"verbose", "no-preflight-gate", "sca-auto", "with-mock", "replace", "show-input", "no-embed", "no-db", "auto-summarize"}
+_FLAGS = {"verbose", "no-preflight-gate", "sca-auto", "with-mock", "replace", "show-input", "no-embed", "no-db", "auto-summarize", "drafts", "no-monitor", "unattended", "all"}
 
 # Folder that holds banks/ and scenarios/ next to this Python package (the repository root).
 _TOOL_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -255,6 +255,8 @@ def cmd_run(cli: CliArgs, cancel: threading.Event) -> int:
                 Out.muted(f"TPP id: {ctx.tpp_id}")
 
             runner = ScenarioRunner(ctx, preflight_gate=gate)
+            if cli.has("unattended") and not (cli.has("sca-auto") and is_loopback_host(urlsplit(profile.endpoints.xs2a).hostname)):
+                runner.skip_sca_reason = "Needs a person for SCA (bank login); not run in an unattended monitoring run"
             verbose = cli.has("verbose")
             runner.scenario_completed.append(lambda s: Out.scenario(s, verbose))
 
@@ -265,6 +267,7 @@ def cmd_run(cli: CliArgs, cancel: threading.Event) -> int:
 
     out_dir = cli.get("out") or os.path.join(os.getcwd(), "reports")
     run_id = f"{profile.bank.bic}-{run.started_at_utc:%Y%m%d-%H%M%S}"
+    cli.run_id = run_id  # for `aqt monitor run-due`
     run_dir = os.path.join(out_dir, run_id)
     files = reporting.write(run, run_dir, formats)
 
@@ -277,7 +280,7 @@ def cmd_run(cli: CliArgs, cancel: threading.Event) -> int:
     db = cli.get("db") or os.environ.get("AQT_DB")
     if db:
         from . import cli_ai
-        cli_ai.save_run(db, run_id, run_dir, run, cli.get_list("suite"))
+        cli_ai.save_run(db, run_id, run_dir, run, cli.get_list("suite"), Paths(cli).root)
 
     return TESTS_FAILED if run.count(Outcome.FAILED) + run.count(Outcome.ERROR) > 0 else SUCCESS
 
@@ -322,24 +325,38 @@ def cmd_validate(cli: CliArgs) -> int:
         Out.ok(f"templates {len(templates.header_set_names)} header set(s), {len(templates.body_names)} bod(ies)")
 
         loaded = scenarios.load_all(paths.scenarios)
-        header_sets = {n.lower() for n in templates.header_set_names}
-        bodies = {n.lower() for n in templates.body_names}
         for s in loaded:
-            for step in s.steps + (s.cleanup or []):
-                r = step.request
-                if r is None:
-                    continue
-                if r.headers_template is not None and r.headers_template.lower() not in header_sets:
-                    raise ConfigurationError(f"{s.source_path}: unknown headersTemplate '{r.headers_template}'")
-                if r.body_template is not None and r.body_template.lower() not in bodies:
-                    raise ConfigurationError(f"{s.source_path}: unknown bodyTemplate '{r.body_template}'")
+            scenarios.check_templates(s, templates)
 
         Out.ok(f"scenarios {len(loaded)} valid")
+        _warn_rule_links(cli, loaded)
     except ConfigurationError as ex:
         ok = False
         Out.error(str(ex))
 
     return SUCCESS if ok else CONFIGURATION_ERROR
+
+
+def _warn_rule_links(cli: CliArgs, loaded) -> None:
+    """With --db or AQT_DB: warn about scenarios whose `rules:` name a rule that is missing or not approved."""
+    if not any(s.rules for s in loaded):
+        return
+    try:
+        from . import cli_ai
+        connection = cli_ai.run_connection(cli)
+        if connection is None:
+            Out.muted("rules     not checked against the store (set --db or AQT_DB)")
+            return
+        from .store import AqtStore
+        from .store.coverage import scenario_rule_problems
+        problems = scenario_rule_problems(AqtStore(connection), loaded)
+    except Exception as ex:  # the store is optional: a failure is a notice, never a failed validate
+        Out.muted(f"rules     not checked against the store: {type(ex).__name__}: {ex}")
+        return
+    for p in problems:
+        Out._write("  WARN  " + p, "dark_yellow")
+    if not problems:
+        Out.ok("rules     every scenario rule link is an approved rule")
 
 
 def cmd_mock(cancel: threading.Event) -> int:
@@ -370,7 +387,7 @@ def cmd_help() -> int:
 
 Usage:
   aqt run --bank <BIC|profile.yaml> [--suite a,b] [--scenario ID,ID] [--report html,json,junit] [--out dir] [--verbose] [--no-preflight-gate]
-          [--sca-auto] [--wait <seconds>] [--with-mock]
+          [--sca-auto] [--wait <seconds>] [--with-mock] [--unattended]
   aqt mock                     run MockBank (a fake bank) until Ctrl+C
   aqt portal [--port 5280] [--db conn | --no-db] [--auto-summarize]   run the web portal (store/AI pages need the database)
   aqt list banks|scenarios [--suite name]
@@ -390,10 +407,32 @@ Testing without a bank:
   aqt run --bank MOCK --with-mock --sca-auto
   --with-mock         start MockBank inside aqt for this run (or reuse one already running)
   --sca-auto          follow the OAuth login redirect without a browser (auto-approving servers such as MockBank only)
+  --unattended        nobody is watching (monitoring): scenarios that need a bank login are skipped, unless --sca-auto on MockBank
   --wait <seconds>    wait until the bank's XS2A port accepts connections before starting
 
 Exit codes: 0 all passed, 1 failures or errors in the run, 2 invalid input or configuration""")
     return SUCCESS
+
+
+def load_dotenv(path: str) -> list[str]:
+    """Reads KEY=VALUE lines from a git-ignored .env file (e.g. ANTHROPIC_API_KEY) into the environment. Variables that
+    are already set win; values are never printed. Returns the names that were set."""
+    if not os.path.isfile(path):
+        return []
+    loaded = []
+    with open(path, encoding="utf-8-sig") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, _, value = line.removeprefix("export ").partition("=")
+            name, value = name.strip(), value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            if name and name not in os.environ:
+                os.environ[name] = value
+                loaded.append(name)
+    return loaded
 
 
 def main(argv: list[str]) -> int:
@@ -405,6 +444,7 @@ def main(argv: list[str]) -> int:
     if os.name == "nt":
         os.system("")  # enables ANSI colours in the Windows console
 
+    load_dotenv(os.path.join(os.environ.get("AQT_HOME") or Paths._find_root(), ".env"))
     cancel = threading.Event()
 
     def on_sigint(signum, frame):
@@ -424,9 +464,13 @@ def main(argv: list[str]) -> int:
         if command == "portal":
             from .portal.app import run_portal
             return run_portal(cli)
-        if command in ("db", "ai", "standards", "rules"):
+        if command == "monitor":
             from . import cli_ai
-            return {"db": cli_ai.cmd_db, "ai": cli_ai.cmd_ai, "standards": cli_ai.cmd_standards, "rules": cli_ai.cmd_rules}[command](cli)
+            return cli_ai.cmd_monitor(cli, cancel)
+        if command in ("db", "ai", "standards", "rules", "scenarios", "coverage", "ask"):
+            from . import cli_ai
+            return {"db": cli_ai.cmd_db, "ai": cli_ai.cmd_ai, "standards": cli_ai.cmd_standards, "rules": cli_ai.cmd_rules,
+                    "scenarios": cli_ai.cmd_scenarios, "coverage": cli_ai.cmd_coverage, "ask": cli_ai.cmd_ask}[command](cli)
         if command == "list":
             return cmd_list(cli)
         if command == "validate":

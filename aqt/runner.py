@@ -26,6 +26,9 @@ class ScenarioRunner:
         # Called before / after each scenario, for progress output.
         self.scenario_started: list[Callable[[Scenario], None]] = []
         self.scenario_completed: list[Callable[[ScenarioResult], None]] = []
+        # Unattended runs (monitoring): scenarios with an SCA step are skipped with this reason, because nobody is
+        # there to log in. None (default) runs them. Not set when SCA is automatic (MockBank with --sca-auto).
+        self.skip_sca_reason: str | None = None
 
     def run(self, scenarios: list[Scenario]) -> RunResult:
         # Preflight first, then the rest in their given order (sorted() is stable).
@@ -69,6 +72,11 @@ class ScenarioRunner:
         if missing is not None:
             result.outcome = Outcome.SKIPPED
             result.reason = f"Profile does not provide '{missing}'"
+            return result
+
+        if self.skip_sca_reason is not None and any(st.sca is not None for st in scenario.steps):
+            result.outcome = Outcome.SKIPPED
+            result.reason = self.skip_sca_reason
             return result
 
         started = time.perf_counter()

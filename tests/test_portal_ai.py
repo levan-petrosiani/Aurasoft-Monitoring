@@ -16,7 +16,7 @@ from conftest import REPO_ROOT  # noqa: E402
 def test_without_a_database_the_pages_explain_how_to_turn_them_on(tmp_path):
     app = create_app(REPO_ROOT, str(tmp_path), use_database=False)
     client = app.test_client()
-    for page in ("/rules", "/standards"):
+    for page in ("/rules", "/standards", "/drafts", "/coverage", "/ask"):
         response = client.get(page)
         assert response.status_code == 200 and b"--no-db" in response.data
     assert client.post("/rules/X/approve").status_code == 404
@@ -85,3 +85,49 @@ def test_redirects_stay_on_the_portal(portal):
     app, _, _ = portal
     response = app.test_client().post("/reviewer", data={"name": "Ana", "next": "https://evil.example/"})
     assert response.headers["Location"] == "/rules"
+
+
+def test_drafts_and_coverage_pages(portal):
+    import uuid
+    from datetime import datetime, timezone
+    from aqt.store.entities import ScenarioDraftRow
+    app, db, rule = portal
+    client = app.test_client()
+    client.post("/reviewer", data={"name": "Ana", "next": "/drafts"})
+    if db.store.get_rule(rule.id).status != "approved":
+        client.post(f"/rules/{rule.id}/approve", data={"back": "/rules"})
+    now = datetime.now(timezone.utc)
+    draft = ScenarioDraftRow(id=uuid.uuid4(), rule_id=rule.id, scenario_id="NEG-CON-900", suite="negative", title="Long consent rejected",
+                             yaml="id: NEG-CON-900\n", status="draft", attempts=2, drafted_by="test", created_utc=now, updated_utc=now,
+                             check_notes=["Attempt 1: Failed on MockBank: Status 201, expected 400"], dry_run_outcome="Failed",
+                             dry_run={"outcome": "Failed", "reason": "r", "steps": [{"name": "POST consent", "outcome": "Failed", "failures": ["Status 201, expected 400"],
+                                                                                      "request": "POST https://localhost/v2/consents", "status": 201}], "cleanup": [], "scaErrors": []},
+                             mock_gap="MockBank does not check the 90-day limit")
+    db.store.add_scenario_draft(draft)
+
+    page = client.get("/drafts")
+    assert page.status_code == 200 and b"NEG-CON-900" in page.data and b"MockBank gap" in page.data and b"Status 201, expected 400" in page.data
+    response = client.post(f"/drafts/{draft.id}/reject", data={"back": "/drafts"})
+    assert "error=" in response.headers["Location"] and db.store.get_scenario_draft(draft.id).status == "draft"
+    client.post(f"/drafts/{draft.id}/reject", data={"back": "/drafts", "note": "Tests the wrong field"})
+    assert (db.store.get_scenario_draft(draft.id).status, db.store.get_scenario_draft(draft.id).reviewed_by) == ("rejected", "Ana")
+
+    page = client.get("/coverage")
+    assert page.status_code == 200 and rule.id.encode() in page.data and b"No scenario yet" in page.data
+
+
+def test_ask_page(portal):
+    import uuid
+    from datetime import datetime, timezone
+    from aqt.store.entities import AgentQuestionRow
+    app, db, _ = portal
+    db.store.add_agent_question(AgentQuestionRow(id=uuid.uuid4(), asked_utc=datetime.now(timezone.utc), question="Why did X fail?",
+                                                 status="unverified", provider="fake", model="m", asked_by="Ana", answer="Because of NEG-CON-777.",
+                                                 tool_calls=[{"tool": "list_runs", "arguments": {}, "result": "No runs match."}],
+                                                 citation_notes=["NEG-CON-777 is not in the data the agent looked at."]))
+    client = app.test_client()
+    client.delete_cookie("aqt_reviewer")
+    page = client.get("/ask")
+    assert page.status_code == 200 and b"Why did X fail?" in page.data and b"is not in the data" in page.data and b"list_runs" in page.data
+    response = client.post("/ask", data={"question": "Anything?", "provider": "ollama"})
+    assert "message=" in response.headers["Location"]

@@ -566,3 +566,184 @@ packages and line counts, the Python stack, the port's verification, the new bug
 **Why:** the user chose to regenerate it for Python and to publish the port as a **pull request**, so teammates see
 the change to their `aqt/oauth.py` before it reaches `main`. The earlier local commit with the C# PDF (`18409b2`) was
 dropped from local `main` (it only ever existed locally).
+
+## 2026-10-25 · 44. Phase 3: scenarios drafted from approved rules
+
+**What:**
+- **Engine (no AI):**
+  - `rules:` field on scenarios. The engine checks only the format, e.g. `GE-CON-001`.
+  - `scenarios.load_text` and `check_templates`. `validate` now uses `check_templates` too.
+  - `aqt/dryrun.py` (`MockDryRun`): runs one scenario on an in-process MockBank on free ports, with the MOCK profile and the headless SCA approver.
+- **Store:** migration `0002_scenario_drafts.sql`, plus:
+  - `ScenarioDraftRow`;
+  - draft CRUD with an optimistic `updated_utc` check;
+  - `link_rule_scenario`, which adds the scenario to `rules.scenarios` and writes a `rule_reviews` row with action `linked`;
+  - `latest_outcomes`;
+  - `store/coverage.py`.
+- **AI:** `aqt/ai/scenario_drafting.py` and the prompt `prompts/scenario_drafting.txt`.
+  - `ScenarioDrafter`: the prompt is the format reference, the templates file and two example scenarios. The answer is YAML in a fence.
+    1. Code overwrites id, suite, severity, `specRef`, `origin` and `rules:`.
+    2. The draft is loaded with the engine and the template names are checked.
+    3. Requests may only go to the bank's XS2A API, as a relative path or a saved link.
+    4. A dry run on MockBank.
+    5. Errors or failures go back to the model, up to 3 attempts.
+    6. Code notes when the scenario does not expect the rule's status or error code.
+  - `ScenarioReview`:
+    - approve writes `scenarios/<suite>/<id>-<slug>.yaml`, reloads the whole folder (and removes the file if it no longer loads), then links the rule;
+    - reject needs a reason;
+    - edit keeps the code-owned fields, then checks and dry-runs again.
+- **CLI:** `aqt scenarios draft|drafts|show|approve|reject` and `aqt coverage`. `validate` warns about scenarios linked to rules that are missing or unapproved (with `--db`/`AQT_DB`; a store failure is only a notice).
+- **Portal:** a **Drafts** page (generate with Claude or locally, YAML, dry-run table, MockBank-gap note, approve/edit/reject) and a **Coverage** page. Approved rule cards link to their scenarios.
+
+**Why:** this is the plan's Phase 3: approved rule → generated scenario → checked on MockBank → a person approves → coverage goes up. As elsewhere, facts are in code: the ids and the link to the standard are never taken from the model, and MockBank, not the model, decides pass/fail. The model's only judgement is "this failure is a MockBank gap". It is accepted only for a failed expectation, not a tool error, and is shown to the reviewer.
+
+**Result:**
+- Live with local qwen3:8b on a throwaway DB with GE-CON-001 approved there, so the real DB was untouched. In 57 s and 2 attempts it produced `NEG-CON-009`: `validTo` = today+91d, expect 400 `PERIOD_INVALID`.
+- MockBank answered 201 and the model reported a MockBank gap. That is correct: MockBank has no 90-day limit (a follow-up for MockBank, plan decision 6).
+- Tests: 104 passed with `AQT_TEST_DB`; 81 passed and 23 skipped without it. The C#-baseline migration test now also expects the later migrations.
+
+**Not done:** no scenario files were approved. That needs the user to approve AIS rules first, and the real DB has only PIS/COMMON approved rules.
+
+## 2026-10-25 · 45. MockBank: 90-day consent limit (GE-XS2A 9.1.1.10)
+
+**What:** MockBank now rejects a `validTo` more than `MaxConsentDays` (90) from today with 400 `PERIOD_INVALID`, and
+shortens `9999-12-31` to today+90 (`aqt/mockbank/app.py`, option in `options.py`/`mockbank.settings.json`). There is a new
+end-to-end test for 91 days, 90 days and 9999-12-31. The scenario-drafting "MockBank gap" test now uses a case MockBank
+still accepts.
+**Why:** step 44's live draft for GE-CON-001 found this gap (plan decision 6: MockBank grows with the approved rules).
+**Result:** a re-run of the live local-model draft for GE-CON-001 passes on MockBank on the first attempt (39 s). Tests: 105 with
+`AQT_TEST_DB`, 82 + 23 skipped without. The MOCK run is still 16/16.
+
+## 2026-10-25 · 46. Phase 4: the ask-agent
+
+**What:**
+- **Chat** (`aqt/ai/chat.py`): tool calling for Claude and Ollama, using one provider-neutral message format (`Tool`, `ToolCall`, `ChatResult.as_message`). Claude's assistant blocks go back as is, because with adaptive thinking a tool loop must return its thinking blocks. The audit records tool calls and results.
+- **Store:** migration `0003_ask_agent.sql`:
+  - schema `agent` with views over runs, scenario/step results, exchanges (no headers or bodies), events, summaries, rules and clauses;
+  - login role `aqt_agent`, which can only SELECT those views;
+  - table `agent_questions`.
+  
+  `migrate()` sets the role's password from `AQT_AGENT_DB_PASSWORD` (dev default `aqt_agent_dev`). New store methods: `agent_query` (logs in as `aqt_agent`, one prepared statement, read-only, 5 s timeout), `list_runs`, `scenario_history` and the question CRUD.
+- **Agent** (`aqt/ai/agent.py`, prompt `ask_agent.txt`): eight tools (list_runs, get_run, get_scenario_details, scenario_history, search_standards, read_clause, find_rules, sql_query) and at most 8 tool rounds. Code also:
+  - gives the model NOW;
+  - masks every tool result;
+  - checks every run, scenario or rule id and clause key in the answer against the tool results (status `unverified` if an id never appeared);
+  - saves each question with its trace.
+- **CLI and portal:** `aqt ask "<question>"` / `aqt ask history`, and the **Ask** page, which answers in the background and shows the history with what was looked up.
+
+**Why:** this is the plan's Phase 4: staff ask about logged events at any time. It uses an agent with query tools rather than vector RAG over logs, because counts, time ranges and "what changed" need queries.
+
+**Security finding:** my first version ran the SQL as the main user with `SET LOCAL ROLE aqt_agent`. Probing showed the agent's SQL could switch back, with `set_config('role','aqt',true)` or with a second statement (`reset role; …`). Switched to a separate login role plus prepared single statements. Re-probed: the database now denies access to raw tables, bodies, `ai_calls`, writes, `pg_read_file`, role switching and multiple statements, and stops `pg_sleep` by timeout. A test covers this.
+
+**Result:**
+- Live with local qwen3:8b:
+  - "Why did TBC fail on October 21, and has it recovered since?" Correct cause: the sandbox returned 503 `STATE_UNAVAILABLE` on PRE-003/004. The first try wrongly said there was no evidence of recovery, because it had limited its own search to before the 22nd. Fixed in code (`get_run` now lists the bank's later runs) and in the prompt ("never claim something did not happen without looking"); the re-run found the 22 October run.
+  - "Which scenarios failed most often?" Two SQL queries; the answer matches the data (NEG-CON-005 2× on TBC).
+  - 45–60 s per answer locally.
+- Claude is untested live (no API key); the request shape, including tools, `tool_use` parsing and `tool_result` turns, is tested with the fake server.
+- Tests: 114 passed with `AQT_TEST_DB`; 86 passed and 28 skipped without it.
+
+## 2026-10-25 · 47. Phase 5: payment initiation (PIS)
+
+**What:**
+- **Read the standard first.** Georgian XS2A 0.8.RC3 chapter 8: 8.1 products (`aspsp` recommended, `domestic`/`foreign` mandatory), 8.2.1 table 4 (fields per product: never/mandatory → FORMAT_ERROR), 8.3 initiation (TPP-Rejection-NoFunds-Preferred), 8.5 status (fundsAvailable), 8.7 cancellation (204/202/405) and 8.10 lifecycle (RCVD must never be returned; intra-bank must reach ACCC). Error codes come from BG IG 14.11.2 (PRODUCT_UNKNOWN 404, CANCELLATION_INVALID 405, PAYMENT_FAILED 400).
+- **MockBank:** `/v1/{service}/{product}` initiation, status, details, cancel and authorisations.
+  - Lifecycle: ACTC → (SCA) ACCC for `aspsp`, or ACSP → ACSC after `SettlementSeconds` (2) for domestic/foreign.
+  - Validation: the table-4 field checks, an IBAN check digit test, the amount format, and the insufficient-funds rejection.
+  - Once the PSU has authenticated for a payment, its token is required.
+  - OAuth now accepts `PIS:<paymentId>` (approve/deny on a payment page).
+  - Its sandbox IBANs had wrong check digits; they are fixed (GE63…01, GE36…02).
+- **Engine:** `poll:` on request steps (a new X-Request-ID and signature per attempt, cancellable; a timeout is a failure naming the last value) and `expect.jsonOneOf`. `execute_request` is split into one send per attempt.
+- **Scenarios:** header set `payment`; bodies `payment.domestic|aspsp|foreign`, which take their accounts from the profile's `variables.pis`; suite `pis` (PIS-001…005); NEG-PIS-001…007. MOCK and `_example` declare `features.payments: [aspsp, domestic, foreign]` and `variables.pis`.
+- **AI layer:**
+  - The scenario-drafting prompt knows payments, `poll` and `jsonOneOf`, and uses PIS examples for PIS rules.
+  - Coverage counts rules per service.
+  - Code refuses AI drafts that move money without `requires: variables.pis.*`.
+
+**Why:** this is the plan's Phase 5. Payments are the half of open banking that moves money, so they are gated twice: PIS scenarios run only where a profile names the bank's sandbox test accounts, and AI drafts are held to that in code.
+
+**Found on the way:** the live PIS draft from BG-AUTH-004 (signing baskets) sent payment data to `signing-baskets`, so my first payment-path check missed it. The check now also triggers on `vars.pis` in the text and on `payment.*` body templates; tests cover all three cases. The model also correctly reported that MockBank has no signing baskets (404); that is now a documented non-goal.
+
+**Result:**
+- MockBank run: 28 passed, 0 failed (was 16). All 12 PIS scenarios passed on the first run, and PIS-001 polls through the settlement.
+- TBC-MOCK skips the whole `pis` suite because it has no test accounts.
+- Tests: 117 passed with `AQT_TEST_DB`; 89 passed and 28 skipped without it.
+
+## 2026-10-25 · 48. Phase 6: monitoring
+
+**What:**
+- **Schedules:** `monitoring.yaml`, bound and checked in `aqt/monitor/config.py`:
+  - `every` (≥5 m) or a daily `at`; enabled; `withMock`; webhook env; retention days;
+  - a schedule that never ran waits for its time of day, so starting the portal doesn't fire every nightly run;
+  - a missed time catches up once;
+  - shipped schedules: MockBank nightly 02:00 (on) and the TBC mock every 6 h (off, because it calls an external service).
+- **Unattended runs:** `ScenarioRunner.skip_sca_reason`. Scenarios with an SCA step are skipped with a reason, unless SCA is automatic (MockBank). This applies in the portal (`RunRequest.unattended/schedule`) and via `aqt run --unattended`.
+- **Running schedules:** the portal's `MonitorService` ticks every 30 s; it never queues a schedule that's still running, and it runs retention daily. `aqt monitor run-due` does the same for cron/launchd.
+- **Alerts** (`aqt/monitor/alerts.py`), after every saved run (CLI, portal, schedule) against the bank's previous run:
+  - kinds: regression, fixed, bank_down (not repeated while the bank stays down, and not doubled as a regression), run_failed;
+  - stored once per run/kind/scenario;
+  - optional webhook (`AQT_ALERT_WEBHOOK`, Slack/Teams-style `{"text"}`), masked; the delivery result is recorded on the alert.
+- **Trends:** pass-rate series per bank, flaky scenarios (≥2 switches), slowest endpoints (ids in paths normalised), and an inline-SVG sparkline with no libraries.
+- **Retention:** `aqt db prune [--days]`, run daily by the monitor; results, summaries and alerts are kept.
+- **Store and pages:** migration `0004` (`monitor_state`, `alerts`, `agent.alerts` view for the Ask agent); portal pages **Monitoring** and **Alerts** (acknowledge with a name); CLI `aqt monitor status|run-due|alerts|ack|trends`.
+- **Masker:** now also hides `Bearer …`/`Basic …` written out in free text (error messages, alert texts, JSON string values), not only in headers.
+
+**Why:** this is the plan's Phase 6 plus the retention item from §6. It completes "monitor everything": history was already stored; now the tool runs on its own, notices changes and says so. Alerts and trends are facts, so they're computed in code. Unattended runs must not wait 5 minutes for a login nobody will do, and `--sca-auto` stays MockBank-only.
+
+**Found on the way:** the tests showed that a broken critical preflight check produced two alerts (bank_down plus a regression of the same scenario), and that a "Bearer token" in plain text wasn't masked. Both are fixed.
+
+**Result:**
+- `aqt monitor run-due --schedule mock-nightly` ran 28/28; no alerts against the previous MockBank run, which is correct; schedule state and retention were recorded.
+- On real history the Monitoring page shows pass-rate lines for MOCKGE22 and TBCBGE22. Flaky: TBC PRE-003/004 (the 21 October outage) and an early MockBank AIS-002. Slowest: TBC consent status, 1.9 s on average, 8.7 s at most.
+- Tests: 137 passed with `AQT_TEST_DB`; 105 passed and 32 skipped without it.
+
+## 2026-10-25 · 49. Eval sets; first results; Claude live; fixes the evals found
+
+**What:**
+- **Eval sets** `evals/*.yaml`, run with `aqt ai eval` (`aqt/ai/evals.py`):
+  - summaries: 4 runs with known causes;
+  - rules: 4 real clause texts copied verbatim, including an informative clause where the right answer is "no rules";
+  - scenarios: 4 approved rules, one of which MockBank does not enforce;
+  - ask: 6 questions over a seeded dataset of runs, alerts, a clause and a rule.
+
+  Each case runs the real feature in a temporary database (`TemporaryDatabase`, also used by the tests) and is scored in code, never by a model. Calls are audited in the real `ai_calls`. Reports go to `reports/evals/<time>-<provider>.md/.json`.
+- **`.env` loader** in `aqt/cli.py`: the user put `ANTHROPIC_API_KEY` in `.env` (git-ignored). Existing variables win and values are never printed.
+
+**Why:** the last open item of the plan (§7: an eval set per AI feature before staff use it). Facts in code apply to grading too.
+
+**First results, local qwen3:8b:** summary 3/4, rules 3/4, scenarios 4/4, ask 4/6 (checks 90/96). Investigating the failures:
+- **Summary, our expired certificate.** It found the right scenarios but blamed the bank: the prompt said "Failed = bank-side", and a failing local certificate check is Failed. Fixed in code and prompt:
+  - the digest now marks localCertificates steps as "our own certificates, checked locally, no request to the bank";
+  - the prompt now says that our certificate/signature problems are our-side.
+
+  The case was also unrealistic (the step had no `localCertificates` kind). It then passed 3/3 on the side check.
+- **Eval case errors, mine.** Two cases forbade findings for *blocked* scenarios, which the prompt explicitly allows. Corrected. The certificate case accepted only `broken`, but Claude's `inconclusive` is right by the prompt's own definition; it now accepts both.
+- **Rules, payment cancellation.** In a table of status codes the model rebuilt rows as "კოდი 202: …" ("Code 202: …"), text that does not exist, so the verifier (which stays strict) rejected 3 rules. A prompt rule on table quotes did not help the small model. Fixed in code: `RuleDrafter` now sends quotes that fail the verifier back **once**, with the verifier's reason ("copy exactly or remove"), and the answer is checked again. Passed live locally; tested.
+
+**Claude** (`claude-opus-5-5`, first live calls, beta endpoint with the refusal fallback): `aqt ai check` OK in 2 s. Briefly, on the 4 cases the local model failed: all 4 pass (after the `inconclusive` correction), in 6–43 s each against 30–250 s locally.
+
+**Decision (user: "maybe drop the local model if it's failing because it's weak"):** every feature already defaults to Claude. The local model stays as an opt-in only (offline use, or when no data may leave the machine), and its weaknesses are now documented by the evals. Ollama itself stays, for the `bge-m3` embeddings behind clause and rule search. Nothing was deleted.
+
+**Tests:** 147 passed with `AQT_TEST_DB`.
+
+## 2026-10-25 · 50. Claude vs the local model, measured; overview PDF regenerated
+
+**What:**
+- Ran every eval case with Claude (`claude-opus-5-5`) and with the local model (`qwen3:8b`), same cases and prompts.
+- Regenerated `docs/overview/system-overview.pdf` (26 pages, same style). It now covers Phases 3–6, the eval sets and a new chapter 13, "Evaluation: Claude vs the local model" (chart, per-feature and per-case tables, findings, decision).
+- Chart colours: Claude orange, local model blue (user's choice). The pair passed the dataviz palette validator for colour-blindness and contrast.
+
+**Results (one full run each):**
+- **Claude: 18/18 cases, 93/93 checks, 217 s in total.**
+- **Local: 14/18 cases, 85/91 checks, 793 s:**
+  - summaries 4/4 (the certificate fix holds);
+  - scenarios 4/4;
+  - Ask 5/6 (did not name rule GE-CON-001);
+  - rules 1/4 (missed duties, a quote still wrong after the repair round). Its first run passed 3/4 rule cases, so the local model varies a lot between runs.
+
+**Found on the way:**
+- **Two parallel evals collided** on the shared `aqt_agent` role ("tuple concurrently updated") while creating temporary databases. Migrations now retry that specific conflict; 12 databases created in parallel succeed. One Claude case had errored this way, before the model was called; it was re-run.
+- **One eval case was wrong:** payment cancellation (8.7) required "a rule about Authorization". Claude explained that the clause's last sentence is a TPP duty, not a bank duty, which the drafting prompt says not to turn into a rule. Claude is right. The case now requires the 405 rule instead.
+- **The Ollama server crashed under load** during the local run (connection refused). The affected local features were re-run alone and merged (`merge_reports`-style: re-run cases replace errored ones).
+
+**Decision:** unchanged and now measured. Claude is the default; the local model stays opt-in (offline, no data leaving the machine).

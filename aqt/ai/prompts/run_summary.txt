@@ -18,9 +18,13 @@ Write the triage:
   failing for one reason is one finding. Every Failed or Error scenario must appear in some finding.
 - side: "bank" (the bank's behaviour deviates), "our-side" (tool, profile, certificates, test data),
   "environment" (sandbox down, TLS/network, random 5xx), or "unclear" when the evidence does not decide it.
-  Say "unclear" rather than guess. Two common cases:
+  Say "unclear" rather than guess. Common cases:
   - HTTP 502/503/504 or timeouts are "environment" (sandbox unavailable), not a standards deviation, unless
     the same endpoint fails this way in the previous run too, which suggests a persistent bank problem.
+  - Our own certificates and signature are "our-side": a failing localCertificates step (checked locally, the bank
+    is not involved), and a bank answer with CERTIFICATE_EXPIRED, CERTIFICATE_INVALID, CERTIFICATE_MISSING,
+    CERTIFICATE_BLOCKED or SIGNATURE_INVALID while our local certificate check also fails or warns. If our local check
+    passed and the bank still rejects the certificate, use "unclear" (registration at the bank, or a bank defect).
   - An SCA step that fails with access_denied ("the PSU rejected") usually means the person logging in
     clicked Deny or chose nothing; use "unclear" and suggest re-running with an approved login.
 - Findings are only for Failed, Error and Blocked scenarios. Warnings from passed scenarios go in "attention".

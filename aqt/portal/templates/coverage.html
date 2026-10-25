@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Coverage{% endblock %}
+{% block content %}
+<div class="title-row"><h1>Coverage</h1></div>
+
+{% if not ai %}
+<div class="alert alert-warn">{{ ai_problem }}</div>
+{% else %}
+{% set c = coverage %}
+<p class="muted small">
+    Which approved rules are checked by a scenario, and how that scenario did the last time it ran against each bank.
+    Computed from the rules, the <code>rules:</code> field of the scenario files and the stored runs — no AI.
+</p>
+<div class="tiles">
+    <div class="tile"><div class="label">Approved rules</div><div class="lead">{{ c.approved_count }}</div></div>
+    <div class="tile"><div class="label">With a scenario</div><div class="lead">{{ c.covered_count }}</div></div>
+    {% for service, counts in c.by_service.items() %}
+    <div class="tile"><div class="label">{{ service }}</div><div class="lead">{{ counts[1] }} / {{ counts[0] }}</div></div>
+    {% endfor %}
+    <div class="tile"><div class="label">Banks with results</div><div class="lead">{{ c.banks | length }}</div></div>
+</div>
+<form class="filter-row" method="get" action="/coverage">
+    <button class="chip {{ 'chip-on' if not include_drafts }}" name="drafts" value="0">approved rules</button>
+    <button class="chip {{ 'chip-on' if include_drafts }}" name="drafts" value="1">+ draft rules</button>
+</form>
+
+{% for p in c.problems %}<div class="alert alert-warn small">{{ p }}</div>{% endfor %}
+
+{% if not c.rules %}
+<p class="muted">No approved rules yet. Approve some on the <a href="/rules">Rules</a> page.</p>
+{% else %}
+<table class="grid">
+    <tr><th>Rule</th><th>Clause</th><th>Scenario</th>{% for b in c.banks %}<th>{{ b }}</th>{% endfor %}</tr>
+    {% for r in c.rules %}
+    {% set rows = r.scenarios or [None] %}
+    {% for s in rows %}
+    <tr>
+        {% if loop.first %}
+        <td rowspan="{{ rows | length }}"><a href="/rules?status=all#rule-{{ r.rule_id }}"><code>{{ r.rule_id }}</code></a>
+            <span class="chip">{{ r.level }}</span>{% if r.status != 'approved' %} <span class="badge badge-queued">{{ r.status }}</span>{% endif %}
+            <div class="small">{{ r.title }}</div></td>
+        <td rowspan="{{ rows | length }}" class="small"><a href="/standards?clause={{ r.clause_key | urlencode }}">{{ r.clause_key }}</a></td>
+        {% endif %}
+        {% if s %}
+        <td><code>{{ s.id }}</code> <span class="small">{{ s.title }}</span></td>
+        {% for b in c.banks %}
+        {% set res = s.results.get(b) %}
+        <td>{% if res %}<a href="/runs/{{ res[1] }}"><span class="badge badge-{{ badge_css(res[0]) }}">{{ res[0] }}</span></a>{% else %}<span class="muted">—</span>{% endif %}</td>
+        {% endfor %}
+        {% else %}
+        <td colspan="{{ 1 + c.banks | length }}" class="muted small">No scenario yet ·
+            {% if r.open_drafts %}{{ r.open_drafts }} draft(s) to <a href="/drafts?rule={{ r.rule_id }}">review</a>{% else %}<a href="/drafts?rule={{ r.rule_id }}">draft one</a>{% endif %}</td>
+        {% endif %}
+    </tr>
+    {% endfor %}
+    {% endfor %}
+</table>
+{% endif %}
+{% endif %}
+{% endblock %}

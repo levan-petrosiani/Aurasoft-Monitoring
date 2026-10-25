@@ -24,21 +24,13 @@ class ThrowawayDatabase:
 
     def __init__(self):
         from aqt.store import AqtStore
-        from aqt.store.connection import connect, to_libpq
-        self.name = "aqt_test_" + uuid.uuid4().hex[:12]
-        self._server = to_libpq(TEST_DB)
-        with connect(self._server + " dbname=postgres", register_vector=False) as conn:
-            conn.autocommit = True
-            conn.execute(f"CREATE DATABASE {self.name}")
-        self.connection = self._server + f" dbname={self.name}"
+        from aqt.store.connection import TemporaryDatabase
+        self._db = TemporaryDatabase(TEST_DB, "aqt_test_")
+        self.name, self.connection = self._db.name, self._db.connection
         self.store = AqtStore(self.connection)
-        self.store.migrate()
 
     def drop(self):
-        from aqt.store.connection import connect
-        with connect(self._server + " dbname=postgres", register_vector=False) as conn:
-            conn.autocommit = True
-            conn.execute(f"DROP DATABASE IF EXISTS {self.name} WITH (FORCE)")
+        self._db.close()
 
 
 def exchange(method, url, request_body, status, response_body) -> HttpExchange:

@@ -198,3 +198,75 @@ class AiCallRow:
     input_tokens: int | None = None
     output_tokens: int | None = None
     error: str | None = None
+
+
+@dataclass
+class ScenarioDraftRow:
+    """A test scenario drafted by AI from an approved rule; becomes a file in scenarios/ only when a person approves it."""
+    id: UUID
+    rule_id: str
+    scenario_id: str
+    suite: str
+    title: str
+    yaml: str
+    status: str                  # draft | failed | approved | rejected
+    attempts: int
+    drafted_by: str
+    created_utc: datetime
+    updated_utc: datetime
+    check_notes: list[str] = field(default_factory=list)
+    dry_run_outcome: str | None = None
+    dry_run: dict | None = None
+    mock_gap: str | None = None
+    model: str | None = None
+    ai_call_ids: list[UUID] = field(default_factory=list)
+    reviewed_by: str | None = None
+    reviewed_utc: datetime | None = None
+    review_note: str | None = None
+    file_path: str | None = None
+
+
+@dataclass
+class AgentQuestionRow:
+    """A question to the ask-agent, its answer, the tool calls behind it and the citation check."""
+    id: UUID
+    asked_utc: datetime
+    question: str
+    status: str                  # ok | unverified | failed
+    provider: str
+    model: str
+    asked_by: str | None = None
+    answer: str | None = None
+    tool_calls: list = field(default_factory=list)
+    citation_notes: list[str] = field(default_factory=list)
+    ai_call_ids: list[UUID] = field(default_factory=list)
+    error: str | None = None
+    duration_ms: int = 0
+
+
+@dataclass
+class AlertRow:
+    """A change worth telling someone about, found in code after a run was saved."""
+    id: UUID
+    created_utc: datetime
+    run_id: str
+    bank_bic: str
+    kind: str                    # regression | fixed | bank_down | run_failed
+    message: str
+    previous_run_id: str | None = None
+    scenario_id: str | None = None
+    before: str | None = None
+    after: str | None = None
+    notified_utc: datetime | None = None
+    notify_error: str | None = None
+    acknowledged_by: str | None = None
+    acknowledged_utc: datetime | None = None
+
+
+@dataclass
+class MonitorStateRow:
+    name: str
+    last_started_utc: datetime
+    last_run_id: str | None = None
+    last_status: str | None = None
+    last_error: str | None = None

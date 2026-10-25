@@ -1,0 +1,164 @@
+# Eval cases for AI run summaries (aqt ai eval --feature summary). Each case seeds runs into a temporary database and
+# summarizes `run`. Checked in code: the summary is readable and valid, the health, which scenarios are findings and on
+# whose side (bank / our-side / environment), and that passed or skipped scenarios are not reported as problems (blocked
+# ones may be, under the preflight cause that blocked them — the prompt allows it).
+description: Run triage on runs whose cause is known.
+cases:
+  - name: tbc-sandbox-outage
+    why: The bank's sandbox answered 503 STATE_UNAVAILABLE on discovery and the error endpoint; the rest was blocked.
+    run: TBCBGE22-20261021-095156
+    runs:
+      - id: TBCBGE22-20261020-164442
+        bank: TBCBGE22
+        bankName: TBC Bank (sandbox)
+        started: "2026-10-20T16:44:42Z"
+        scenarios:
+          - { id: PRE-001, suite: preflight, severity: Critical, outcome: Passed }
+          - { id: PRE-002, suite: preflight, severity: Critical, outcome: Passed }
+          - { id: PRE-003, suite: preflight, severity: Major, outcome: Passed }
+          - { id: PRE-004, suite: preflight, severity: Critical, outcome: Passed }
+          - { id: NEG-CON-001, suite: negative, severity: Major, outcome: Passed }
+          - { id: NEG-CON-004, suite: negative, severity: Major, outcome: Passed }
+      - id: TBCBGE22-20261021-095156
+        bank: TBCBGE22
+        bankName: TBC Bank (sandbox)
+        started: "2026-10-21T09:51:56Z"
+        scenarios:
+          - { id: PRE-001, suite: preflight, severity: Critical, outcome: Passed }
+          - { id: PRE-002, suite: preflight, severity: Critical, outcome: Passed }
+          - id: PRE-003
+            title: Auth server publishes a complete OAuth2/OIDC discovery document
+            suite: preflight
+            severity: Major
+            outcome: Failed
+            reason: "GET discovery: Status 503, expected 200"
+            steps:
+              - name: GET discovery document
+                outcome: Failed
+                failures: ["Status 503, expected 200"]
+                request: GET https://tbc-sandbox.example/.well-known/oauth-authorization-server
+                status: 503
+                response: '{"code":"STATE_UNAVAILABLE","message":"Shared mock state is temporarily unavailable"}'
+          - id: PRE-004
+            title: XS2A is alive and answers a bad request with a standard error
+            suite: preflight
+            severity: Critical
+            outcome: Failed
+            reason: "GET v2/consents/0: Status 503, expected 400/403/404"
+            steps:
+              - name: GET unknown consent
+                outcome: Failed
+                failures: ["Status 503, expected 400/403/404", "Response has no tppMessages"]
+                request: GET https://tbc-sandbox.example/0.8/v2/consents/account-access/0/status
+                status: 503
+                response: '{"code":"STATE_UNAVAILABLE","message":"Shared mock state is temporarily unavailable"}'
+          - { id: NEG-CON-001, suite: negative, severity: Major, outcome: Blocked, reason: Preflight PRE-004 failed }
+          - { id: NEG-CON-004, suite: negative, severity: Major, outcome: Blocked, reason: Preflight PRE-004 failed }
+    expect:
+      health: [broken, degraded, inconclusive]
+      findings:
+        - { scenariosAny: [PRE-003, PRE-004], side: [environment, bank] }
+      notFindings: [PRE-001, PRE-002]   # passed; the blocked ones may be listed under the preflight cause
+      maxFindings: 2
+
+  - name: our-qsealc-expired
+    why: Our own seal certificate expired; the bank rejects our signatures. The fault is on our side.
+    run: BAGAGE22-20261023-080000
+    runs:
+      - id: BAGAGE22-20261023-080000
+        bank: BAGAGE22
+        bankName: Bank of Georgia (sandbox)
+        started: "2026-10-23T08:00:00Z"
+        scenarios:
+          - id: PRE-001
+            title: Local QWAC and QSealC are present, valid and PSD2-compliant
+            suite: preflight
+            severity: Critical
+            outcome: Failed
+            reason: "QSealC: certificate expired on 2026-10-01 (notAfter)"
+            steps:
+              - name: Local certificates
+                kind: localCertificates
+                outcome: Failed
+                failures: ["QSealC: certificate expired on 2026-10-01 (notAfter)"]
+          - { id: PRE-002, suite: preflight, severity: Critical, outcome: Passed }
+          - id: PRE-004
+            title: XS2A is alive and answers a bad request with a standard error
+            suite: preflight
+            severity: Critical
+            outcome: Failed
+            reason: "GET unknown consent: Status 401, expected 400/403/404"
+            steps:
+              - name: GET unknown consent
+                outcome: Failed
+                failures: ["Status 401, expected 400/403/404"]
+                request: GET https://bog-sandbox.example/v2/consents/account-access/0/status
+                status: 401
+                response: '{"tppMessages":[{"category":"ERROR","code":"CERTIFICATE_EXPIRED","text":"Signature certificate expired"}]}'
+          - { id: NEG-CON-001, suite: negative, severity: Major, outcome: Blocked, reason: Preflight PRE-001 failed }
+    expect:
+      health: [inconclusive, broken]   # our own fault: the bank could not be judged ("inconclusive" per the prompt)
+      findings:
+        - { scenariosAny: [PRE-001, PRE-004], side: [our-side] }
+      notFindings: [PRE-002]   # passed; NEG-CON-001 (blocked) may be listed under the cause
+      maxFindings: 2
+
+  - name: bank-regression
+    why: The bank started accepting frequencyPerDay 7 (should be 400 FORMAT_ERROR); it passed the run before. A bank defect.
+    run: TBCBGE22-20261022-173008
+    runs:
+      - id: TBCBGE22-20261021-120000
+        bank: TBCBGE22
+        bankName: TBC Bank (sandbox)
+        started: "2026-10-21T12:00:00Z"
+        scenarios:
+          - { id: PRE-004, suite: preflight, severity: Critical, outcome: Passed }
+          - { id: NEG-CON-003, suite: negative, severity: Major, outcome: Passed }
+          - { id: NEG-CON-004, suite: negative, severity: Major, outcome: Passed }
+      - id: TBCBGE22-20261022-173008
+        bank: TBCBGE22
+        bankName: TBC Bank (sandbox)
+        started: "2026-10-22T17:30:08Z"
+        scenarios:
+          - { id: PRE-004, suite: preflight, severity: Critical, outcome: Passed }
+          - { id: NEG-CON-003, suite: negative, severity: Major, outcome: Passed }
+          - id: NEG-CON-004
+            title: Create consent with frequencyPerDay above the limit is rejected
+            suite: negative
+            severity: Major
+            specRef: "NextGenPSD2 IG (ENG) 6.3.1 Account Information Consent Request"
+            outcome: Failed
+            reason: "POST consent with frequencyPerDay = 7: Status 201, expected 400"
+            steps:
+              - name: POST consent with frequencyPerDay = 7
+                outcome: Failed
+                failures: ["Status 201, expected 400", "Error code FORMAT_ERROR expected, response has none"]
+                request: POST https://tbc-sandbox.example/0.8/v2/consents/account-access
+                status: 201
+                response: '{"consentStatus":"received","consentId":"6f1c","_links":{"startAuthorisation":{"href":"/v2/consents/6f1c/authorisations"}}}'
+    expect:
+      health: [degraded, broken]
+      findings:
+        - { scenariosAny: [NEG-CON-004], side: [bank] }
+      notFindings: [PRE-004, NEG-CON-003]
+      maxFindings: 1
+
+  - name: all-green
+    why: Everything passed; two scenarios skipped because the bank does not offer the feature. Nothing to report.
+    run: MOCKGE22-20261024-194234
+    runs:
+      - id: MOCKGE22-20261024-194234
+        bank: MOCKGE22
+        bankName: MockBank
+        started: "2026-10-24T19:42:34Z"
+        scenarios:
+          - { id: PRE-001, suite: preflight, severity: Critical, outcome: Passed }
+          - { id: PRE-004, suite: preflight, severity: Critical, outcome: Passed }
+          - { id: AIS-001, suite: ais, severity: Critical, outcome: Passed }
+          - { id: NEG-CON-004, suite: negative, severity: Major, outcome: Passed }
+          - { id: TBC-AIS-001, suite: tbc, severity: Major, outcome: Skipped, reason: "Profile does not provide 'features.tbcApi'" }
+          - { id: TBC-NEG-001, suite: tbc, severity: Major, outcome: Skipped, reason: "Profile does not provide 'features.tbcApi'" }
+    expect:
+      health: [healthy]
+      maxFindings: 0
+      notFindings: [TBC-AIS-001, TBC-NEG-001]

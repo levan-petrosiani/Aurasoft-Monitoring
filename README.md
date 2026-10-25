@@ -11,6 +11,37 @@ and every response checked against what the standard expects.
   (`pip install -e .[ai]`) adds PostgreSQL, AI run summaries and rules drafted from the standards.
 - **Data-driven:** banks are YAML profiles in `banks/`, tests are YAML scenarios in `scenarios/`.
 
+## Quick start for teammates (everything, from a fresh clone)
+
+Until the pull requests are merged, the complete tool (Python port + AI layer, Phases 0–6, evals) is on branch
+`phase3-scenarios`; `main` has only the engine.
+
+```bash
+git clone git@github.com:levan-petrosiani/Aurasoft-Monitoring.git && cd Aurasoft-Monitoring
+git checkout phase3-scenarios
+python3 -m venv .venv && source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e ".[test,ai]"
+
+# 1. No bank, no database: everything against the built-in MockBank
+aqt validate
+aqt run --bank MOCK --with-mock --sca-auto               # 28 passed, 7 skipped (TBC-only)
+pytest                                                   # database tests are skipped without AQT_TEST_DB
+
+# 2. Store + AI layer
+docker compose up -d                                     # PostgreSQL + pgvector on localhost:5435
+aqt db migrate
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env               # your own key; .env is git-ignored, never commit it
+ollama pull bge-m3                                       # local embeddings for search (Ollama: https://ollama.com)
+ollama pull qwen3:8b                                     # optional: the local model (--provider ollama)
+aqt ai check                                             # Claude and Ollama reachable
+aqt standards fetch && aqt standards ingest              # download + split the standards (once)
+aqt portal                                               # http://localhost:5280 — every page incl. AI, Monitoring
+AQT_TEST_DB="host=localhost port=5435 user=aqt password=aqt_dev" pytest   # all 147 tests
+```
+
+On macOS with uv-created venvs, if `aqt` is not found, use `python -m aqt ...` from the repository root. The overview
+of the whole system (architecture, how it works, Claude vs local model) is `docs/overview/system-overview.pdf`.
+
 ## Setup
 
 ```bash
@@ -28,11 +59,12 @@ This installs the `aqt` command (`python -m aqt` works too). Run it from the rep
 | `aqt/` | Engine: YAML loading (`yamljson`, `binding`, `profiles`, `scenarios`), runner (`runner`, `steps`, `variables`, `jsonpath`), `signing`, `certificates`, `oauth`, `httpclient`, `reporting` |
 | `aqt/cli.py` | `aqt` command line |
 | `aqt/mockbank/` | In-memory fake ASPSP enforcing real XS2A checks |
-| `aqt/portal/` | Web portal (Flask); `ai_services.py` adds the store writes, AI summary, Standards and Rules pages |
-| `aqt/store/` | PostgreSQL store: schema migrations, `masking` (secrets/IBANs), run import, clause and rule queries |
+| `aqt/portal/` | Web portal (Flask); `ai_services.py` adds the store writes, AI summary, Standards, Rules, Drafts, Coverage and Ask pages |
+| `aqt/store/` | PostgreSQL store: schema migrations, `masking` (secrets/IBANs), run import, clause, rule and scenario-draft queries, `coverage` |
 | `aqt/standards/` | Standards → clauses: PDF reader (table of contents driven), Word reader, quote verifier, `sources.yaml` |
-| `aqt/ai/` | Model providers + audit (`chat`), run summaries, standards ingest, rule drafting and review (`rules`); prompts in `ai/prompts/` |
-| `aqt/cli_ai.py` | `aqt db`, `aqt ai`, `aqt standards`, `aqt rules` |
+| `aqt/ai/` | Model providers + audit (`chat`), run summaries, standards ingest, rule drafting and review (`rules`), scenario drafting and review (`scenario_drafting`), the ask-agent (`agent`); prompts in `ai/prompts/` |
+| `aqt/dryrun.py` | Runs one scenario on an in-process MockBank (never a real bank); used to check AI drafts |
+| `aqt/cli_ai.py` | `aqt db`, `aqt ai`, `aqt standards`, `aqt rules`, `aqt scenarios`, `aqt coverage`, `aqt ask` |
 | `tests/` | pytest, including every shipped YAML file and an end-to-end run against MockBank |
 
 ## Web portal (`aqt/portal`)
@@ -51,6 +83,12 @@ aqt portal                 # http://localhost:5280/   (--port, --root <dir>, --d
 | **Run** | Live progress while running, a **"Bank login needed"** button when a scenario waits for SCA, then results per scenario with steps and HTTP exchanges; links to `report.html`, `summary.json`, `junit.xml`; Run again / Delete |
 | **Runs** | History of all runs |
 | **Scenarios** | The scenario catalogue grouped by suite |
+| **Standards / Rules** | Clauses of the standards; AI rule drafts to approve, edit or reject (store/AI layer) |
+| **Drafts** | AI scenario drafts from approved rules, with the MockBank dry run; approve writes the YAML file |
+| **Coverage** | Approved rules → scenarios → last result per bank |
+| **Ask** | Questions about runs, failures, rules and the standards, answered by an agent with read-only tools; history with what it looked up |
+| **Monitoring** | Schedules from `monitoring.yaml` (last run, next due, Run now), pass rate per bank over 30 days, flaky scenarios, slowest endpoints, retention |
+| **Alerts** | Regressions, fixes, bank down, failed runs — computed after every saved run; acknowledge with your name |
 
 - Runs execute one at a time (manual SCA uses one fixed callback port) and queue otherwise.
 - Each run is stored in its own folder (`run.json` + reports) under `reports/portal-python/`, so history survives restarts.
@@ -86,7 +124,8 @@ instead of starting a second one.
   automatically, such as MockBank. Never use it against a real bank. Without it, the login page opens in your
   browser so you can click **Approve**/**Deny**.
 - MockBank settings are in `aqt/mockbank/mockbank.settings.json`: ports 7443/7080,
-  `AutoApprove` (`headless` | `always` | `never`), `VerifySignatures`, `SignResponses`, `MaxFrequencyPerDay`.
+  `AutoApprove` (`headless` | `always` | `never`), `VerifySignatures`, `SignResponses`, `MaxFrequencyPerDay`, `MaxConsentDays` (validTo beyond it → 400 PERIOD_INVALID; 9999-12-31 is shortened to it), `SettlementSeconds`
+  (how long an authorised domestic/foreign payment stays ACSP before ACSC; intra-bank payments become ACCC at once).
   Environment variables override them, e.g. `MockBank__AutoApprove=never`.
 - MockBank enforces what a real ASPSP checks (client certificate, X-Request-ID, signature and Digest,
   QSealC/QWAC organisation match, consent validation, PKCE, token-to-consent binding). So when a
@@ -178,6 +217,7 @@ severity: Major                 # Critical | Major | Minor | Info
 specRef: "NextGenPSD2 IG 6.2; 14.11.1"
 origin: TPP/Blazor/BadRequests/CreateConsentBadRequests.cs#PsuIpAddressHeaderNull
 requires: [features.consents]   # skipped if the profile lacks it; `features.consents=aspspManaged` = array contains
+rules: [GE-CON-001]             # optional: approved rules this scenario verifies (aqt coverage; validate warns with --db)
 steps:
   - request:
       method: POST
@@ -200,6 +240,11 @@ Other step kinds: `tls:` (handshake, protocol, server certificate), `localCertif
 (our own QWAC/QSealC) and `sca:` (below). Any step can have `runIf: [var]` to run only when an earlier
 step saved that variable; a request can use `authOptional: true` to go without `Authorization` when no
 token was obtained (used to delete a consent in cleanup even if SCA failed).
+
+A request can **poll**: `poll: { path: $.transactionStatus, until: [ACSC, ACCC, RJCT], intervalSeconds: 1, timeoutSeconds: 60 }`
+repeats it (new `X-Request-ID` and signature each time) until the field has one of the final values, then checks
+`expect` on the last response; a timeout is a failure that names the last value. `expect.jsonOneOf: { path: [values] }`
+accepts any of several values (e.g. the accepted payment statuses a bank may return).
 
 ### SCA step (OAuth, manual)
 
@@ -233,9 +278,15 @@ Variables: `{{uuid}}`, `{{date.today+2d}}`, `{{datetime.now}}`, `{{bank.bic}}`, 
 | Suite | Scenarios |
 |---|---|
 | `preflight` | PRE-001 local certificates · PRE-002 mutual TLS · PRE-003 OAuth discovery document · PRE-004 signed request gets a standard error |
-| `negative` | NEG-CON-001…008, ported from the TestTool `CreateConsentBadRequests` · NEG-SIG-001/002 broken signature and digest |
+| `negative` | NEG-CON-001…008, ported from the TestTool `CreateConsentBadRequests` · NEG-SIG-001/002 broken signature and digest · NEG-PIS-001…007 payment initiation: forbidden field (`purposeCode`), invalid IBAN, missing amount, unknown product (PRODUCT_UNKNOWN), status without the token after SCA, insufficient funds, foreign payment without `creditorName` |
 | `ais` | AIS-001 account-list consent → start authorisation → OAuth SCA (+ refresh) → status `valid` → accounts, balances · AIS-002 ASPSP-managed consent → … → accounts, balances, booked transactions. Both delete the consent in cleanup. Need `features.scaOAuth` and the consent type in the profile. |
+| `pis` | PIS-001 domestic payment → start authorisation → OAuth SCA (`PIS:<paymentId>`) → status polled until ACSC/ACCC → details · PIS-002 intra-bank (`aspsp`) payment ends in ACCC · PIS-003 cancel before authorisation (204/202) · PIS-004 cancel a booked payment → 405 CANCELLATION_INVALID · PIS-005 foreign payment accepted, `fundsAvailable` in the status |
 | `tbc` | TBC-AIS-001/002, TBC-NEG-001…005 (see above) |
+
+**Payment initiation (PIS)** follows the Georgian guide, chapter 8: `POST /v1/payments/{aspsp|domestic|foreign}`, status,
+details, cancellation, OAuth SCA with scope `PIS:<paymentId>`. PIS scenarios run only when the profile declares
+`features.payments` **and** sandbox test accounts in `variables.pis` (see `banks/_example.yaml`); otherwise they are
+skipped. Use manual SCA against real sandboxes: a payment needs the PSU's confirmation.
 
 Running only some suites (`--suite ais`) still runs `preflight` first unless `--no-preflight-gate` is given,
 so a bank that is down fails once, at preflight, and the rest is marked Blocked.
@@ -278,6 +329,13 @@ aqt standards fetch && aqt standards ingest
 aqt standards search "consent validity"
 aqt rules draft GE-XS2A:0.8.RC3:9.2.2 --provider ollama
 aqt rules approve GE-AUTH-001 --by "Your Name"
+aqt scenarios draft GE-CON-001 --provider ollama   # needs an approved rule; dry runs on an in-process MockBank
+aqt scenarios approve NEG-CON-009 --by "Your Name"  # writes scenarios/negative/NEG-CON-009-....yaml, links the rule
+aqt coverage                            # approved rules -> scenarios -> last result per bank
+aqt ask "Why did TBC fail last night?" --provider ollama    # the ask-agent; aqt ask history
+aqt monitor status | run-due | alerts | ack <id|all> --by "Your Name" | trends   # monitoring (monitoring.yaml)
+aqt db prune --days 90                  # retention: delete stored exchanges older than 90 days
+aqt ai eval --provider ollama           # eval sets (evals/*.yaml); --feature summary,rules,scenarios,ask --case NAME
 aqt portal                              # store/AI pages on when the database is reachable (--no-db turns them off)
 ```
 
@@ -289,6 +347,39 @@ aqt portal                              # store/AI pages on when the database is
   the quote must occur in the clause (else `invalid`), the level must match the wording, duplicates are flagged. A
   person approves, edits or rejects on the portal's **Rules** page or with `aqt rules`; how to decide:
   [docs/ai/REVIEW-GUIDE.md](docs/ai/REVIEW-GUIDE.md).
+- **Scenarios from rules:** the AI drafts a scenario YAML for one approved rule. Code sets the id, suite, severity,
+  `specRef`, `origin` and `rules:`; loads the draft with the engine (templates must exist, requests only to the bank's
+  XS2A API); runs it on an in-process MockBank; and sends errors and dry-run failures back to the model (at most 3
+  attempts). The model may answer that MockBank does not implement the rule (`MOCK_GAP`); that is shown to the reviewer,
+  who decides. A person approves, edits (checked and dry-run again) or rejects on the **Drafts** page or with
+  `aqt scenarios`; approving writes the file to `scenarios/<suite>/`. **Coverage** shows each approved rule with its
+  scenarios and their last result per bank.
+- **Ask:** an agent answers questions by calling read-only tools: list runs, open a run (with the changes since the
+  previous run and the bank's later runs), scenario details and history, standards search, clause text, rules with
+  coverage, and one SQL `SELECT` over prepared views. The SQL tool **logs in as its own role `aqt_agent`**, which can
+  read only the views in schema `agent` (no request/response headers or bodies, no AI audit), one statement, read-only,
+  5 s. `aqt db migrate` sets its password from `AQT_AGENT_DB_PASSWORD` (dev default `aqt_agent_dev`). Every id in the
+  answer is checked against the tool results; unknown ids are flagged (`unverified`). Questions, answers and tool calls
+  are saved in `agent_questions`.
+- **Monitoring:** `monitoring.yaml` declares schedules (`every: 6h` or `at: "02:00"`, bank, suites, `withMock`). The
+  portal runs due schedules itself (`--no-monitor` turns that off); without the portal, run `aqt monitor run-due`
+  from cron/launchd. Scheduled runs are **unattended**: scenarios that need a bank login (SCA) are skipped and say so,
+  except on MockBank where the login is automatic (`aqt run --unattended` does the same by hand). After every saved run
+  (CLI, portal or schedule) code compares it with the bank's previous run and records **alerts**: `regression`
+  (Passed → Failed/Error), `fixed`, `bank_down` (a critical preflight check started failing; not repeated while it
+  stays down) and `run_failed`. If `AQT_ALERT_WEBHOOK` holds a Slack/Teams-style incoming-webhook URL, alerts are
+  posted there (masked). Retention deletes stored exchanges after `retention.exchangesDays` (90), daily; results,
+  summaries and alerts are kept. The Ask agent can query alerts too.
+- **Eval sets** (`evals/*.yaml`): fixed cases with known answers for each AI feature — run summaries (an outage, our
+  expired certificate, a bank regression, all green), rule drafting (real clause texts, including an informative one
+  where the right answer is "no rules"), scenario drafting (approved rules, including one MockBank does not enforce),
+  and the ask-agent (questions over a seeded dataset). `aqt ai eval` runs them through the real features against the
+  chosen model, each case in a temporary database (the real store is never touched), and scores them **in code**:
+  health and finding sides, rule topics/levels/quotes, dry-run outcome and MockBank-gap judgement, facts in answers and
+  verified citations. Model calls are audited as usual. The report goes to `reports/evals/<time>-<provider>.md/.json`;
+  run it per provider to compare Claude and the local model, and again after changing a prompt.
+- **API key:** put `ANTHROPIC_API_KEY=...` in a `.env` file in the tool's folder (git-ignored); `aqt` reads it at start
+  without overriding variables that are already set.
 - **Providers:** Claude (`claude-opus-5-5`, refusal fallback, effort per feature) by default; switch a feature to the
   local model with `--provider ollama` or `AQT_AI_<FEATURE>_PROVIDER=ollama` (e.g. `AQT_AI_SUMMARY_PROVIDER`).
 - Database tests run when `AQT_TEST_DB` is set (`host=localhost port=5435 user=aqt password=aqt_dev`); each test
@@ -308,6 +399,6 @@ every existing rule quote still verifies).
 
 ## Not done yet
 
-Phase 3 (scenarios drafted from approved rules), the ask-agent (Phase 4); Playwright and decoupled SCA modes, onboarding (client registration), PIS
-suite, OpenAPI schema validation, Excel report, `aqt compare`, monitor mode. The AIS suite has been verified against
-MockBank (all 16 scenarios pass); it has not yet been run against a real local XS2A + AuthServer or a bank sandbox.
+Bulk/periodic payments and signing baskets; Playwright and decoupled SCA modes, onboarding (client
+registration), OpenAPI schema validation, Excel report, `aqt compare`. The AIS and PIS suites have been verified against
+MockBank (28 scenarios pass); they have not yet been run against a real local XS2A + AuthServer or a bank sandbox.

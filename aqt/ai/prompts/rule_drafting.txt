@@ -20,6 +20,10 @@ Fields:
   must skip words in between, write "..." there. The tool checks the quote against the clause text and discards
   the rule if it is not found. Never join sentences or list items that are not next to each other in the clause:
   if you leave out anything between them, even one bullet point, write "..." at that place.
+  Tables: the clause text lists table cells one after another (the header cells, then each row's cells). Quote a
+  row by copying its cells in order, separated by a space, exactly as written; never add column names, labels or
+  colons that are not in the text (write `202 მოთხოვნა მიღებულია, ...`, not `კოდი 202: მოთხოვნა მიღებულია`). Every
+  part of a quote around "..." must be at least 12 characters, so quote a code together with its description.
 - quoteEnglish: an English translation of the quote if the clause is not in English, otherwise "".
 - level: MUST (must, shall, required, mandatory, must not, not allowed; Georgian აუცილებელია, უნდა, სავალდებულო,
   დაუშვებელია), SHOULD (should, recommended; უმჯობესია, რეკომენდებულია), MAY (may, optional; შეიძლება,

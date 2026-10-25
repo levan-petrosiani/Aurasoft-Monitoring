@@ -1,0 +1,41 @@
+id: PIS-005
+title: Foreign (SWIFT) payment is accepted at initiation
+suite: pis
+severity: Major
+specRef: "GE-XS2A 0.8.RC3 — 8.1 payment products (foreign: support is mandatory); 8.2.1 table 4; 8.5 payment status"
+description: Initiates a foreign payment and reads its status; it is not authorised and is cancelled in cleanup.
+requires: [features.payments=foreign, variables.pis.foreignCreditorIban]
+
+steps:
+  - name: Initiate foreign payment
+    request:
+      method: POST
+      path: v1/payments/foreign
+      headersTemplate: payment
+      bodyTemplate: payment.foreign
+    expect:
+      status: 201
+      echoRequestId: true
+      exists: [$.paymentId]
+    save:
+      paymentId: $.paymentId
+
+  - name: Status after initiation
+    request:
+      method: GET
+      path: "v1/payments/foreign/{{paymentId}}/status"
+      headersTemplate: basic
+    expect:
+      status: 200
+      jsonOneOf: { $.transactionStatus: [ACTC, ACWC, ACCP] }
+      exists: [$.fundsAvailable]
+
+cleanup:
+  - name: Cancel the payment
+    runIf: [paymentId]
+    request:
+      method: DELETE
+      path: "v1/payments/foreign/{{paymentId}}"
+      headersTemplate: basic
+    expect:
+      status: [202, 204]

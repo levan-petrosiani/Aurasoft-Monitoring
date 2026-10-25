@@ -10,8 +10,8 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from . import connection as conn_mod
-from .entities import (AiCallRow, ClauseRow, ExchangeRow, RuleReviewRow, RuleRow, RunRow, RunSummaryRow, ScenarioRow,
-                       StandardDocumentRow, StepRow)
+from .entities import (AgentQuestionRow, AiCallRow, AlertRow, MonitorStateRow, ClauseRow, ExchangeRow, RuleReviewRow, RuleRow, RunRow, RunSummaryRow, ScenarioDraftRow,
+                       ScenarioRow, StandardDocumentRow, StepRow)
 from .mapper import RunInfo, to_rows
 from .masking import MaskingOptions, SensitiveDataMasker
 
@@ -408,6 +408,221 @@ class AqtStore:
         cur.execute("INSERT INTO rule_reviews (rule_id, time_utc, reviewer, action, note, before, after) VALUES (%s, %s, %s, %s, %s, %s, %s)",
                     (h.rule_id, h.time_utc, h.reviewer, h.action, h.note, self._jsonb(h.before), self._jsonb(h.after)))
 
+    # --- scenario drafts (Phase 3) and the rule <-> scenario link
+
+    def add_scenario_draft(self, draft: ScenarioDraftRow) -> None:
+        cols = _columns(ScenarioDraftRow)
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"INSERT INTO scenario_drafts ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))})",
+                            [self._jsonb(draft.dry_run) if c == "dry_run" else getattr(draft, c) for c in cols])
+            conn.commit()
+
+    def update_scenario_draft(self, draft: ScenarioDraftRow, expected_updated_utc: datetime) -> None:
+        """Saves a changed draft; fails if someone else changed it since it was read."""
+        cols = [c for c in _columns(ScenarioDraftRow) if c != "id"]
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT updated_utc, reviewed_by FROM scenario_drafts WHERE id = %s FOR UPDATE", (draft.id,))
+                row = cur.fetchone()
+                if row is None:
+                    raise ValueError(f"Scenario draft {draft.id} no longer exists")
+                if row[0] != expected_updated_utc:
+                    raise ValueError(f"The draft was changed by someone else ({row[1] or 'another session'}); reload it and try again.")
+                cur.execute(f"UPDATE scenario_drafts SET {', '.join(c + ' = %s' for c in cols)} WHERE id = %s",
+                            [self._jsonb(draft.dry_run) if c == "dry_run" else getattr(draft, c) for c in cols] + [draft.id])
+            conn.commit()
+
+    def get_scenario_draft(self, draft_id) -> ScenarioDraftRow | None:
+        with self.connect() as conn, self._cursor(conn, ScenarioDraftRow) as cur:
+            cur.execute(f"SELECT {', '.join(_columns(ScenarioDraftRow))} FROM scenario_drafts WHERE id::text = %s", (str(draft_id),))
+            return cur.fetchone()
+
+    def list_scenario_drafts(self, status: str | None = None, rule_id: str | None = None) -> list[ScenarioDraftRow]:
+        with self.connect() as conn, self._cursor(conn, ScenarioDraftRow) as cur:
+            cur.execute(f"""SELECT {', '.join(_columns(ScenarioDraftRow))} FROM scenario_drafts
+                            WHERE (%(s)s::text IS NULL OR status = %(s)s) AND (%(r)s::text IS NULL OR rule_id = %(r)s)
+                            ORDER BY created_utc DESC""", {"s": status, "r": rule_id})
+            return cur.fetchall()
+
+    def drafted_scenario_ids(self) -> set[str]:
+        """Scenario ids already used by drafts that are not rejected (so new drafts get new ids)."""
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT scenario_id FROM scenario_drafts WHERE status <> 'rejected'")
+            return {r[0].lower() for r in cur.fetchall()}
+
+    def link_rule_scenario(self, rule_id: str, scenario_id: str, reviewer: str) -> None:
+        """Adds the scenario to the rule's `scenarios` and records it in rule_reviews (status unchanged)."""
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""UPDATE rules SET scenarios = array_append(scenarios, %(s)s), updated_utc = now()
+                               WHERE id = %(r)s AND NOT (%(s)s = ANY(scenarios))""", {"s": scenario_id, "r": rule_id})
+                if cur.rowcount:
+                    cur.execute("INSERT INTO rule_reviews (rule_id, time_utc, reviewer, action, note) VALUES (%s, now(), %s, 'linked', %s)",
+                                (rule_id, reviewer, f"Verified by scenario {scenario_id}"))
+            conn.commit()
+
+
+    def latest_outcomes(self, scenario_ids: list[str]) -> dict[tuple[str, str], tuple[str, str, datetime]]:
+        """(scenario id, bank BIC) -> (outcome, run id, time) of the newest run that included the scenario."""
+        if not scenario_ids:
+            return {}
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT DISTINCT ON (s.scenario_id, r.bank_bic) s.scenario_id, r.bank_bic, s.outcome, r.id,
+                                  coalesce(r.started_utc, r.created_utc)
+                           FROM scenario_results s JOIN runs r ON r.id = s.run_id
+                           WHERE s.scenario_id = ANY(%s)
+                           ORDER BY s.scenario_id, r.bank_bic, coalesce(r.started_utc, r.created_utc) DESC""", (scenario_ids,))
+            return {(row[0], row[1]): (row[2], row[3], row[4]) for row in cur.fetchall()}
+
+    # --- ask-agent (Phase 4)
+
+    def agent_query(self, sql: str, max_rows: int = 200, timeout_ms: int = 5000) -> tuple[list[str], list[tuple], bool]:
+        """Runs the ask-agent's SQL logged in as aqt_agent (SELECT on the `agent` views only), one statement (prepared),
+        read-only, with a statement timeout. Returns (columns, rows, truncated); database errors are raised."""
+        from .connection import agent_connection, connect
+        with connect(agent_connection(self.connection), register_vector=False) as conn:
+            conn.read_only = True
+            with conn.cursor() as cur:
+                cur.execute(f"SET statement_timeout = {int(timeout_ms)}")
+                cur.execute("SET search_path = agent")
+                cur.execute(sql, prepare=True)
+                if cur.description is None:
+                    return [], [], False
+                columns = [d.name for d in cur.description]
+                rows = cur.fetchmany(max_rows + 1)
+            conn.rollback()
+            return columns, rows[:max_rows], len(rows) > max_rows
+
+    def list_runs(self, bank_bic: str | None = None, since=None, until=None, limit: int = 20) -> list[RunRow]:
+        with self.connect() as conn, self._cursor(conn, RunRow) as cur:
+            cur.execute(f"""SELECT {', '.join(_columns(RunRow))} FROM runs
+                            WHERE (%(b)s::text IS NULL OR upper(bank_bic) = upper(%(b)s))
+                              AND (%(s)s::timestamptz IS NULL OR coalesce(started_utc, created_utc) >= %(s)s)
+                              AND (%(u)s::timestamptz IS NULL OR coalesce(started_utc, created_utc) < %(u)s)
+                            ORDER BY coalesce(started_utc, created_utc) DESC LIMIT %(l)s""",
+                        {"b": bank_bic, "s": since, "u": until, "l": limit})
+            return cur.fetchall()
+
+    def scenario_history(self, scenario_id: str, bank_bic: str | None = None, limit: int = 20) -> list[tuple]:
+        """(run id, bank, run start, outcome, reason) for one scenario, newest first."""
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT r.id, r.bank_bic, coalesce(r.started_utc, r.created_utc), s.outcome, s.reason
+                           FROM scenario_results s JOIN runs r ON r.id = s.run_id
+                           WHERE upper(s.scenario_id) = upper(%(s)s) AND (%(b)s::text IS NULL OR upper(r.bank_bic) = upper(%(b)s))
+                           ORDER BY coalesce(r.started_utc, r.created_utc) DESC LIMIT %(l)s""",
+                        {"s": scenario_id, "b": bank_bic, "l": limit})
+            return cur.fetchall()
+
+    def add_agent_question(self, q: AgentQuestionRow) -> None:
+        cols = _columns(AgentQuestionRow)
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"INSERT INTO agent_questions ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))})",
+                            [self._jsonb(q.tool_calls) if c == "tool_calls" else getattr(q, c) for c in cols])
+            conn.commit()
+
+    def list_agent_questions(self, limit: int = 30) -> list[AgentQuestionRow]:
+        with self.connect() as conn, self._cursor(conn, AgentQuestionRow) as cur:
+            cur.execute(f"SELECT {', '.join(_columns(AgentQuestionRow))} FROM agent_questions ORDER BY asked_utc DESC LIMIT %s", (limit,))
+            return cur.fetchall()
+
+    def get_agent_question(self, question_id) -> AgentQuestionRow | None:
+        with self.connect() as conn, self._cursor(conn, AgentQuestionRow) as cur:
+            cur.execute(f"SELECT {', '.join(_columns(AgentQuestionRow))} FROM agent_questions WHERE id::text = %s", (str(question_id),))
+            return cur.fetchone()
+
+    # --- monitoring (Phase 6)
+
+    def add_alerts(self, alerts: list[AlertRow]) -> list[AlertRow]:
+        """Inserts alerts that are new (one per run, kind and scenario); returns the ones actually added."""
+        cols = _columns(AlertRow)
+        added = []
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                for a in alerts:
+                    cur.execute(f"INSERT INTO alerts ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))}) "
+                                "ON CONFLICT (run_id, kind, scenario_id) DO NOTHING", [getattr(a, c) for c in cols])
+                    if cur.rowcount:
+                        added.append(a)
+            conn.commit()
+        return added
+
+    def update_alert_notification(self, alert_id, notified_utc, error: str | None) -> None:
+        with self.connect() as conn:
+            conn.execute("UPDATE alerts SET notified_utc = %s, notify_error = %s WHERE id = %s", (notified_utc, error, alert_id))
+            conn.commit()
+
+    def list_alerts(self, open_only: bool = False, limit: int = 200) -> list[AlertRow]:
+        with self.connect() as conn, self._cursor(conn, AlertRow) as cur:
+            cur.execute(f"""SELECT {', '.join(_columns(AlertRow))} FROM alerts
+                            WHERE NOT %(o)s OR acknowledged_utc IS NULL ORDER BY created_utc DESC LIMIT %(l)s""",
+                        {"o": open_only, "l": limit})
+            return cur.fetchall()
+
+    def acknowledge_alerts(self, alert_ids: list, who: str) -> int:
+        with self.connect() as conn:
+            cur = conn.execute("""UPDATE alerts SET acknowledged_by = %s, acknowledged_utc = now()
+                                  WHERE id::text = ANY(%s) AND acknowledged_utc IS NULL""", (who, [str(i) for i in alert_ids]))
+            conn.commit()
+            return cur.rowcount
+
+    def get_monitor_state(self) -> dict[str, MonitorStateRow]:
+        with self.connect() as conn, self._cursor(conn, MonitorStateRow) as cur:
+            cur.execute(f"SELECT {', '.join(_columns(MonitorStateRow))} FROM monitor_state")
+            return {r.name: r for r in cur.fetchall()}
+
+    def set_monitor_state(self, state: MonitorStateRow) -> None:
+        cols = _columns(MonitorStateRow)
+        with self.connect() as conn:
+            conn.execute(f"""INSERT INTO monitor_state ({', '.join(cols)}) VALUES ({', '.join(['%s'] * len(cols))})
+                             ON CONFLICT (name) DO UPDATE SET {', '.join(f'{c} = EXCLUDED.{c}' for c in cols if c != 'name')}""",
+                         [getattr(state, c) for c in cols])
+            conn.commit()
+
+    def prune_exchanges(self, older_than_days: int) -> int:
+        """Retention: deletes stored HTTP exchanges older than the given number of days (results, summaries and alerts
+        are kept). Returns the number deleted."""
+        with self.connect() as conn:
+            cur = conn.execute("DELETE FROM exchanges WHERE started_utc < now() - make_interval(days => %s)", (int(older_than_days),))
+            conn.commit()
+            return cur.rowcount
+
+    def pass_rate_series(self, days: int = 30) -> dict[str, list[tuple]]:
+        """bank -> [(run id, started, pass rate, failed + errors)] of completed runs, oldest first."""
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT bank_bic, id, coalesce(started_utc, created_utc), pass_rate, failed + errors FROM runs
+                           WHERE status = 'Completed' AND passed + failed + errors > 0
+                             AND coalesce(started_utc, created_utc) >= now() - make_interval(days => %s)
+                           ORDER BY coalesce(started_utc, created_utc)""", (int(days),))
+            series: dict[str, list[tuple]] = {}
+            for bank, *rest in cur.fetchall():
+                series.setdefault(bank, []).append(tuple(rest))
+            return series
+
+    def outcome_sequences(self, days: int = 30) -> dict[tuple[str, str], list[tuple]]:
+        """(bank, scenario) -> [(run id, outcome)] oldest first, Passed/Failed/Error only (for flakiness)."""
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT r.bank_bic, s.scenario_id, r.id, s.outcome FROM scenario_results s JOIN runs r ON r.id = s.run_id
+                           WHERE s.outcome IN ('Passed', 'Failed', 'Error')
+                             AND coalesce(r.started_utc, r.created_utc) >= now() - make_interval(days => %s)
+                           ORDER BY coalesce(r.started_utc, r.created_utc)""", (int(days),))
+            result: dict[tuple[str, str], list[tuple]] = {}
+            for bank, scenario, run_id, outcome in cur.fetchall():
+                result.setdefault((bank, scenario), []).append((run_id, outcome))
+            return result
+
+    def slowest_endpoints(self, days: int = 30, limit: int = 10) -> list[tuple]:
+        """(bank, method, path with ids replaced, calls, avg ms, max ms), slowest average first."""
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute(r"""SELECT r.bank_bic, x.method,
+                                   regexp_replace(regexp_replace(split_part(x.url, '?', 1), '^https?://[^/]+', ''),
+                                                  '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '{id}', 'g') AS path,
+                                   count(*), round(avg(x.duration_ms)), max(x.duration_ms)
+                            FROM exchanges x JOIN runs r ON r.id = x.run_id
+                            WHERE x.status_code IS NOT NULL AND x.started_utc >= now() - make_interval(days => %s)
+                            GROUP BY 1, 2, 3 HAVING count(*) >= 2 ORDER BY 5 DESC LIMIT %s""", (int(days), int(limit)))
+            return cur.fetchall()
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)

@@ -2,6 +2,7 @@
 
 import copy
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,6 +39,20 @@ class RequestSpec:
     auth: str | None = None
     # Send the request without Authorization when `auth` refers to a variable that was never saved.
     auth_optional: bool = False
+    # Repeat the request until a response field reaches a final value (e.g. a payment's transactionStatus).
+    poll: "PollSpec | None" = None
+
+
+@dataclass
+class PollSpec:
+    """Repeats a request (new X-Request-ID each time) until `path` in the JSON response is one of `until`, or the
+    timeout passes; the expectations are then checked on the last response."""
+    # JSON path read from each response, e.g. $.transactionStatus.
+    path: str = required()
+    # Final values, e.g. [ACCC, ACSC, RJCT, CANC].
+    until: list[str] = required()
+    interval_seconds: int = 2
+    timeout_seconds: int = 60
 
 
 @dataclass
@@ -91,6 +106,8 @@ class Expectation:
     echo_request_id: bool = False
     # JSON path -> expected value (compared as text, case-sensitive).
     json: dict[str, Any] | None = None
+    # JSON path -> list of accepted values, e.g. {$.transactionStatus: [ACCC, ACSC]}.
+    json_one_of: dict[str, list[Any]] | None = None
     exists: list[str] | None = None
     not_exists: list[str] | None = None
     # Paths whose absence is reported as a warning, not a failure.
@@ -155,6 +172,9 @@ class Scenario:
     description: str | None = None
     # Profile paths that must be present and truthy (e.g. endpoints.discovery), otherwise the scenario is skipped.
     requires: list[str] | None = None
+    # Rules (approved requirements from the standards, e.g. GE-CON-002) this scenario verifies. The engine only checks
+    # the id format; which rules exist and are approved is checked against the store (aqt coverage, the Drafts page).
+    rules: list[str] | None = None
     steps: list[Step] = required()
     # Steps that always run at the end (e.g. delete the consent). Their failures become warnings.
     cleanup: list[Step] | None = None
@@ -209,6 +229,34 @@ def load_all(directory: str) -> list[Scenario]:
     return scenarios
 
 
+def load_text(text: str, source_name: str) -> Scenario:
+    """Loads one scenario from YAML text (e.g. an AI draft that is not a file yet), with the same checks as load_all."""
+    raw = yamljson.parse(text, source_name)
+    if not isinstance(raw, dict):
+        raise ConfigurationError(f"{source_name}: a scenario must be a YAML mapping")
+    try:
+        scenario = bind(Scenario, raw)
+    except ConfigurationError as ex:
+        raise ConfigurationError(f"{source_name}: {ex}") from ex
+    _validate(scenario, source_name)
+    return scenario
+
+
+def check_templates(scenario: Scenario, templates: "TemplateLibrary", source_name: str | None = None):
+    """Raises ConfigurationError if a step names a header set or body template that does not exist."""
+    where = source_name or scenario.source_path or scenario.id
+    header_sets = {n.lower() for n in templates.header_set_names}
+    bodies = {n.lower() for n in templates.body_names}
+    for step in scenario.steps + (scenario.cleanup or []):
+        r = step.request
+        if r is None:
+            continue
+        if r.headers_template is not None and r.headers_template.lower() not in header_sets:
+            raise ConfigurationError(f"{where}: unknown headersTemplate '{r.headers_template}'")
+        if r.body_template is not None and r.body_template.lower() not in bodies:
+            raise ConfigurationError(f"{where}: unknown bodyTemplate '{r.body_template}'")
+
+
 def filter_scenarios(scenarios, suites, ids) -> list[Scenario]:
     """Filters by suite names and/or scenario ids (case-insensitive). Empty filters match everything."""
     suites = {s.lower() for s in suites}
@@ -217,9 +265,15 @@ def filter_scenarios(scenarios, suites, ids) -> list[Scenario]:
             if (not suites or s.suite.lower() in suites) and (not ids or s.id.lower() in ids)]
 
 
+_RULE_ID = re.compile(r"^[A-Z]+-[A-Z]+-\d{3}$")
+
+
 def _validate(scenario: Scenario, file: str):
     if not scenario.steps:
         raise ConfigurationError(f"{file}: scenario has no steps")
+    for rule in scenario.rules or []:
+        if not _RULE_ID.match(rule):
+            raise ConfigurationError(f"{file}: rules: '{rule}' is not a rule id like GE-CON-002")
 
     for index, step in enumerate(scenario.steps + (scenario.cleanup or [])):
         if step.kind_count != 1:
@@ -236,6 +290,9 @@ def _validate(scenario: Scenario, file: str):
                 raise ConfigurationError(f"{file}: step {index + 1}: signing must be normal, none, corruptSignature or wrongDigest")
             if step.request.target not in ("xs2a", "discovery", "absolute"):
                 raise ConfigurationError(f"{file}: step {index + 1}: target must be xs2a, discovery or absolute")
+            poll = step.request.poll
+            if poll is not None and (not poll.until or not 1 <= poll.interval_seconds <= 300 or not 1 <= poll.timeout_seconds <= 3600):
+                raise ConfigurationError(f"{file}: step {index + 1}: poll needs `until` values, intervalSeconds 1-300 and timeoutSeconds 1-3600")
 
         rs = step.expect.response_signature if step.expect else None
         if rs is not None and rs not in ("required", "optional", "ignore"):

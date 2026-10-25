@@ -1,0 +1,36 @@
+id: PIS-003
+title: A payment that is not authorised yet can be cancelled
+suite: pis
+severity: Major
+specRef: "GE-XS2A 0.8.RC3 — 8.7 payment cancellation request (204 deleted, 202 PSU confirmation needed)"
+requires: [features.payments=domestic, variables.pis.creditorIban]
+
+steps:
+  - name: Initiate domestic payment
+    request:
+      method: POST
+      path: v1/payments/domestic
+      headersTemplate: payment
+      bodyTemplate: payment.domestic
+    expect:
+      status: 201
+    save:
+      paymentId: $.paymentId
+
+  - name: Cancel it
+    request:
+      method: DELETE
+      path: "v1/payments/domestic/{{paymentId}}"
+      headersTemplate: basic
+    expect:
+      status: [202, 204]
+      echoRequestId: true
+
+  - name: Status after cancellation
+    request:
+      method: GET
+      path: "v1/payments/domestic/{{paymentId}}/status"
+      headersTemplate: basic
+    expect:
+      status: 200
+      exists: [$.transactionStatus]

@@ -3,7 +3,8 @@
 Snapshot of the system as it is **now**. Update this file at the end of every phase (see `docs/ai/PLAN.md`).
 Diagrams are Mermaid (render in GitHub, GitLab, Rider, VS Code).
 
-**Last updated:** 2026-10-24, after porting the Store, Standards and AI layers (Phases 0–2) to Python. Everything is
+**Last updated:** 2026-10-25, after the eval sets (`evals/*.yaml`, `aqt ai eval`) that close the AI plan. Phase 6 (monitoring: schedules, alerts, trends, retention) was finished earlier the same day. Phase 5 (payment initiation: MockBank payments, `pis` suite, polling) was finished earlier the same day. Phase 4 (the ask-agent: read-only tools, its own database login, Ask page) was finished earlier the same day.
+Phase 3 (scenarios drafted from approved rules, MockBank dry runs, Drafts and Coverage pages) was finished earlier the same day. Before that (2026-10-24) the Store, Standards and AI layers were ported to Python. Everything is
 Python now: engine, CLI, MockBank, portal, and the optional store/AI layer (`aqt/store`, `aqt/standards`, `aqt/ai`,
 `aqt/cli_ai.py`, `aqt/portal/ai_services.py`). The C# implementation is in git history (last C# commit `8abf9f6`).
 
@@ -18,21 +19,23 @@ flowchart LR
     end
 
     subgraph Hosts["Entry points"]
-        Cli["aqt/cli.py (aqt)<br/>run · mock · portal · list · validate<br/>db · ai · standards · rules (cli_ai.py)"]
-        Portal["aqt/portal (Flask :5280)<br/>RunService → reports/portal-python<br/>AI summary · Standards · Rules"]
+        Cli["aqt/cli.py (aqt)<br/>run · mock · portal · list · validate<br/>db · ai · standards · rules<br/>scenarios · coverage · ask (cli_ai.py)"]
+        Portal["aqt/portal (Flask :5280)<br/>RunService → reports/portal-python<br/>AI summary · Standards · Rules<br/>Drafts · Coverage · Ask"]
     end
 
     subgraph AiLayer["Optional store + AI layer (pip install -e .[ai])"]
         Store["aqt/store<br/>PostgreSQL · masking · import · search"]
         Std["aqt/standards<br/>PDF/Word clause readers · quote verifier"]
-        AI["aqt/ai<br/>providers + audit · summaries · ingest<br/>rule drafter · RuleBook"]
+        Mon["aqt/monitor<br/>monitoring.yaml · alerts · trends"]
+        AI["aqt/ai<br/>providers + audit · summaries · ingest<br/>rule drafter · RuleBook<br/>scenario drafter · ScenarioReview<br/>ask-agent + read-only tools"]
     end
     PG[("PostgreSQL 17 + pgvector<br/>docker :5435")]
     Claude["Claude API<br/>claude-opus-5-5"]
     Ollama["Ollama (local)<br/>qwen3:8b · bge-m3"]
 
     Engine["aqt (engine)<br/>loader · runner · steps · signing · OAuth · reports<br/>(no AI, no DB)"]
-    Mock["aqt/mockbank<br/>fake ASPSP :7443 (mTLS) / :7080"]
+    Mock["aqt/mockbank<br/>fake ASPSP :7443 (mTLS) / :7080<br/>AIS /v2 · PIS /v1/payments"]
+    Dry["aqt/dryrun.py<br/>MockDryRun: in-process MockBank<br/>on free ports, MOCK profile only"]
     Reports[("reports/&lt;BIC&gt;-&lt;time&gt;/<br/>report.html · summary.json · junit.xml")]
 
     subgraph Targets["Banks under test"]
@@ -57,8 +60,16 @@ flowchart LR
     Cli --> AI
     Portal --> AI
     Std --> AI
+    AI -- "draft scenarios" --> Dry
+    Dry --> Engine
+    Dry --> Mock
+    AI -- "approved draft → file" --> Scen
     AI --> Store
     Store -- "masked rows" --> PG
+    Portal -- "MonitorService: due schedules" --> Mon
+    Mon -- "alerts after each run" --> Store
+    Mon -. "AQT_ALERT_WEBHOOK (masked)" .-> Hook["Slack / Teams webhook"]
+    AI -- "agent SQL as aqt_agent<br/>(views only, read-only)" --> PG
     AI -- "masked prompts" --> Claude
     AI -- "masked prompts" --> Ollama
 ```
@@ -112,6 +123,29 @@ sequenceDiagram
     R->>B: DELETE consent (cleanup)
 ```
 
+## 3b. One payment at runtime (PIS-001)
+
+```mermaid
+sequenceDiagram
+    participant T as aqt (TPP)
+    participant B as Bank XS2A (/v1)
+    participant A as Bank OAuth
+    T->>B: POST /v1/payments/domestic (signed, Client-Redirect-URI)
+    B-->>T: 201 ACTC, paymentId, _links.startAuthorisation
+    T->>B: GET …/status
+    B-->>T: ACTC + fundsAvailable (never RCVD)
+    T->>B: POST …/authorisations
+    B-->>T: 201 scaOAuth link
+    T->>A: authorize (PKCE, scope PIS:paymentId) → PSU confirms → token
+    loop poll until final (ACSC / ACCC / RJCT)
+        T->>B: GET …/status (Bearer token)
+        B-->>T: ACSP … then ACSC
+    end
+    T->>B: GET …/{paymentId} (details)
+```
+
+Payment scenarios require `variables.pis.*` (the bank's sandbox test accounts) in the profile; without it they are skipped.
+
 ## 4. AI run summary
 
 ```mermaid
@@ -138,6 +172,71 @@ flowchart LR
     Approved -->|aqt rules export| Yaml[("rules/*.yaml")]
 ```
 
+## 5b. Approved rule → scenario → coverage (Phase 3)
+
+```mermaid
+flowchart LR
+    Rule[("rules: approved")] --> Drafter{{"ScenarioDrafter<br/>Claude or local model<br/>prompt: format + templates + 2 examples"}}
+    Drafter --> Own["code sets id · suite · severity<br/>specRef · origin · rules:"]
+    Own --> Load["engine checks (code)<br/>load_text · template names<br/>requests only to XS2A"]
+    Load -- "error → feedback" --> Drafter
+    Load --> DryRun["MockDryRun<br/>in-process MockBank only"]
+    DryRun -- "failure → feedback<br/>(max 3 attempts)" --> Drafter
+    DryRun --> Drafts[("scenario_drafts<br/>draft · failed<br/>dry run · MOCK_GAP note")]
+    Drafts --> Review["person (Drafts page / CLI)<br/>approve · edit (re-checked) · reject"]
+    Review -->|approve| File[("scenarios/&lt;suite&gt;/&lt;id&gt;-….yaml<br/>rules: [RULE-ID]")]
+    Review -->|link| Rule
+    File --> Runs["aqt run → scenario_results"]
+    Runs --> Cov["coverage (code)<br/>rule → scenarios → last result per bank"]
+```
+
+The model writes only the title, description and steps. Whether a failed dry run is the scenario's fault or a MockBank
+gap is the model's opinion (`MOCK_GAP`). It is accepted only when an expectation failed, never for a tool error, and a
+person decides.
+
+## 5c. Ask-agent (Phase 4)
+
+```mermaid
+flowchart LR
+    Q["question<br/>(portal Ask / aqt ask)"] --> Agent{{"AskAgent<br/>Claude or local model<br/>NOW given in code"}}
+    Agent -- "tool calls (max 8 rounds)" --> Tools["AgentTools (code)<br/>list_runs · get_run · get_scenario_details<br/>scenario_history · search_standards · read_clause<br/>find_rules · sql_query"]
+    Tools --> Store[("store<br/>main login")]
+    Tools -- "sql_query" --> Views[("schema agent: views<br/>login aqt_agent · SELECT only<br/>1 statement · read-only · 5 s")]
+    Tools -- "masked results" --> Agent
+    Agent --> Check["citation check (code)<br/>every id in the answer<br/>must be in a tool result"]
+    Check --> Saved[("agent_questions<br/>ok · unverified · failed<br/>+ tool calls")]
+```
+
+The agent only reads. The database enforces the SQL tool's limits through a separate login. With `SET ROLE` from the
+main user, the agent's SQL could switch back with `set_config('role', …)`; a test checks that it can't now.
+
+## 5d. Monitoring (Phase 6)
+
+```mermaid
+flowchart LR
+    Yaml[("monitoring.yaml<br/>schedules · alerts · retention")] --> Due{"due? (code)<br/>every / at"}
+    State[("monitor_state")] --> Due
+    Due -->|portal every 30 s<br/>or aqt monitor run-due| Run["unattended run<br/>SCA scenarios skipped<br/>(MockBank: automatic)"]
+    Run --> Saved[("runs · results")]
+    Manual["any CLI / portal run"] --> Saved
+    Saved --> Detect["alerts (code)<br/>vs the bank's previous run<br/>regression · fixed · bank_down · run_failed"]
+    Detect --> Alerts[("alerts<br/>acknowledged by a person")]
+    Detect -.-> Webhook["webhook (masked)"]
+    Saved --> Trends["trends (code)<br/>pass rate · flaky · slowest endpoints"]
+    Yaml --> Prune["retention: daily prune<br/>of old exchanges"]
+```
+
+## 5e. Eval sets
+
+```mermaid
+flowchart LR
+    Cases[("evals/*.yaml<br/>cases with known answers")] --> Temp[("temporary database<br/>seeded per case")]
+    Temp --> Feature["the real feature<br/>summary · rules · scenarios · ask"]
+    Feature -->|audited| Model{{"Claude or local model"}}
+    Feature --> Score["checks in code<br/>health/sides · topics/levels/quotes<br/>dry run/MockBank gap · facts/citations"]
+    Score --> Report[("reports/evals/<br/>time-provider.md / .json")]
+```
+
 ## 6. Store schema
 
 ```mermaid
@@ -151,10 +250,16 @@ erDiagram
     standard_documents ||--o{ clauses : "id + version"
     clauses ||..o{ rules : "clause_key"
     rules ||--o{ rule_reviews : "history"
+    rules ||..o{ scenario_drafts : "rule_id"
+    ai_calls ||..o{ scenario_drafts : "ai_call_ids"
+    ai_calls ||..o{ agent_questions : "ai_call_ids"
+    runs ||..o{ alerts : "run_id"
 ```
 
 Migrations are SQL files in `aqt/store/migrations/`, tracked in `aqt_schema_migrations`. `0001` is the schema the C#
-tool created; a database created by the C# tool is recognised (its EF Core history) and kept as it is.
+tool created; a database created by the C# tool is recognised (its EF Core history) and kept as it is. `0002` adds
+`scenario_drafts` (Phase 3). `0003` adds the schema `agent` (read-only views), the login role `aqt_agent` and
+`agent_questions` (Phase 4). `0004` adds `monitor_state`, `alerts` and the agent view `agent.alerts` (Phase 6).
 
 ## 7. Tech facts
 
@@ -162,7 +267,6 @@ tool created; a database created by the C# tool is recognised (its EF Core histo
   pdfplumber (Ollama is called over HTTP).
 - Ports: portal 5280, MockBank 7443 (HTTPS, mTLS) and 7080 (HTTP pages), OAuth callback 5199, PostgreSQL 5435,
   Ollama 11434.
-- Tests: 93 with `AQT_TEST_DB` (22 engine/portal, 71 store/standards/AI/portal-AI); without a database 76 pass and the
-  17 database tests are skipped.
+- Tests: 137 with `AQT_TEST_DB`; without a database 105 pass and the 32 database tests are skipped. MOCK run: 28 passed, 7 skipped (TBC-only).
 - Reports keep the C# `summary.json` shape (camelCase, nulls omitted); interop with the C# client and MockBank was
   verified in both directions before the C# code was removed.

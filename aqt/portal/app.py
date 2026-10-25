@@ -57,7 +57,8 @@ def _local_path(url: str | None, default: str) -> str:
 
 
 def create_app(root: str | None = None, data_directory: str | None = None, mock_xs2a_url: str = "https://localhost:7443/",
-               database: str | None = None, use_database: bool = True, auto_summarize: bool = False) -> Flask:
+               database: str | None = None, use_database: bool = True, auto_summarize: bool = False,
+               monitor: bool = False) -> Flask:
     root = root or os.environ.get("AQT_HOME") or _REPO_ROOT
     data_directory = data_directory or os.path.join(root, "reports", "portal-python")
 
@@ -69,10 +70,15 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
     ai, ai_problem = None, "The store and AI pages are off (the portal was started with --no-db)."
     if use_database:
         from .ai_services import try_create
-        recorder, summaries, rules, ai_problem = try_create(database or os.environ.get("AQT_DB"), root, auto_summarize)
+        recorder, summaries, rules, drafts, asking, monitoring, ai_problem = try_create(database or os.environ.get("AQT_DB"), root, auto_summarize)
         if recorder is not None:
-            ai = SimpleNamespace(recorder=recorder, summaries=summaries, rules=rules, store=recorder.store)
+            ai = SimpleNamespace(recorder=recorder, summaries=summaries, rules=rules, drafts=drafts, ask=asking, monitor=monitoring,
+                                 store=recorder.store)
     runs = RunService(catalog, mock_bank, data_directory, ai.recorder if ai else None, ai.summaries if ai else None)
+    if ai is not None:
+        ai.monitor.runs = runs
+        if monitor:
+            ai.monitor.start(runs)
     app.config.update(catalog=catalog, mock_bank=mock_bank, runs=runs, ai=ai, ai_problem=ai_problem)
 
     @app.context_processor
@@ -308,6 +314,141 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
                                                           f"{removed} stale file(s) removed. Commit them to keep the history in git."}))
 
 
+    # ---- scenario drafts and coverage (Phase 3) -------------------------------------------------------------------
+
+    @app.get("/drafts")
+    def drafts_page():
+        status, rule_id = request.args.get("status", "draft"), request.args.get("rule", "")
+        context = {"page": "drafts", "shown": [], "counts": {}, "status": status, "rule_id": rule_id, "approved_rules": [],
+                   "busy": {}, "failed_jobs": {}, "errors": {request.args.get("draft"): request.args.get("error")} if request.args.get("error") else {},
+                   "edit": request.args.get("edit"), "message": request.args.get("message")}
+        if ai is None:
+            return render_template("drafts.html", **context)
+        every = ai.store.list_scenario_drafts()
+        counts = {s: sum(d.status == s for d in every) for s in ("draft", "failed", "approved", "rejected")}
+        counts["all"] = len(every)
+        approved = [r for r in ai.store.list_rules("approved")]
+        context.update(counts=counts, approved_rules=approved,
+                       busy={r.id: p for r in approved if (p := ai.drafts.drafting_provider(r.id))},
+                       failed_jobs={r.id: e for r in approved if (e := ai.drafts.last_error(r.id))},
+                       models={p: ai.drafts.model_for(p) for p in ("anthropic", "ollama")},
+                       shown=[d for d in every if (status == "all" or d.status == status) and (not rule_id or d.rule_id == rule_id)])
+        return render_template("drafts.html", **context)
+
+    @app.post("/drafts/new")
+    def drafts_new():
+        if ai is None:
+            abort(404)
+        rule_id, provider = request.form.get("rule", ""), request.form.get("provider", "anthropic")
+        reviewer = request.cookies.get(_REVIEWER_COOKIE)
+        rule = ai.store.get_rule(rule_id)
+        if not reviewer:
+            return redirect("/drafts?" + urlencode({"rule": rule_id, "message": "Enter your name at the top first."}))
+        if provider in ("anthropic", "ollama") and rule is not None and rule.status == "approved":
+            ai.drafts.start_draft(rule_id, provider, f"{reviewer} (portal)")
+        return redirect("/drafts?" + urlencode({"rule": rule_id, "status": "all"}))
+
+    def _draft_review(draft_id: str, action):
+        reviewer = request.cookies.get(_REVIEWER_COOKIE)
+        error = "Enter your name at the top to review." if not reviewer else ai.drafts.review(lambda review: action(review, reviewer))
+        base, _, query = _local_path(request.form.get("back"), "/drafts").split("#")[0].partition("?")
+        kept = [p for p in query.split("&") if p and p.split("=")[0] not in ("edit", "draft", "error", "message")]
+        if error:
+            kept.append(urlencode({"draft": draft_id, "error": error}))
+        return redirect(base + ("?" + "&".join(kept) if kept else "") + f"#draft-{draft_id}")
+
+    @app.post("/drafts/<draft_id>/approve")
+    def draft_approve(draft_id):
+        if ai is None:
+            abort(404)
+        return _draft_review(draft_id, lambda review, who: review.approve(draft_id, who, request.form.get("note") or None))
+
+    @app.post("/drafts/<draft_id>/reject")
+    def draft_reject(draft_id):
+        if ai is None:
+            abort(404)
+        return _draft_review(draft_id, lambda review, who: review.reject(draft_id, who, request.form.get("note", "")))
+
+    @app.post("/drafts/<draft_id>/edit")
+    def draft_edit(draft_id):
+        if ai is None:
+            abort(404)
+        return _draft_review(draft_id, lambda review, who: review.edit(draft_id, who, request.form.get("yaml", "")))
+
+    @app.get("/coverage")
+    def coverage_page():
+        context = {"page": "coverage", "coverage": None, "include_drafts": request.args.get("drafts") == "1"}
+        if ai is not None:
+            context["coverage"] = ai.drafts.coverage(context["include_drafts"])
+        return render_template("coverage.html", **context)
+
+    # ---- ask-agent (Phase 4) ---------------------------------------------------------------------------------
+
+    @app.get("/ask")
+    def ask_page():
+        context = {"page": "ask", "questions": [], "pending": [], "errors": {}, "models": {}, "message": request.args.get("message"),
+                   "open_id": request.args.get("q")}
+        if ai is not None:
+            context.update(questions=ai.store.list_agent_questions(30), pending=ai.ask.pending(), errors=ai.ask.errors(),
+                           models={p: ai.ask.model_for(p) for p in ("anthropic", "ollama")})
+        return render_template("ask.html", **context)
+
+    @app.post("/ask")
+    def ask_post():
+        if ai is None:
+            abort(404)
+        question, provider = (request.form.get("question") or "").strip(), request.form.get("provider", "anthropic")
+        reviewer = request.cookies.get(_REVIEWER_COOKIE)
+        if not reviewer:
+            return redirect("/ask?" + urlencode({"message": "Enter your name at the top first (it is saved with the question)."}))
+        if question and provider in ("anthropic", "ollama"):
+            ai.ask.start(question[:2000], provider, f"{reviewer} (portal)")
+        return redirect("/ask")
+
+    # ---- monitoring and alerts (Phase 6) -----------------------------------------------------------------------
+
+    @app.get("/monitoring")
+    def monitoring_page():
+        from ..monitor import trends
+        context = {"page": "monitoring", "schedules": [], "retention": None, "series": {}, "flaky": [], "slow": [],
+                   "problem": None, "enabled": False, "message": request.args.get("message"), "sparkline": trends.sparkline,
+                   "open_alerts": 0}
+        if ai is not None:
+            schedules, retention = ai.monitor.overview()
+            context.update(schedules=schedules, retention=retention, series=ai.store.pass_rate_series(30),
+                           flaky=trends.flaky(ai.store.outcome_sequences(30))[:20], slow=ai.store.slowest_endpoints(30, 10),
+                           problem=ai.monitor.problem, enabled=ai.monitor.enabled,
+                           open_alerts=len(ai.store.list_alerts(open_only=True)))
+        return render_template("monitoring.html", **context)
+
+    @app.post("/monitoring/run/<name>")
+    def monitoring_run_now(name):
+        if ai is None:
+            abort(404)
+        who = request.cookies.get(_REVIEWER_COOKIE) or "portal"
+        error = ai.monitor.run_now(name, f"{who} (Run now)")
+        return redirect("/monitoring" + ("?" + urlencode({"message": error}) if error else ""))
+
+    @app.get("/alerts")
+    def alerts_page():
+        show = request.args.get("show", "open")
+        context = {"page": "alerts", "alerts": [], "show": show, "open_count": 0}
+        if ai is not None:
+            context.update(alerts=ai.store.list_alerts(open_only=show == "open"), open_count=len(ai.store.list_alerts(open_only=True)))
+        return render_template("alerts.html", **context)
+
+    @app.post("/alerts/ack")
+    def alerts_ack():
+        if ai is None:
+            abort(404)
+        who = request.cookies.get(_REVIEWER_COOKIE)
+        if not who:
+            return redirect("/alerts?" + urlencode({"show": "open", "error": "Enter your name at the top first."}))
+        ids = request.form.getlist("id")
+        if ids:
+            ai.store.acknowledge_alerts(ids, who)
+        return redirect("/alerts")
+
     @app.post("/runs/<run_id>/cancel")
     def run_cancel(run_id):
         runs.cancel(run_id)
@@ -359,10 +500,10 @@ def create_app(root: str | None = None, data_directory: str | None = None, mock_
 
 
 def run_portal(cli) -> int:
-    """aqt portal [--port 5280] [--root dir] [--data dir] [--db connection | --no-db] [--auto-summarize]"""
+    """aqt portal [--port 5280] [--root dir] [--data dir] [--db connection | --no-db] [--auto-summarize] [--no-monitor]"""
     port = int(cli.get("port") or 5280)
     app = create_app(cli.get("root"), cli.get("data"), database=cli.get("db"), use_database=not cli.has("no-db"),
-                     auto_summarize=cli.has("auto-summarize"))
+                     auto_summarize=cli.has("auto-summarize"), monitor=not cli.has("no-monitor"))
     runs: RunService = app.config["runs"]
     print(f"API Test Portal (Python): http://localhost:{port}/")
     print(f"  banks/scenarios from {app.config['catalog'].root_directory}")

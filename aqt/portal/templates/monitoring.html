@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Monitoring{% endblock %}
+{% block content %}
+<div class="title-row"><h1>Monitoring</h1></div>
+
+{% if not ai %}
+<div class="alert alert-warn">{{ ai_problem }}</div>
+{% else %}
+<p class="muted small">
+    Scheduled runs from <code>monitoring.yaml</code>, run unattended by this portal{{ '' if enabled else ' (off: started with --no-monitor; use `aqt monitor run-due` from cron instead)' }}.
+    Unattended runs skip scenarios that need a bank login (SCA), except on MockBank, where login is automatic.
+    After every saved run, code compares it with the bank's previous run and records <a href="/alerts">alerts</a>{% if open_alerts %} — <b>{{ open_alerts }} open</b>{% endif %}.
+</p>
+{% if problem %}<div class="alert alert-fail small">monitoring.yaml: {{ problem }}</div>{% endif %}
+{% if message %}<div class="alert alert-fail small">{{ message }}</div>{% endif %}
+
+<h2>Schedules</h2>
+{% if not schedules %}
+<p class="muted">No schedules. Add them to <code>monitoring.yaml</code> in the tool's folder (see the README).</p>
+{% else %}
+<table class="grid">
+    <tr><th>Schedule</th><th>Bank</th><th>Suites</th><th>When</th><th>Last run</th><th>Next</th><th></th></tr>
+    {% for s, st, due, status in schedules %}
+    <tr>
+        <td><b>{{ s.name }}</b>{% if not s.enabled %} <span class="badge badge-queued">disabled</span>{% endif %}{% if s.with_mock %} <span class="chip">MockBank</span>{% endif %}</td>
+        <td>{{ s.bank }}</td>
+        <td class="small">{{ (s.suites or ['all']) | join(', ') }}{{ ' · ' ~ s.scenarios | join(', ') if s.scenarios }}</td>
+        <td class="small">{{ s.describe() }}</td>
+        <td class="small">
+            {% if st %}{{ local_time(st.last_started_utc, '%Y-%m-%d %H:%M') }}
+                {% if st.last_run_id %}<a href="/runs/{{ st.last_run_id }}"><span class="badge badge-{{ badge_css(status) }}">{{ status }}</span></a>{% endif %}
+                {% if st.last_error %}<div class="text-fail">{{ st.last_error }}</div>{% endif %}
+            {% else %}<span class="muted">never</span>{% endif %}
+        </td>
+        <td class="small">{{ local_time(due, '%Y-%m-%d %H:%M') if s.enabled else '—' }}</td>
+        <td><form method="post" action="/monitoring/run/{{ s.name }}"><button class="btn btn-small btn-ghost">Run now</button></form></td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+<p class="muted small">Retention: {% if retention %}last pruned {{ local_time(retention.last_started_utc, '%Y-%m-%d %H:%M') }} — {{ retention.last_error }}{% else %}not run yet{% endif %}.</p>
+
+<h2>Pass rate per bank (30 days)</h2>
+{% if not series %}<p class="muted">No completed runs in the last 30 days.</p>{% endif %}
+<table class="grid">
+    {% for bank, points in series.items() %}
+    {% set last = points[-1] %}
+    <tr>
+        <td><b>{{ bank }}</b><div class="muted small">{{ points | length }} run(s)</div></td>
+        <td style="color: var(--accent, #2f6feb)">{{ sparkline(points | map(attribute=2) | list) | safe }}</td>
+        <td class="small">last <a href="/runs/{{ last[0] }}">{{ '%.0f' % last[2] }}%</a>{% if last[3] %} · <span class="text-fail">{{ last[3] }} failed/error</span>{% endif %}
+            <div class="muted">{{ local_time(last[1], '%Y-%m-%d %H:%M') }}</div></td>
+    </tr>
+    {% endfor %}
+</table>
+
+<h2>Flaky scenarios (30 days)</h2>
+<p class="muted small">Outcome switched between passing and failing at least twice on the same bank.</p>
+{% if not flaky %}<p class="muted">None.</p>{% else %}
+<table class="grid">
+    <tr><th>Bank</th><th>Scenario</th><th>Runs</th><th>Switches</th><th>Last</th></tr>
+    {% for f in flaky %}
+    <tr><td>{{ f.bank_bic }}</td><td><code>{{ f.scenario_id }}</code></td><td>{{ f.runs }}</td><td>{{ f.changes }}</td>
+        <td><span class="badge badge-{{ badge_css(f.last) }}">{{ f.last }}</span></td></tr>
+    {% endfor %}
+</table>
+{% endif %}
+
+<h2>Slowest endpoints (30 days)</h2>
+{% if not slow %}<p class="muted">No exchanges stored.</p>{% else %}
+<table class="grid">
+    <tr><th>Bank</th><th>Request</th><th>Calls</th><th>Average</th><th>Max</th></tr>
+    {% for bank, method, path, calls, avg, mx in slow %}
+    <tr><td>{{ bank }}</td><td><code>{{ method }} {{ path }}</code></td><td>{{ calls }}</td><td>{{ avg }} ms</td><td>{{ mx }} ms</td></tr>
+    {% endfor %}
+</table>
+{% endif %}
+{% endif %}
+{% endblock %}

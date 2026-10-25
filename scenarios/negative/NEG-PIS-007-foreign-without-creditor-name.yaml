@@ -1,0 +1,19 @@
+id: NEG-PIS-007
+title: Foreign payment without creditorName is rejected
+suite: negative
+severity: Minor
+specRef: "GE-XS2A 0.8.RC3 — 8.2.1 table 4: creditorName is mandatory (m) for foreign (SWIFT) payments; missing = FORMAT_ERROR"
+requires: [features.payments=foreign, variables.pis.foreignCreditorIban]
+
+steps:
+  - name: POST foreign payment without creditorName
+    request:
+      method: POST
+      path: v1/payments/foreign
+      headersTemplate: payment
+      bodyTemplate: payment.foreign
+      bodyRemove: [creditorName]
+    expect:
+      status: 400
+      errorCode: FORMAT_ERROR
+      echoRequestId: true

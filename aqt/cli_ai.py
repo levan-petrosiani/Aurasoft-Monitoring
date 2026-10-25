@@ -1,10 +1,11 @@
 """
-aqt db | ai | standards | rules — the store and AI commands, and the store hook of `aqt run`.
+aqt db | ai | standards | rules | scenarios | coverage | ask — the store and AI commands, and the store hook of `aqt run`.
 
 Imports of the database and AI packages happen inside the commands, so the core tool (run, mock, portal, validate)
 works without the `ai` extra installed.
 """
 
+import json
 import os
 
 from .errors import ConfigurationError
@@ -15,11 +16,18 @@ AI_FLAGS = {"replace", "show-input", "no-embed"}
 
 USAGE = """  aqt db migrate|status [--db <connection>]           create/upgrade the PostgreSQL store, show row counts
   aqt db import [folder...] [--replace]               load report folders (default: ./reports) into the store
+  aqt db prune [--days N]                             retention: delete stored exchanges older than N days (monitoring.yaml)
   aqt ai check [--provider anthropic|ollama] [--model name]   one-line call to each AI provider, audited
   aqt ai summarize <run-id|latest> [--bank BIC] [--provider ..] [--model ..] [--show-input]   AI triage of a stored run
+  aqt ai eval [--feature summary,rules,scenarios,ask] [--case name] [--provider ..] [--model ..]   eval sets (evals/*.yaml)
   aqt standards fetch|ingest [--standard ID] [--no-embed] | list | search "<text>" [--standard ID] | show <clause-key>
   aqt rules draft <clause-key> [--provider ..] [--model ..] | list [--status s] [--standard ID] | show <id>
   aqt rules approve|reject|reopen <id> --by <name> [--note ..] | export        rules from the standards
+  aqt scenarios draft <rule-id> [--provider ..] [--model ..] | drafts [--status s] [--rule id] | show <draft>
+  aqt scenarios approve|reject <draft> --by <name> [--note ..]   AI scenario drafts (checked on MockBank only)
+  aqt coverage [--drafts]                             approved rules -> scenarios -> last result per bank
+  aqt ask "<question>" [--provider ..] [--model ..] | ask history     questions about runs, results, rules, standards
+  aqt monitor status | run-due [--schedule name] | alerts [--all] | ack <id|all> --by <name> | trends     monitoring
     (store commands use --db or AQT_DB; db/ai/standards/rules default to the docker-compose database, localhost:5435)"""
 
 
@@ -59,7 +67,7 @@ def _database_problem(ex: Exception) -> bool:
     return isinstance(ex, (psycopg.Error, OSError))
 
 
-def save_run(connection: str, run_id: str, report_directory: str, run, suites: list[str]):
+def save_run(connection: str, run_id: str, report_directory: str, run, suites: list[str], root: str | None = None):
     """Writes a finished CLI run to the store. A database problem never fails the test run: the reports on disk are
     complete, and the folder can be imported later with `aqt db import`."""
     Out = _out()
@@ -74,8 +82,23 @@ def save_run(connection: str, run_id: str, report_directory: str, run, suites: l
         store.add_event("cli", "run.finished", f"{run.bank_bic}: {run.count(Outcome.PASSED)} passed, {run.count(Outcome.FAILED)} failed, "
                         f"{run.count(Outcome.ERROR)} errors", run_id, "Warning" if problems else "Info")
         Out.muted(f"  saved to the store as {run_id}")
+        _alerts_for(store, run_id, root)
     except Exception as ex:  # noqa: BLE001 - any store problem is only a notice for a test run
         Out.notice(f"Could not save the run to the store ({ex}); import it later with 'aqt db import'.")
+
+
+def _alerts_for(store, run_id: str, root: str | None):
+    """Alerts against the bank's previous run (printed, stored, sent to the webhook). Never fails the run."""
+    from .monitor import alerts, config
+    Out = _out()
+    try:
+        settings = config.load(root or os.getcwd())
+    except ConfigurationError as ex:
+        Out.notice(f"monitoring.yaml: {ex}; alerts are recorded but not sent")
+        settings = config.MonitoringConfig(alerts=config.AlertsConfig(notify=[]))
+    for a in alerts.process_run(store, run_id, settings, warn=Out.notice):
+        sent = " (sent)" if a.notified_utc else (f" (webhook failed: {a.notify_error})" if a.notify_error else "")
+        Out.notice(f"ALERT {a.kind}: {a.message}{sent}")
 
 
 # ---- aqt db --------------------------------------------------------------------------------------------------
@@ -103,12 +126,20 @@ def cmd_db(cli) -> int:
                 Out.notice(f"Pending migrations: {', '.join(status.pending_migrations)} - run 'aqt db migrate'")
             print(f"runs {status.runs} · scenario results {status.scenarios} · exchanges {status.exchanges} · events {status.events} · AI calls {status.ai_calls}")
             return SUCCESS
+        if sub == "prune":
+            from .cli import Paths
+            from .monitor import config
+            days = int(cli.get("days") or config.load(Paths(cli).root).retention.exchanges_days)
+            deleted = store.prune_exchanges(days)
+            store.add_event("cli", "retention.pruned", f"deleted {deleted} exchange(s) older than {days} days")
+            Out.ok(f"Deleted {deleted} stored exchange(s) older than {days} days (results, summaries and alerts are kept)")
+            return SUCCESS
     except Exception as ex:  # noqa: BLE001
         if _database_problem(ex):
             Out.error(f"Database: {ex}. Is it running? (docker compose up -d)")
             return CONFIGURATION_ERROR
         raise
-    raise ConfigurationError("Usage: aqt db migrate|import [folder...] [--replace]|status [--db <connection>]")
+    raise ConfigurationError("Usage: aqt db migrate|import [folder...] [--replace]|status|prune [--days N] [--db <connection>]")
 
 
 # ---- aqt ai --------------------------------------------------------------------------------------------------
@@ -133,8 +164,48 @@ def cmd_ai(cli) -> int:
         return _ai_check(cli)
     if sub == "summarize":
         return _ai_summarize(cli)
+    if sub == "eval":
+        return _ai_eval(cli)
     raise ConfigurationError("Usage: aqt ai check [--provider anthropic|ollama] [--model name] [--db <connection>]\n"
-                             "       aqt ai summarize <run-id|latest> [--bank BIC] [--provider ..] [--model ..] [--show-input]")
+                             "       aqt ai summarize <run-id|latest> [--bank BIC] [--provider ..] [--model ..] [--show-input]\n"
+                             "       aqt ai eval [--feature summary,rules,scenarios,ask] [--case name] [--provider ..] [--model ..]")
+
+
+def _ai_eval(cli) -> int:
+    """Runs the eval sets (evals/*.yaml) against the configured model(s); each case in a temporary database."""
+    from .ai import evals, options as opt
+    from .cli import Paths
+    Out = _out()
+    features = cli.get_list("feature") or list(evals.FEATURES)
+    unknown = [f for f in features if f not in evals.FEATURES]
+    if unknown:
+        raise ConfigurationError(f"Unknown feature(s) {', '.join(unknown)} (use {', '.join(evals.FEATURES)})")
+    options = opt.AiOptions.from_environment()
+    for f in features:
+        feature = evals.MODEL_FEATURE[f]
+        if cli.get("provider"):
+            options = options.with_provider(feature, cli.get("provider"))
+        if cli.get("model"):
+            options.features[feature].model = cli.get("model")
+    connection = _connection(cli)
+    from .store import AqtStore
+    store = AqtStore(connection)
+    try:
+        store.migrate()
+    except Exception as ex:  # noqa: BLE001
+        raise ConfigurationError(f"The evals need the database server (temporary databases): {ex}") from ex
+    paths = Paths(cli)
+    runner = evals.EvalRunner(connection, options, paths.root, main_store=store, progress=Out.muted)
+    results = runner.run(features, cli.get("case"))
+    if not results:
+        raise ConfigurationError("No eval cases matched")
+    json_path, md_path = evals.write_report(results, runner.memory.calls, cli.get("out") or os.path.join(paths.root, "reports", "evals"))
+    print()
+    for s in evals.summarize(results):
+        (Out.ok if s["casesPassed"] == s["cases"] else Out.error)(
+            f"{s['feature']:<10} {s['model']:<28} cases {s['casesPassed']}/{s['cases']} · checks {s['checksPassed']}/{s['checks']} · {s['seconds']} s")
+    Out.muted(f"Report: {md_path}")
+    return SUCCESS if all(r.passed for r in results) else TESTS_FAILED
 
 
 def _ai_check(cli) -> int:
@@ -364,3 +435,240 @@ def cmd_rules(cli) -> int:
         Out.ok(f"{written} approved rule(s) written to rules/, {removed} stale file(s) removed")
         return SUCCESS
     raise ConfigurationError("Usage: aqt rules draft|list|show|approve|reject|reopen|export")
+
+
+# ---- aqt scenarios / aqt coverage ------------------------------------------------------------------------------
+
+def _find_draft(store, key: str):
+    """A draft by its id (or the first 8+ characters of it) or by scenario id (the newest open one)."""
+    key = (key or "").strip()
+    drafts = store.list_scenario_drafts()
+    by_scenario = [d for d in drafts if d.scenario_id.lower() == key.lower()]
+    if by_scenario:
+        return next((d for d in by_scenario if d.status in ("draft", "failed")), by_scenario[0])
+    matches = [d for d in drafts if len(key) >= 8 and str(d.id).startswith(key.lower())]
+    if len(matches) != 1:
+        raise ConfigurationError(f"No scenario draft '{key}' (use the scenario id or the draft id from aqt scenarios drafts)")
+    return matches[0]
+
+
+def _print_draft(d, full: bool):
+    Out = _out()
+    print()
+    line = f"{d.scenario_id}  [{d.status}]  rule {d.rule_id} · dry run {d.dry_run_outcome or '-'} · {str(d.id)[:8]}  {d.title}"
+    (Out.error if d.status == "failed" else Out.ok)(line)
+    if d.mock_gap:
+        print(f"   MockBank gap (model's view): {d.mock_gap}")
+    for n in d.check_notes:
+        Out.muted("   check: " + n)
+    if d.reviewed_by:
+        Out.muted(f"   {d.status} by {d.reviewed_by}{': ' + d.review_note if d.review_note else ''}{' -> ' + d.file_path if d.file_path else ''}")
+    if full:
+        print()
+        print(d.yaml)
+
+
+def cmd_scenarios(cli) -> int:
+    from .ai.scenario_drafting import ScenarioDrafter, ScenarioReview, ScenarioReviewError
+    from .cli import Paths
+    from .dryrun import MockDryRun
+    Out = _out()
+    sub = cli.positional[0] if cli.positional else "drafts"
+    arg = cli.positional[1] if len(cli.positional) > 1 else None
+    paths = Paths(cli)
+    store = _store(cli)
+
+    if sub == "draft":
+        if arg is None:
+            raise ConfigurationError("Usage: aqt scenarios draft <approved rule id> [--provider anthropic|ollama] [--model name]")
+        from .ai import options as opt
+        factory = _factory(store, cli, opt.SCENARIO_DRAFTING)
+        settings = factory.describe(opt.SCENARIO_DRAFTING)
+        Out.muted(f"Drafting a scenario for {arg} with {settings.provider} {settings.model}; dry runs on an in-process MockBank ...")
+        with MockDryRun(paths.banks, paths.scenarios) as dry_run:
+            try:
+                draft = ScenarioDrafter(store, factory, paths.scenarios, dry_run).draft(arg, f"{os.environ.get('USER', 'cli')} (aqt scenarios draft)")
+            except ValueError as ex:
+                raise ConfigurationError(str(ex)) from ex
+        _print_draft(draft, full=True)
+        return SUCCESS if draft.status == "draft" else TESTS_FAILED
+    if sub == "drafts":
+        for d in store.list_scenario_drafts(cli.get("status"), cli.get("rule")):
+            print(f"{str(d.id)[:8]}  {d.scenario_id:<12} {d.status:<9} {d.rule_id:<12} {(d.dry_run_outcome or '-'):<8} {d.title}")
+        return SUCCESS
+    if sub == "show":
+        _print_draft(_find_draft(store, arg), full=True)
+        return SUCCESS
+    if sub in ("approve", "reject"):
+        reviewer = cli.get("by")
+        if not reviewer or not arg:
+            raise ConfigurationError(f"Usage: aqt scenarios {sub} <draft> --by <your name> [--note text]")
+        draft = _find_draft(store, arg)
+        review = ScenarioReview(store, paths.scenarios)
+        try:
+            draft = review.approve(draft.id, reviewer, cli.get("note")) if sub == "approve" else review.reject(draft.id, reviewer, cli.get("note") or "")
+        except ScenarioReviewError as ex:
+            raise ConfigurationError(str(ex)) from ex
+        Out.ok(f"{draft.scenario_id} is now {draft.status}" + (f": {draft.file_path} (linked to {draft.rule_id})" if draft.file_path else ""))
+        return SUCCESS
+    raise ConfigurationError("Usage: aqt scenarios draft|drafts|show|approve|reject")
+
+
+def cmd_coverage(cli) -> int:
+    from .cli import Paths
+    from .store import coverage
+    Out = _out()
+    result = coverage.compute(_store(cli), Paths(cli).scenarios, include_drafts=cli.has("drafts"))
+    for r in result.rules:
+        line = f"{r.rule_id:<14} {r.status:<9} {r.level:<6} {r.service:<6} {r.title}"
+        (Out.ok if r.covered else Out.muted)(line)
+        for s in r.scenarios:
+            results = ", ".join(f"{bank} {outcome}" for bank, (outcome, _) in sorted(s.results.items())) or "never run"
+            print(f"        {s.id:<12} {results}{'' if s.file else '  (no scenario file)'}")
+        if r.open_drafts:
+            Out.muted(f"        {r.open_drafts} scenario draft(s) waiting for review")
+    for p in result.problems:
+        Out.error(p)
+    per_service = " · ".join(f"{s} {covered}/{approved}" for s, (approved, covered) in result.by_service.items() if approved)
+    Out.muted(f"{result.covered_count} of {result.approved_count} approved rule(s) have a scenario" + (f" ({per_service})." if per_service else "."))
+    return SUCCESS
+
+
+# ---- aqt ask ---------------------------------------------------------------------------------------------------
+
+def _print_question(q, show_tools: bool):
+    Out = _out()
+    if show_tools:
+        for t in q.tool_calls:
+            Out.muted(f"  · {t['tool']}({json.dumps(t['arguments'], ensure_ascii=False)})")
+    print()
+    if q.answer:
+        print(q.answer)
+    else:
+        Out.error(q.error or "No answer.")
+    print()
+    for n in q.citation_notes:
+        Out._write("  check: " + n, "dark_yellow")
+    Out.muted(f"{q.status} · {q.provider} {q.model} · {len(q.tool_calls)} tool call(s) · {q.duration_ms / 1000:.1f} s · question {str(q.id)[:8]}")
+
+
+def cmd_ask(cli) -> int:
+    from .ai.agent import AskAgent
+    Out = _out()
+    store = _store(cli)
+    if cli.positional and cli.positional[0] == "history":
+        for q in store.list_agent_questions(int(cli.get("limit") or 20)):
+            print(f"{str(q.id)[:8]}  {q.asked_utc:%Y-%m-%d %H:%M}  {q.status:<10} {q.asked_by or '-':<12} {q.question[:90]}")
+        return SUCCESS
+    question = " ".join(cli.positional).strip()
+    if not question:
+        raise ConfigurationError('Usage: aqt ask "<question>" [--provider anthropic|ollama] [--model name] | aqt ask history')
+    from .ai import options as opt
+    factory = _factory(store, cli, opt.ASK)
+    settings = factory.describe(opt.ASK)
+    Out.muted(f"Asking {settings.provider} {settings.model} (read-only tools over the store) ...")
+    answer = AskAgent(store, factory).ask(question, f"{os.environ.get('USER', 'cli')} (aqt ask)",
+                                          on_tool=lambda name, args: Out.muted(f"  · {name}({json.dumps(args, ensure_ascii=False)})"))
+    _print_question(answer.row, show_tools=False)
+    return SUCCESS if answer.row.status != "failed" else TESTS_FAILED
+
+
+# ---- aqt monitor -----------------------------------------------------------------------------------------------
+
+def cmd_monitor(cli, cancel) -> int:
+    from datetime import datetime, timezone
+    from .cli import CliArgs, Paths, cmd_run
+    from .monitor import config, trends
+    from .store.entities import MonitorStateRow
+    Out = _out()
+    sub = cli.positional[0] if cli.positional else "status"
+    paths = Paths(cli)
+    settings = config.load(paths.root)
+    store = _store(cli)
+    now = datetime.now(timezone.utc)
+
+    if sub == "status":
+        state = store.get_monitor_state()
+        if not settings.schedules:
+            Out.muted(f"No schedules in {config.FILE_NAME}.")
+        for s in settings.schedules:
+            st = state.get(s.name)
+            due = config.next_due(s, st.last_started_utc if st else None, now)
+            last = f"last {st.last_started_utc.astimezone():%Y-%m-%d %H:%M} {st.last_status or ''} {st.last_run_id or ''}".rstrip() if st else "never ran"
+            print(f"{s.name:<22} {s.bank:<10} {s.describe():<16} {'disabled' if not s.enabled else 'next ' + f'{due.astimezone():%Y-%m-%d %H:%M}'}  ·  {last}")
+        retention = state.get(config.RETENTION_STATE)
+        Out.muted(f"retention: exchanges kept {settings.retention.exchanges_days} days; "
+                  + (f"last pruned {retention.last_started_utc.astimezone():%Y-%m-%d %H:%M} ({retention.last_error})" if retention else "never pruned"))
+        open_alerts = store.list_alerts(open_only=True)
+        Out.muted(f"{len(open_alerts)} open alert(s) · webhook {'set' if settings.webhook_url else 'not set'} ({settings.alerts.webhook_env})")
+        return SUCCESS
+
+    if sub == "run-due":
+        # For cron/launchd: runs every due schedule (or --schedule NAME now) one after another, then the daily retention.
+        only = cli.get("schedule")
+        state = store.get_monitor_state()
+        chosen = [s for s in settings.schedules if (s.name == only if only else config.is_due(s, state[s.name].last_started_utc if s.name in state else None, now))]
+        if only and not chosen:
+            raise ConfigurationError(f"No schedule '{only}' in {config.FILE_NAME}")
+        worst = SUCCESS
+        for s in chosen:
+            Out.header(f"Schedule {s.name} ({s.describe()}): {s.bank}")
+            args = ["run", "--bank", s.bank, "--unattended", "--db", _connection(cli)]
+            args += ["--suite", ",".join(s.suites)] if s.suites else []
+            args += ["--scenario", ",".join(s.scenarios)] if s.scenarios else []
+            args += ["--with-mock", "--sca-auto"] if s.with_mock else []
+            if cli.get("root"):
+                args += ["--root", cli.get("root")]
+            run_cli = CliArgs.parse(args)
+            started = datetime.now(timezone.utc)
+            try:
+                code = cmd_run(run_cli, cancel)
+                store.set_monitor_state(MonitorStateRow(s.name, started, getattr(run_cli, "run_id", None), "Completed", None))
+            except ConfigurationError as ex:
+                Out.error(str(ex))
+                store.set_monitor_state(MonitorStateRow(s.name, started, None, "Failed", str(ex)))
+                code = CONFIGURATION_ERROR
+            worst = max(worst, code)
+        retention = store.get_monitor_state().get(config.RETENTION_STATE)
+        if retention is None or (now - retention.last_started_utc).total_seconds() >= 24 * 3600:
+            deleted = store.prune_exchanges(settings.retention.exchanges_days)
+            note = f"deleted {deleted} exchange(s) older than {settings.retention.exchanges_days} days"
+            store.set_monitor_state(MonitorStateRow(config.RETENTION_STATE, now, None, "Completed", note))
+            Out.muted("retention: " + note)
+        if not chosen:
+            Out.muted("Nothing due.")
+        return worst
+
+    if sub == "alerts":
+        for a in store.list_alerts(open_only=not cli.has("all"), limit=int(cli.get("limit") or 50)):
+            ack = f"  ack {a.acknowledged_by}" if a.acknowledged_by else ""
+            print(f"{str(a.id)[:8]}  {a.created_utc.astimezone():%Y-%m-%d %H:%M}  {a.kind:<10} {a.message}{ack}")
+        return SUCCESS
+
+    if sub == "ack":
+        who = cli.get("by")
+        target = cli.positional[1] if len(cli.positional) > 1 else None
+        if not who or not target:
+            raise ConfigurationError("Usage: aqt monitor ack <alert id prefix|all> --by <your name>")
+        ids = [str(a.id) for a in store.list_alerts(open_only=True) if target == "all" or str(a.id).startswith(target.lower())]
+        Out.ok(f"{store.acknowledge_alerts(ids, who)} alert(s) acknowledged by {who}")
+        return SUCCESS
+
+    if sub == "trends":
+        days = int(cli.get("days") or 30)
+        for bank, points in store.pass_rate_series(days).items():
+            rates = " ".join(f"{p[2]:.0f}" for p in points[-15:])
+            print(f"{bank:<10} {len(points):>3} run(s)  pass rate (oldest → newest): {rates}")
+        flaky = trends.flaky(store.outcome_sequences(days))
+        if flaky:
+            print("\nFlaky (outcome switched at least twice):")
+            for f in flaky[:15]:
+                print(f"  {f.bank_bic:<10} {f.scenario_id:<14} {f.changes} switch(es) in {f.runs} run(s), last {f.last}")
+        slow = store.slowest_endpoints(days, 10)
+        if slow:
+            print("\nSlowest endpoints (average):")
+            for bank, method, path, calls, avg, mx in slow:
+                print(f"  {bank:<10} {avg:>6} ms (max {mx})  {method} {path}  ×{calls}")
+        return SUCCESS
+
+    raise ConfigurationError("Usage: aqt monitor status | run-due [--schedule name] | alerts [--all] | ack <id|all> --by <name> | trends [--days N]")
