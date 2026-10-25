@@ -1,4 +1,5 @@
-# TBC Bank Open Banking mock sandbox (independent simulator, synthetic data):
+# TBC Bank Open Banking mock sandbox, provided by one of the hackathon mentors (a simulator of TBC's API with
+# synthetic data, not TBC Bank's own sandbox):
 #   docs  https://tbc-bank-mock-open-banking-api.vercel.app/reference/aisapioverview
 #   spec  https://tbc-bank-mock-open-banking-api.vercel.app/openapi.json
 #

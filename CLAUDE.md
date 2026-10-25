@@ -19,7 +19,7 @@ python -m venv .venv && .venv\Scripts\activate && pip install -e .[test]   # onc
 pytest                                                   # unit + end-to-end tests
 aqt validate                                             # load and check every YAML file
 aqt run --bank MOCK --with-mock --sca-auto               # full run, no real bank
-aqt run --bank TBC-MOCK --suite preflight,tbc --sca-auto # public TBC mock
+aqt run --bank TBC-MOCK --suite preflight,tbc --sca-auto # TBC mock sandbox (from a hackathon mentor)
 aqt mock                                                 # MockBank only (https :7443, http :7080)
 aqt portal                                               # web UI on http://localhost:5280/
 aqt compare [--bank A,B] [--last 5]                      # banks side by side: pass rate, latency p50/p95, deviations

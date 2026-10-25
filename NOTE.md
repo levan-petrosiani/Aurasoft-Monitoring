@@ -869,3 +869,21 @@ shown on screen next to the warning rather than only in a code comment.
 being *refused*. The portal now plants only `MockBank__MaxFrequencyPerDay=10`. Checked: 27 passed, 1 failed
 (NEG-CON-004), 7 skipped, with NEG-SIG-001 and NEG-SIG-002 passing; the failure is left for the AI explanation. TBC's
 sandbox has no payments, so payments come from the MockBank run. No manual-hours figure, because none was measured.
+
+## 2026-10-25 · 57. The TBC sandbox is a mentor's mock, said everywhere
+
+**Why:** "TBC's public sandbox" could be read as TBC Bank's own sandbox. Everything we called TBC ran against
+`tbc-bank-mock-open-banking-api.vercel.app`, a simulator of TBC's API that one of the hackathon mentors provided:
+- no credentials are needed, and it ignores certificates and signatures;
+- the consent page has no login;
+- it injects 503s on purpose.
+
+Its findings are real findings about that mock, raised automatically by PRE-003 and TBC-AIS-002 in every run. They
+are not claims about TBC Bank's production API.
+
+**What:** the wording is now "the TBC mock sandbox (provided by a hackathon mentor)" in the README (section title,
+quick start, known gaps), ARCHITECTURE.md, CLAUDE.md, `banks/TBC-MOCK.yaml`, `monitoring.yaml`, the hosted-demo banner,
+`docs/demo-script.md`, the overview HTML and PDF ("the real TBC deviation" → "the TBC mock's deviation", re-rendered),
+the hosting guide PDF, and deck slides 2, 5, 7 and 9 with their speaker notes. The script adds a rule: say "the TBC
+mock", never "TBC's sandbox". The generic term "public mocks" (for `--sca-auto`) stays; it names the category, not
+TBC. The `tbc-sandbox.example` fixtures in `evals/` are invented test data and stay as they are.

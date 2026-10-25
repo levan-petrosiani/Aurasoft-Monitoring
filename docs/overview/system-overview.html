@@ -423,12 +423,12 @@ were found and each was fixed — preferably in code:</p>
   <tr><th style="width:38%">Error found</th><th>Fix</th></tr>
   <tr><td>"Since the previous run" described changes wrongly</td><td>Now written <b>in code</b> from the computed changes</td></tr>
   <tr><td>Warnings of passed scenarios reported as problems</td><td><b>Code</b> moves them to "worth a look"; findings about skipped scenarios are dropped (Python port)</td></tr>
-  <tr><td>Random 503s of the TBC test sandbox blamed on the bank</td><td>Prompt: temporary 5xx = environment unless persistent</td></tr>
+  <tr><td>Random 503s of the TBC mock sandbox blamed on the bank</td><td>Prompt: temporary 5xx = environment unless persistent</td></tr>
   <tr><td>A tester clicking "Deny" treated as a critical bank fault</td><td>Prompt: <code>access_denied</code> at login = unclear, suggest a re-run</td></tr>
   <tr><td>A correct but shortened clause reference was removed</td><td>Validator matches clause numbers and restores the run's exact wording</td></tr>
   <tr><td>Our expired certificate blamed on the bank (found by the eval set)</td><td><b>Code</b> marks local certificate checks as ours in the digest; prompt: certificate/signature problems are our side</td></tr>
 </table>
-<div class="callout ok">After the fixes, re-run on the 5 affected runs: all correct against the data. The real TBC deviation
+<div class="callout ok">After the fixes, re-run on the 5 affected runs: all correct against the data. The TBC mock's deviation
 (global consent rejected with <code>FORMAT_ERROR</code> instead of <code>PARAMETER_NOT_SUPPORTED</code>) is found every time with the
 right clause. Local speed: 15–35 s per run.</div>
 </div>

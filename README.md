@@ -27,7 +27,7 @@ pip install -e ".[test,ai]"
 # 1. No bank, no database: everything against the built-in MockBank
 aqt validate
 aqt run --bank MOCK --with-mock --sca-auto               # 28 passed, 7 skipped (TBC-only)
-aqt run --bank TBC-MOCK --suite preflight,tbc --sca-auto # the public TBC sandbox over the internet: 11 passed
+aqt run --bank TBC-MOCK --suite preflight,tbc --sca-auto # the TBC mock sandbox (from a hackathon mentor), over the internet: 11 passed
 aqt compare                                              # both banks side by side: pass rate, latency p50/p95
 pytest                                                   # database tests are skipped without AQT_TEST_DB
 
@@ -139,9 +139,10 @@ instead of starting a second one.
   QSealC/QWAC organisation match, consent validation, PKCE, token-to-consent binding). So when a
   scenario fails against it, the tool or the scenario has really changed.
 
-## TBC Open Banking mock (public sandbox)
+## TBC Open Banking mock (a sandbox provided by a hackathon mentor)
 
-`banks/TBC-MOCK.yaml` + the `tbc` suite test the independent TBC mock at
+`banks/TBC-MOCK.yaml` + the `tbc` suite test the TBC Open Banking mock sandbox provided by one of the hackathon
+mentors: a simulator of TBC's API with synthetic data, not TBC Bank's own sandbox. It runs at
 https://tbc-bank-mock-open-banking-api.vercel.app (docs: `/reference/aisapioverview`, spec: `/openapi.json`).
 No credentials are needed.
 
@@ -200,7 +201,7 @@ Common options: `--root <dir>` (folder with `banks/` and `scenarios/`), `--banks
 Exit codes: `0` all passed, `1` failures or errors in the run, `2` invalid input or configuration.
 
 `--sca-auto` is refused (exit code 2) unless the profile's XS2A URL is on this machine (MockBank) or the profile says
-`features.headlessSca: true` (public mocks such as TBC's): a real bank always needs a person to log in.
+`features.headlessSca: true` (public mocks such as the mentor's TBC mock): a real bank always needs a person to log in.
 
 Preflight scenarios always run first. If a **Critical** preflight scenario fails (e.g. TLS or the
 signature is not accepted), the other scenarios are marked **Blocked** instead of failing one by one
@@ -477,7 +478,7 @@ Each control is enforced in code (and covered by tests), not only described:
 | Keeping request data forever | Stored HTTP exchanges are pruned after 90 days | `aqt db prune`, `monitoring.yaml` |
 
 Known gaps: locally the portal has no login (reviewers type their name; hosted, it has one shared jury login), and the tool has run against MockBank and the public
-TBC sandbox, not yet against a bank's real sandbox with real certificates.
+TBC mock sandbox a hackathon mentor provided, not yet against a bank's real sandbox (TBC's included) with real certificates.
 
 ## Third-party components and licences
 

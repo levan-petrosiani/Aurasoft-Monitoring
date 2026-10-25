@@ -41,7 +41,7 @@ flowchart LR
 
     subgraph Targets["Banks under test"]
         Real["Bank sandboxes"]
-        TbcMock["TBC public mock"]
+        TbcMock["TBC mock sandbox<br/>(provided by a hackathon mentor)"]
     end
 
     Banks --> Engine
@@ -293,6 +293,6 @@ Everything is computed in code from the run files; `--sca-auto` (CLI) and the po
 - Ports: portal 5280, MockBank 7443 (HTTPS, mTLS) and 7080 (HTTP pages), OAuth callback 5199, PostgreSQL 5435,
   Ollama 11434.
 - Tests: 158 with `AQT_TEST_DB`; without a database 122 pass and the 36 database tests are skipped. MOCK run: 28 passed, 7 skipped
-  (TBC-only); public TBC sandbox: 11/11 in 5 runs out of 5.
+  (TBC-only); the TBC mock sandbox (provided by a hackathon mentor): 11/11 in 5 runs out of 5.
 - Reports keep the C# `summary.json` shape (camelCase, nulls omitted); interop with the C# client and MockBank was
   verified in both directions before the C# code was removed.

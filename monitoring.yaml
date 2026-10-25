@@ -13,7 +13,7 @@ schedules:
     at: "02:00"
     withMock: true           # starts MockBank and approves SCA automatically (localhost profiles only)
 
-  # The public TBC mock: preflight + TBC suite. Off by default (it calls an external service); set enabled: true.
+  # The TBC mock sandbox (provided by a hackathon mentor): preflight + TBC suite. Off by default (it calls an external service); set enabled: true.
   - name: tbc-mock-6h
     bank: TBC-MOCK
     suites: [preflight, tbc]
