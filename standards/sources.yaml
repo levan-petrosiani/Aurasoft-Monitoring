@@ -16,8 +16,11 @@
   file: bg-ig/1.3.16/implementation-guidelines.pdf
   sha256: f0030d92f3fce42d46900c76e762a58a8982a8f15ed4220980a58e41b2243756
   license: Creative Commons Attribution-NoDerivatives 4.0 (Berlin Group)
-  # Each page starts with a running header that ends with this line; it is dropped.
-  pageHeaderEnd: "(ref. License Notice"
+  # Running header and footer lines on every page (regexes); dropped wherever the PDF reader puts them.
+  pageFurniture:
+    - "^NextGenPSD2 XS2A Framework – Implementation Guidelines"
+    - "^Published by the Berlin Group under Creative Commons"
+    - "^\\(ref\\. License Notice for full license conditions\\)"
   # The PDF has a stray sentence ("The payment data contained ... JSON or XML.") glued into the chapter 6 heading.
   titles:
     "6": Account Information Service

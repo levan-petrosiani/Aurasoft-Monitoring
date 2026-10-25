@@ -1,4 +1,5 @@
-"""aqt command line: run, mock, list, validate, version, help. Same commands, options and exit codes as the C# tool."""
+"""aqt command line: run, mock, list, validate, version, help — and db, ai, standards, rules (aqt/cli_ai.py, which needs
+the `ai` extra). Same commands, options and exit codes as the C# tool."""
 
 import os
 import signal
@@ -20,7 +21,7 @@ SUCCESS = 0
 TESTS_FAILED = 1
 CONFIGURATION_ERROR = 2
 
-_FLAGS = {"verbose", "no-preflight-gate", "sca-auto", "with-mock"}
+_FLAGS = {"verbose", "no-preflight-gate", "sca-auto", "with-mock", "replace", "show-input", "no-embed", "no-db", "auto-summarize"}
 
 # Folder that holds banks/ and scenarios/ next to this Python package (the repository root).
 _TOOL_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -148,6 +149,7 @@ class CliArgs:
 class Paths:
     def __init__(self, cli: CliArgs):
         root = cli.get("root") or os.environ.get("AQT_HOME") or self._find_root()
+        self.root = root
         self.banks = cli.get("banks") or os.path.join(root, "banks")
         self.scenarios = cli.get("scenarios") or os.path.join(root, "scenarios")
 
@@ -262,13 +264,20 @@ def cmd_run(cli: CliArgs, cancel: threading.Event) -> int:
             mock.stop()
 
     out_dir = cli.get("out") or os.path.join(os.getcwd(), "reports")
-    run_dir = os.path.join(out_dir, f"{profile.bank.bic}-{run.started_at_utc:%Y%m%d-%H%M%S}")
+    run_id = f"{profile.bank.bic}-{run.started_at_utc:%Y%m%d-%H%M%S}"
+    run_dir = os.path.join(out_dir, run_id)
     files = reporting.write(run, run_dir, formats)
 
     print()
     Out.summary(run)
     for f in files:
         Out.muted(f"  {f}")
+
+    # Optional PostgreSQL store: only with --db or AQT_DB; a store problem is a notice, never a failed run.
+    db = cli.get("db") or os.environ.get("AQT_DB")
+    if db:
+        from . import cli_ai
+        cli_ai.save_run(db, run_id, run_dir, run, cli.get_list("suite"))
 
     return TESTS_FAILED if run.count(Outcome.FAILED) + run.count(Outcome.ERROR) > 0 else SUCCESS
 
@@ -351,6 +360,11 @@ def cmd_mock(cancel: threading.Event) -> int:
     return SUCCESS
 
 
+def _ai_usage() -> str:
+    from .cli_ai import USAGE
+    return USAGE
+
+
 def cmd_help() -> int:
     print(f"""ApiTestTool {TOOL_VERSION} (Python) - tests a bank's XS2A sandbox as a TPP
 
@@ -358,15 +372,19 @@ Usage:
   aqt run --bank <BIC|profile.yaml> [--suite a,b] [--scenario ID,ID] [--report html,json,junit] [--out dir] [--verbose] [--no-preflight-gate]
           [--sca-auto] [--wait <seconds>] [--with-mock]
   aqt mock                     run MockBank (a fake bank) until Ctrl+C
-  aqt portal [--port 5280]     run the web portal
+  aqt portal [--port 5280] [--db conn | --no-db] [--auto-summarize]   run the web portal (store/AI pages need the database)
   aqt list banks|scenarios [--suite name]
   aqt validate
   aqt version
+
+Store and AI (pip install -e '.[ai]'; PostgreSQL via docker compose up -d):
+{_ai_usage()}
 
 Common options:
   --root <dir>        folder containing banks/ and scenarios/ (default: current folder, then the tool folder; env AQT_HOME)
   --banks <dir>       override the bank profiles folder
   --scenarios <dir>   override the scenarios folder
+  --db <connection>   PostgreSQL store (env AQT_DB); 'run' saves its results there when set
 
 Testing without a bank:
   aqt run --bank MOCK --with-mock --sca-auto
@@ -406,6 +424,9 @@ def main(argv: list[str]) -> int:
         if command == "portal":
             from .portal.app import run_portal
             return run_portal(cli)
+        if command in ("db", "ai", "standards", "rules"):
+            from . import cli_ai
+            return {"db": cli_ai.cmd_db, "ai": cli_ai.cmd_ai, "standards": cli_ai.cmd_standards, "rules": cli_ai.cmd_rules}[command](cli)
         if command == "list":
             return cmd_list(cli)
         if command == "validate":

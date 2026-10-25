@@ -3,3 +3,8 @@ cryptography>=42
 pyOpenSSL>=24.3
 Flask>=3.0
 pytest>=8
+# Store and AI layer (optional; same as the `ai` extra in pyproject.toml)
+psycopg[binary]>=3.2
+pgvector>=0.4
+anthropic>=2.3
+pdfplumber>=0.11

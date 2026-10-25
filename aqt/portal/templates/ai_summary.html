@@ -1,0 +1,64 @@
+{# AI summary panel on the Run page (included by run_live.html when the store is configured and the run has finished). #}
+{% set busy = ai.summaries.running_provider(r.id) %}
+<section class="ai-panel" id="ai-summary" data-active="{{ 1 if busy else 0 }}">
+    <div class="ai-head">
+        <h2>AI summary</h2>
+        <div class="ai-actions">
+            {% if busy %}
+                <span class="muted small">Summarizing with {{ 'the local model' if busy == 'ollama' else 'Claude' }}… {{ '(a local model can take a minute)' if busy == 'ollama' }}</span>
+            {% else %}
+                <form method="post" action="/runs/{{ r.id }}/summarize" style="display:inline">
+                    <input type="hidden" name="provider" value="anthropic" />
+                    <button class="btn btn-small btn-primary" title="{{ ai.summaries.model_for('anthropic') }}">{{ 'Summarize again' if summary_row else 'Summarize' }} with Claude</button>
+                </form>
+                <form method="post" action="/runs/{{ r.id }}/summarize" style="display:inline">
+                    <input type="hidden" name="provider" value="ollama" />
+                    <button class="btn btn-small btn-ghost" title="Run data stays on this machine">Local ({{ ai.summaries.model_for('ollama') }})</button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if not summary_row %}
+        <p class="muted small">No summary yet. The summary groups problems by cause, says whether the bank or our side is at fault, and compares with the bank's previous run. Data is masked before it is sent.</p>
+    {% elif not summary %}
+        <div class="alert alert-warn"><b>No summary ({{ summary_row.status }}).</b> {{ summary_row.text }}</div>
+    {% else %}
+        <div class="ai-headline">
+            <span class="badge badge-{{ {'healthy': 'pass', 'degraded': 'queued', 'broken': 'fail'}.get(summary.health, 'error') }}">{{ summary.health }}</span>
+            <b>{{ summary.headline }}</b>
+        </div>
+        {% for f in summary.findings %}
+        <div class="ai-finding">
+            <div class="ai-finding-head">
+                <b>{{ f.title }}</b>
+                <span class="chip">{{ f.severity }}</span>
+                <span class="chip ai-side-{{ f.side }}">{{ {'bank': 'bank side', 'our-side': 'our side', 'environment': 'environment'}.get(f.side, 'unclear') }}</span>
+            </div>
+            {% if f.scenarios %}<div class="small">{% for id in f.scenarios %}<code>{{ id }}</code> {% endfor %}</div>{% endif %}
+            <p>{{ f.explanation }}</p>
+            {% if f.evidence %}<div class="small"><span class="label">Evidence</span> <code class="ai-evidence">{{ f.evidence }}</code></div>{% endif %}
+            {% if f.spec_ref %}<div class="small"><span class="label">Clause</span> {{ f.spec_ref }}</div>{% endif %}
+            {% if f.next_step %}<div class="small"><span class="label">Next step</span> {{ f.next_step }}</div>{% endif %}
+        </div>
+        {% endfor %}
+        {% if summary.comparison %}<p class="small"><span class="label">Since the previous run</span> {{ summary.comparison }}</p>{% endif %}
+        {% if summary.attention %}
+            <div class="small"><span class="label">Worth a look</span><ul>{% for a in summary.attention %}<li>{{ a }}</li>{% endfor %}</ul></div>
+        {% endif %}
+        {% if summary_row.validation_notes %}
+            <details class="small ai-notes" id="ai-notes">
+                <summary>Checked by the tool: {{ summary_row.validation_notes | length }} correction(s)</summary>
+                <ul>{% for n in summary_row.validation_notes %}<li>{{ n }}</li>{% endfor %}</ul>
+            </details>
+        {% endif %}
+    {% endif %}
+
+    {% if summary_row %}
+    <p class="muted small ai-foot">
+        {{ 'No model call needed' if summary_row.provider == 'none' else summary_row.provider ~ ' · ' ~ summary_row.model }}
+        · {{ local_time(summary_row.created_utc, '%Y-%m-%d %H:%M') }} · {{ '%.1f' | format(summary_row.duration_ms / 1000) }} s
+        · AI-generated: check it against the scenario details below.
+    </p>
+    {% endif %}
+</section>

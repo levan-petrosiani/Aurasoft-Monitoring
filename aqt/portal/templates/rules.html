@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from "ai_macros.html" import reviewer_field, rule_card %}
+{% block title %}Rules{% endblock %}
+{% block content %}
+<div class="title-row">
+    <h1>Rules</h1>
+    {% if ai %}{{ reviewer_field(reviewer, request.full_path) }}{% endif %}
+</div>
+
+{% if not ai %}
+<div class="alert alert-warn">{{ ai_problem }}</div>
+{% else %}
+<p class="muted small">
+    Requirements drafted from the standards. A draft only counts once a person approves it; every action is recorded with the reviewer's name.
+    The quote of each rule was checked against the clause text by the tool; warnings below a rule are for the reviewer.
+</p>
+
+<details class="review-help">
+    <summary>How to review</summary>
+    <p class="small">The tool has already checked that each quote is in the standard (green line). You check what it <b>means</b>:</p>
+    <ol class="small">
+        <li><b>Does the quote say what the requirement says?</b> Nothing added. The English line is an AI translation (მმპ = app, ამსმპ = bank).</li>
+        <li><b>Is it a duty of the bank?</b> Not a description of a request, an example, or a duty of the app or customer.</li>
+        <li><b>Is the level right?</b> MUST = must / shall / აუცილებელია · SHOULD = should / უმჯობესია · MAY = may / optional / "if this function is supported" / შეიძლება. An orange warning means: look closely.</li>
+        <li><b>One thing, visible from outside?</b> "When the app sends X, the bank returns Y."</li>
+        <li><b>New?</b> Check any "possible duplicate" it names.</li>
+    </ol>
+    <p class="small">All fine → <b>Approve</b>. Small fix → <b>Edit</b>, then approve. Not a bank duty or wrong → <b>Reject</b> with a reason. Unsure → leave it as a draft.
+        Full guide with examples: <code>docs/ai/REVIEW-GUIDE.md</code>.</p>
+</details>
+
+<form class="filter-row" method="get" action="/rules">
+    {% for s in ['draft', 'approved', 'rejected', 'invalid', 'retired', 'all'] %}
+    <button class="chip {{ 'chip-on' if status == s }}" name="status" value="{{ s }}">{{ s }} <span class="muted">{{ counts[s] }}</span></button>
+    {% endfor %}
+    <select class="input-inline" name="standard" onchange="this.form.submit()">
+        <option value="">all standards</option>
+        {% for d in standards %}<option value="{{ d }}" {{ 'selected' if d == standard }}>{{ d }}</option>{% endfor %}
+    </select>
+    <input type="hidden" name="status" value="{{ status }}" />
+</form>
+<form method="post" action="/rules/export" class="right" style="margin:-4px 0 8px">
+    <button class="btn btn-small btn-ghost" title="{{ rules_directory }}">Export approved to rules/</button>
+</form>
+
+{% if message %}<div class="alert alert-action small">{{ message }}</div>{% endif %}
+
+{% if not shown %}
+<p class="muted">No {{ '' if status == 'all' else status }} rules. Draft some from a clause on the <a href="/standards">Standards</a> page.</p>
+{% endif %}
+{% for rule in shown %}
+    {{ rule_card(rule, reviewer, request.full_path, errors.get(rule.id), editing=(edit == rule.id)) }}
+{% endfor %}
+{% endif %}
+{% endblock %}

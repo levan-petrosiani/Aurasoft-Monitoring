@@ -37,6 +37,8 @@
 </div>
 {% endif %}
 
+{% if ai and not run.is_active %}{% include "ai_summary.html" %}{% endif %}
+
 <div class="tiles">
     <div class="tile"><b>{{ rate }}%</b>pass rate</div>
     <div class="tile"><b class="text-pass">{{ completed | selectattr('outcome', 'equalto', Outcome.PASSED) | list | length }}</b>passed</div>

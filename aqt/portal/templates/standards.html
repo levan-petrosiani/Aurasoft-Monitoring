@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% from "ai_macros.html" import reviewer_field, rule_card %}
+{% block title %}Standards{% endblock %}
+{% block content %}
+<div class="title-row">
+    <h1>Standards</h1>
+    {% if ai %}{{ reviewer_field(reviewer, request.full_path) }}{% endif %}
+</div>
+
+{% if not ai %}
+<div class="alert alert-warn">{{ ai_problem }}</div>
+{% elif not docs %}
+<div class="alert alert-warn">No standards in the database yet. Run <code>aqt standards fetch</code> and <code>aqt standards ingest</code>.</div>
+{% else %}
+<div class="std-layout">
+    <aside class="std-side">
+        <form class="std-search" method="get" action="/standards">
+            <input type="search" name="q" placeholder="Search clauses (English or Georgian)" value="{{ q or '' }}" />
+            {% if clause %}<input type="hidden" name="clause" value="{{ clause.key }}" />{% endif %}
+            <button class="btn btn-small">Search</button>
+        </form>
+        <div class="filter-row">
+            {% for d in docs %}
+            <a class="chip {{ 'chip-on' if doc and doc.id == d.id and doc.version == d.version and hits is none }}" title="{{ d.title }}"
+               href="/standards?doc={{ d.id }}:{{ d.version }}">{{ d.id }} <span class="muted">{{ d.version }}</span></a>
+            {% endfor %}
+        </div>
+
+        {% if hits is not none %}
+        <p class="muted small">{{ hits | length }} result(s) for “{{ q }}” · <a href="/standards?doc={{ doc.id }}:{{ doc.version }}{{ '&clause=' ~ clause.key|urlencode if clause }}">back to outline</a></p>
+        <ul class="std-outline">
+            {% for h in hits %}
+            <li class="{{ 'on' if clause and clause.key == h.clause.key }}" onclick="location.href='/standards?clause={{ h.clause.key | urlencode }}&q={{ q | urlencode }}'">
+                <code>{{ h.clause.standard }} {{ h.clause.number }}</code> {{ h.clause.title }}
+                <span class="muted small">{{ 'words + meaning' if h.by_words and h.by_meaning else ('words' if h.by_words else 'meaning') }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <ul class="std-outline">
+            {% for c in outline %}
+            <li class="lvl-{{ [c.level, 5] | min }} {{ 'on' if clause and clause.key == c.key }}" onclick="location.href='/standards?clause={{ c.key | urlencode }}'">
+                <code>{{ c.number }}</code> {{ c.title }}
+                {% if rule_counts.get(c.key) %}<span class="chip">{{ rule_counts[c.key] }}</span>{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </aside>
+
+    <section class="std-main" id="std-main">
+        {% if not clause %}
+        <p class="muted">Pick a clause to read it and draft rules from it.</p>
+        {% else %}
+        <p class="muted small">{{ clause.standard }} {{ clause.version }}{% for a in ancestors %} › {{ a.number }} {{ a.title }}{% endfor %}</p>
+        <h2>{{ clause.number }} {{ clause.title }} {% if clause.page %}<span class="muted small">p. {{ clause.page }}</span>{% endif %}</h2>
+        <pre class="clause-text">{{ clause.text or '(no text of its own — see the sub-sections)' }}</pre>
+
+        <div class="actions">
+            {% if drafting %}
+                <span class="muted small" data-drafting="1">Drafting rules with {{ 'the local model (about a minute)' if drafting == 'ollama' else 'Claude' }}…</span>
+            {% else %}
+                <form method="post" action="/standards/draft" style="display:inline">
+                    <input type="hidden" name="clause" value="{{ clause.key }}" /><input type="hidden" name="provider" value="anthropic" />
+                    <button class="btn btn-small btn-primary" {{ '' if reviewer else 'disabled' }} title="{{ ai.rules.model_for('anthropic') }}">Draft rules with Claude</button>
+                </form>
+                <form method="post" action="/standards/draft" style="display:inline">
+                    <input type="hidden" name="clause" value="{{ clause.key }}" /><input type="hidden" name="provider" value="ollama" />
+                    <button class="btn btn-small btn-ghost" {{ '' if reviewer else 'disabled' }}>Local ({{ ai.rules.model_for('ollama') }})</button>
+                </form>
+                {% if not reviewer %}<span class="muted small">Enter your name at the top first.</span>{% endif %}
+            {% endif %}
+        </div>
+
+        {% if last %}
+        <p class="small {{ 'muted' if last.status == 'ok' else 'text-fail' }}">
+            Last draft:
+            {% if last.status == 'ok' %}{{ last.rules | selectattr('status', 'equalto', 'draft') | list | length }} for review, {{ last.rules | selectattr('status', 'equalto', 'invalid') | list | length }} rejected by the checks{% else %}{{ last.error }}{% endif %}
+            {% if last.skipped %}<span> · not drafted: {{ last.skipped }}</span>{% endif %}
+        </p>
+        {% endif %}
+
+        <h3>Rules from this clause ({{ clause_rules | length }})</h3>
+        {% for rule in clause_rules %}
+            {{ rule_card(rule, reviewer, request.full_path, errors.get(rule.id), editing=(edit == rule.id)) }}
+        {% endfor %}
+        {% endif %}
+    </section>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// While rules are being drafted, reload until they are there.
+if (document.querySelector('[data-drafting="1"]')) setTimeout(() => location.reload(), 3000);
+</script>
+{% endblock %}

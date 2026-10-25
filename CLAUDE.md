@@ -3,8 +3,8 @@
 ApiTestTool (`aqt`) tests banks' XS2A (Berlin Group NextGenPSD2 / NBG Georgia) sandboxes as a TPP:
 mTLS with a QWAC, requests signed with a QSealC (`Digest` + `X-Jws-Signature`), OAuth/PKCE SCA, and
 every response checked against the standard. Python 3.11+, data-driven by YAML. Hackathon project.
-It was first written in C#/.NET (last C# commit `8abf9f6`); the Store, AI and Standards layers are not ported yet
-(see README "Moved from C#").
+It was first written in C#/.NET (last C# commit `8abf9f6`); everything is ported, including the optional Store,
+Standards and AI layers (`pip install -e .[ai]`).
 
 - `README.md` — user manual · `docs/ai/PLAN.md` — AI layer plan and decisions
 - `ARCHITECTURE.md` — Mermaid snapshot of the current system; **update it at the end of every phase**
@@ -22,7 +22,17 @@ aqt run --bank MOCK --with-mock --sca-auto               # full run, no real ban
 aqt run --bank TBC-MOCK --suite preflight,tbc --sca-auto # public TBC mock
 aqt mock                                                 # MockBank only (https :7443, http :7080)
 aqt portal                                               # web UI on http://localhost:5280/
+pip install -e .[ai] && docker compose up -d             # store/AI layer: PostgreSQL on localhost:5435
+aqt db migrate|import|status                             # store
+aqt ai check                                             # Claude + Ollama reachable, audited
+aqt ai summarize latest --provider ollama --show-input   # AI run triage
+aqt standards fetch && aqt standards ingest              # standards → clauses (+ local embeddings)
+aqt rules draft <clause-key> --provider ollama           # AI rule drafts
+AQT_TEST_DB="host=localhost port=5435 user=aqt password=aqt_dev" pytest   # include database tests
 ```
+
+On macOS with uv-created venvs, editable installs may not import (Python 3.14 skips hidden .pth files); run
+`python -m aqt ...` from the repo root instead of the `aqt` script.
 
 After changing YAML, run `validate`. After changing engine code, run `pytest` and a MOCK run.
 Run `aqt` from the repo root (the CLI finds `banks/` there).
@@ -34,9 +44,13 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
 | `aqt/` | Engine: `yamljson` + `binding` (YAML → dataclasses, unknown properties rejected), `profiles`, `scenarios`, `runner`, `steps` (request/tls/sca/localCertificates + expectations), `variables`, `jsonpath`, `signing` (JWS + Digest), `certificates`, `oauth` (PKCE, callback listener, headless approval), `httpclient` (mTLS, retries), `reporting`. No UI, no AI |
 | `aqt/cli.py` | `aqt` command (`run`, `mock`, `portal`, `list`, `validate`, `version`) |
 | `aqt/mockbank/` | In-memory fake ASPSP enforcing real XS2A checks (pyOpenSSL for optional client certificates); the reference target for new scenarios |
-| `aqt/portal/` | Flask UI; `services.py` (`RunService`) queues runs and stores them in `reports/portal-python/` |
+| `aqt/portal/` | Flask UI; `services.py` (`RunService`) queues runs and stores them in `reports/portal-python/`; `ai_services.py` writes them to the store and serves the AI summary, Standards and Rules pages |
+| `aqt/store/` | PostgreSQL store (psycopg, plain SQL): `migrations/*.sql`, `masking.py`, `importer.py`, `store.py` |
+| `aqt/standards/` | No AI/DB: `pdf_reader.py` (TOC-driven, pdfplumber), `docx_reader.py`, `quote.py` (verifier), `sources.py` |
+| `aqt/ai/` | `chat.py` (Claude / Ollama + audit + masking), `summaries.py`, `ingest.py`, `rules.py` (drafter, RuleBook, export), `prompts/` |
+| `aqt/cli_ai.py` | `aqt db | ai | standards | rules` (imports the optional packages only when used) |
 | `tests/` | pytest: YAML, signing, reports, every shipped YAML file, end-to-end MockBank run on free ports |
-| `docker-compose.yml` | PostgreSQL + pgvector for the (not yet ported) store |
+| `docker-compose.yml` | PostgreSQL + pgvector for the store (localhost:5435) |
 | `banks/<BIC>.yaml` | Bank profiles; `extends: _shared.yaml`; `_`-prefixed files are not run |
 | `scenarios/<suite>/*.yaml` | Test cases; reusable headers/bodies in `scenarios/_templates` |
 | `rules/` | Approved rules exported from the database (`aqt rules export`); the database is the source of truth |
@@ -55,30 +69,29 @@ Run `aqt` from the repo root (the CLI finds `banks/` there).
 
 ## AI layer rules (see docs/ai/PLAN.md)
 
-The AI, Store and Standards layers are **not ported to Python yet**. These rules apply when they are; class names
-below refer to the C# implementation in git history (`8abf9f6`).
-
 - The engine (`aqt/`) stays deterministic and AI-free. AI code lives in its own package and only
   *produces artifacts* (draft rules, draft scenarios, summaries) or *answers questions*; the engine
   executes. An AI never sends requests to a bank directly.
 - AI output is a **draft** until a human approves it (`status: draft` → `approved` happens only in the
   portal review screen, recording reviewer and time). Draft scenarios never run against real banks.
 - Every rule and generated scenario must cite a clause, and its verbatim `quote` must be found in the
-  indexed standard text (`QuoteVerifier`, checked in code, not by the model). Georgian documents stay Georgian;
+  indexed standard text (`aqt/standards/quote.py`, checked in code, not by the model). Georgian documents stay Georgian;
   quotes are verified against the Georgian text, English translations are per rule and marked as AI-made.
-- Only `RuleBook` changes a rule's status, always with a reviewer name and a `rule_reviews` row.
+- Only `RuleBook` (`aqt/ai/rules.py`) changes a rule's status, always with a reviewer name and a `rule_reviews` row.
 - Every model call is written to the audit log (model, prompt hash, token usage, output, who triggered it).
 - Data sent to the model is masked first (tokens, auth codes, PSU identifiers, IBANs as configured).
-- Providers: rule and scenario drafting use the official `Anthropic` SDK (`claude-opus-5-5`). Run summaries
-  and the ask-agent go through `Microsoft.Extensions.AI` `IChatClient`, Claude or Ollama chosen by config.
-  Embeddings come from local Ollama `bge-m3`. Models and providers come from config, never hard-coded.
-- Store: PostgreSQL (`docker compose up -d`, port 5435; connection `ConnectionStrings:Aqt` / env `AQT_DB`).
+- Providers (`aqt/ai/chat.py`): Claude via the official `anthropic` SDK (`claude-opus-5-5`) or a local model via Ollama,
+  per feature (`AiOptions`, env `AQT_AI_<FEATURE>_PROVIDER/_MODEL/_EFFORT`). Drafting defaults to Claude; summaries
+  and the ask-agent can switch to local. Embeddings come from local Ollama `bge-m3`. Never hard-code models.
+- Prompts are files in `aqt/ai/prompts/` (with their JSON schemas); review prompt changes like code.
+- Store: PostgreSQL (`docker compose up -d`, port 5435; `--db` or env `AQT_DB`). Schema changes = a new numbered SQL
+  file in `aqt/store/migrations/`.
   CLI and portal runs must still work without a database — a store failure is a notice, never a failed run.
 - Everything written to the store or sent to a model goes through `SensitiveDataMasker` first.
 - Facts go in code, judgement goes to the model: counts, run-to-run changes, clause existence and scenario ids are
-  computed or checked in code (see `RunDigest`, `RunSummary.Validate`); the model explains and groups.
+  computed or checked in code (see `build_digest`, `RunSummary.validate`); the model explains and groups.
 - Claude requests go through the beta endpoint with `fallbacks: "default"` (refusal fallback) and per-feature
-  effort; `AnthropicRequestTests` captures the real request — keep it passing when touching the provider code.
+  effort; `tests/test_ai.py` captures the real request with a fake server — keep it passing when touching `chat.py`.
 - AIS first; PIS is designed in (`service: AIS | PIS | COMMON`) — don't add anything AIS-only to shared code.
 
 ## Style

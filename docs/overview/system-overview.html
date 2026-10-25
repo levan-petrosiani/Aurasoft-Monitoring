@@ -1,0 +1,729 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AuraSoft API Test Tool — System Overview</title>
+<!-- Source of docs/overview/system-overview.pdf. Rebuild: see docs/overview/README.md -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --fg: #1d1d1f; --muted: #5f6368; --line: #dfe1e5; --accent: #2457d6; --accent-bg: #eef3fd;
+    --pass: #1a7f37; --pass-bg: #e6f6ea; --warn: #9a6700; --warn-bg: #fff6d6; --fail: #cf222e; --fail-bg: #ffebe9;
+    --code: #f3f4f6;
+  }
+  @page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+  * { box-sizing: border-box; }
+  body { font: 10.5pt/1.5 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--fg); margin: 0; background: #fff; }
+  h1 { font-size: 20pt; margin: 0 0 6pt; color: var(--accent); break-after: avoid; }
+  h2 { font-size: 14pt; margin: 18pt 0 6pt; border-bottom: 1.5pt solid var(--line); padding-bottom: 3pt; break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 12pt 0 4pt; break-after: avoid; }
+  p { margin: 4pt 0 7pt; }
+  ul, ol { margin: 3pt 0 8pt; padding-left: 18pt; }
+  li { margin: 2pt 0; }
+  code { font: 9pt ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--code); padding: 0 3pt; border-radius: 3pt; }
+  pre { font: 8.6pt/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--code); padding: 7pt 9pt; border-radius: 5pt; white-space: pre-wrap; break-inside: avoid; }
+  table { border-collapse: collapse; width: 100%; margin: 5pt 0 10pt; font-size: 9.4pt; break-inside: auto; }
+  tr { break-inside: avoid; }
+  th, td { border: 0.75pt solid var(--line); padding: 3.5pt 6pt; text-align: left; vertical-align: top; }
+  th { background: #f6f7f9; font-weight: 600; }
+  .section { break-before: page; }
+  .section-flow { margin-top: 18pt; }
+  .muted { color: var(--muted); }
+  .small { font-size: 9pt; }
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .cover h1 { font-size: 30pt; color: var(--fg); margin-top: 40mm; line-height: 1.15; }
+  .cover .sub { font-size: 14pt; color: var(--muted); margin-top: 6pt; }
+  .cover .band { height: 6pt; width: 70mm; background: var(--accent); border-radius: 3pt; margin: 14pt 0; }
+  .cover .meta td { border: 0; padding: 2pt 10pt 2pt 0; font-size: 10pt; }
+  .callout { border-left: 3.5pt solid var(--accent); background: var(--accent-bg); padding: 7pt 10pt; border-radius: 4pt; margin: 8pt 0; break-inside: avoid; }
+  .callout.warn { border-color: var(--warn); background: var(--warn-bg); }
+  .callout.ok { border-color: var(--pass); background: var(--pass-bg); }
+  .tag { display: inline-block; font-size: 8.4pt; font-weight: 600; padding: 0 5pt; border-radius: 8pt; line-height: 1.6; }
+  .done { background: var(--pass-bg); color: var(--pass); }
+  .next { background: var(--accent-bg); color: var(--accent); }
+  .todo { background: #f1f3f4; color: var(--muted); }
+  .risk { background: var(--fail-bg); color: var(--fail); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10pt; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8pt; margin: 8pt 0 10pt; }
+  .kpi { border: 0.75pt solid var(--line); border-radius: 6pt; padding: 6pt 8pt; break-inside: avoid; }
+  .kpi b { display: block; font-size: 16pt; color: var(--accent); line-height: 1.2; }
+  .kpi span { font-size: 8.6pt; color: var(--muted); }
+  .diagram { break-inside: avoid; margin: 6pt 0 10pt; text-align: center; }
+  .diagram pre.mermaid { display: block; width: 100%; margin: 0; padding: 0; background: none; text-align: center; font: inherit; white-space: normal; }
+  .diagram svg { width: 100% !important; max-width: 100% !important; height: auto !important; max-height: 165mm; }
+  .diagram.narrow svg { width: 72% !important; max-width: 72% !important; }
+  .caption { font-size: 8.6pt; color: var(--muted); text-align: center; margin-top: 2pt; }
+  .toc li { margin: 1.5pt 0; }
+  .ka { font-family: "Noto Sans Georgian", "Sylfaen", -apple-system, sans-serif; }
+
+  /* Box diagrams (print crisply, readable text) */
+  .legend { display: flex; gap: 10pt; justify-content: center; font-size: 8.4pt; color: var(--muted); margin: 2pt 0 8pt; flex-wrap: wrap; }
+  .legend span::before { content: ""; display: inline-block; width: 9pt; height: 9pt; border-radius: 2pt; margin-right: 4pt; vertical-align: -1pt; border: 1pt solid; }
+  .legend .l-code::before { background: #eef3fd; border-color: #2457d6; }
+  .legend .l-ai::before { background: #f4edfd; border-color: #8250df; }
+  .legend .l-person::before { background: #e6f6ea; border-color: #1a7f37; }
+  .legend .l-data::before { background: #f6f7f9; border-color: #9aa0a6; }
+  .legend .l-ext::before { background: #fff6d6; border-color: #9a6700; }
+  .box { border: 1.2pt solid #9aa0a6; background: #f6f7f9; border-radius: 6pt; padding: 5pt 7pt; font-size: 8.8pt; line-height: 1.35; text-align: center; break-inside: avoid; }
+  .box b { display: block; font-size: 9.6pt; margin-bottom: 1pt; }
+  .box.code { border-color: #2457d6; background: #eef3fd; }
+  .box.ai { border-color: #8250df; background: #f4edfd; border-style: dashed; }
+  .box.person { border-color: #1a7f37; background: #e6f6ea; }
+  .box.data { border-color: #9aa0a6; background: #f6f7f9; border-radius: 10pt; }
+  .box.ext { border-color: #9a6700; background: #fff6d6; }
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; justify-content: center; gap: 5pt 0; margin: 6pt 0 4pt; }
+  .flow .box { flex: 0 1 108pt; display: flex; flex-direction: column; justify-content: center; }
+  .flow .arrow { flex: 0 0 16pt; display: flex; align-items: center; justify-content: center; color: #5f6368; font-size: 13pt; }
+  .layers { display: grid; gap: 4pt; margin: 6pt 0; }
+  .layer { display: grid; grid-template-columns: 74pt 1fr; gap: 6pt; align-items: stretch; }
+  .layer > .name { font-size: 8.4pt; font-weight: 600; color: var(--muted); display: flex; align-items: center; justify-content: flex-end; text-align: right; }
+  .layer > .row { display: grid; gap: 6pt; }
+  .down { text-align: center; color: #5f6368; font-size: 11pt; line-height: 1; margin: -1pt 0 -1pt 80pt; }
+  .branch { display: grid; grid-template-columns: 1fr 1fr; gap: 8pt; margin-top: 4pt; }
+
+  .stack { flex: 0 1 112pt; display: flex; flex-direction: column; gap: 4pt; }
+  .stack .box { flex: 1 1 auto; }
+  .stack .or { text-align: center; font-size: 8pt; color: var(--muted); line-height: 1; }
+  .schema { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8pt; margin: 6pt 0; }
+  .group { border: 1pt dashed var(--line); border-radius: 8pt; padding: 6pt; break-inside: avoid; }
+  .group > h4 { margin: 0 0 5pt; font-size: 9pt; color: var(--muted); text-transform: uppercase; letter-spacing: .4pt; text-align: center; }
+  .tbl { border: 1.1pt solid #9aa0a6; border-radius: 5pt; margin: 0 0 5pt; overflow: hidden; font-size: 8.3pt; background: #fff; }
+  .tbl .t { background: #f1f3f4; font-weight: 700; padding: 2pt 6pt; font-family: ui-monospace, Menlo, monospace; }
+  .tbl .c { padding: 2pt 6pt; color: #3c4043; line-height: 1.35; }
+  .rel { text-align: center; color: #5f6368; font-size: 8pt; margin: -2pt 0 3pt; }
+</style>
+</head>
+<body>
+
+<!-- ============================== COVER ============================== -->
+<div class="cover">
+  <div>
+    <h1>AuraSoft API Test Tool<br>with an AI layer</h1>
+    <div class="sub">System overview: architecture, what is built, how it works, and what is next</div>
+    <div class="band"></div>
+    <table class="meta">
+      <tr><td class="muted">Status</td><td><b>Phases 0, 1 and 2 complete</b>, now in Python · Phase 3 next</td></tr>
+      <tr><td class="muted">Date</td><td>24 October 2026</td></tr>
+      <tr><td class="muted">Repository</td><td>github.com/levan-petrosiani/Aurasoft-Monitoring · branch <code>ai-layer-python</code> (pull request to <code>main</code>)</td></tr>
+      <tr><td class="muted">Stack</td><td>Python 3.11+ · Flask · PostgreSQL 17 + pgvector · Claude (Anthropic) · Ollama (local)</td></tr>
+      <tr><td class="muted">Context</td><td>Hackathon project, AltaSoft</td></tr>
+    </table>
+  </div>
+  <div>
+    <h3>Contents</h3>
+    <ol class="toc small">
+      <li>Summary</li>
+      <li>The problem and the approach</li>
+      <li>System architecture</li>
+      <li>How a test run works</li>
+      <li>Data store and privacy</li>
+      <li>The AI layer</li>
+      <li>Feature: AI run summaries (Phase 1)</li>
+      <li>Feature: standards → rules → human review (Phase 2)</li>
+      <li>Portal and command line</li>
+      <li>Quality: tests, verification, bugs found</li>
+      <li>Current state in numbers</li>
+      <li>What is left: roadmap and open items</li>
+      <li>Key decisions</li>
+      <li>How to run it</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ============================== 1 SUMMARY ============================== -->
+<div class="section">
+<h1>1. Summary</h1>
+<p>
+The <b>API Test Tool</b> (<code>aqt</code>) checks whether a bank's open-banking API (XS2A, Berlin Group NextGenPSD2 as
+profiled for Georgia) behaves the way the standard requires. It acts like a real third-party app (TPP): mutual TLS with a
+QWAC certificate, every request signed with a QSealC (<code>Digest</code> + <code>X-Jws-Signature</code>), OAuth2 with
+PKCE for customer authentication, and every response checked against the standard. Tests are YAML scenarios; banks are
+YAML profiles; a built-in <b>MockBank</b> lets everything run without a real bank. The tool was first built in
+C#/.NET; the team then moved it to <b>Python</b>, and the AI layer described here was ported with it (same database,
+prompts and checks).
+</p>
+<p>
+This project adds an <b>AI layer</b> on top of that tool, built so that every AI output is traceable and checked:
+</p>
+<ul>
+  <li><b>Store everything</b> (Phase 0): every run, scenario, step, HTTP exchange and event goes to PostgreSQL, with tokens,
+    authorization codes and IBANs masked before writing. Every model call is audited.</li>
+  <li><b>AI run summaries</b> (Phase 1): one click turns a run into a triage: problems grouped by cause, who is at fault
+    (bank, our side, environment), evidence, clause, next step, and what changed since the bank's previous run.</li>
+  <li><b>Rules from the standards</b> (Phase 2): the Berlin Group guide and the Georgian guides are split into clauses and
+    made searchable (also across English ↔ Georgian). The AI drafts <i>rules</i> from a clause, each with the exact sentence it
+    rests on; code verifies every quote; a person approves each rule before it counts.</li>
+</ul>
+<div class="callout">
+<b>Design principle.</b> Facts are computed in code; judgement comes from the model; a person approves.
+Counts, run-to-run changes, scenario ids and clause references are computed or checked in code. The model groups,
+explains and drafts. Nothing the AI drafts becomes a rule or a test until a human approves it, and the test engine
+itself contains no AI: results stay reproducible.
+</div>
+
+<h3>Status at a glance</h3>
+<table>
+  <tr><th style="width:24%">Phase</th><th>What it delivers</th><th style="width:15%">Status</th></tr>
+  <tr><td>0 · Foundations</td><td>PostgreSQL store, masking, import of existing runs, AI provider layer with audit log</td><td><span class="tag done">done</span></td></tr>
+  <tr><td>Port to Python</td><td>Engine, CLI, MockBank, portal (teammates); store, standards, AI layer, AI pages and tests (this work)</td><td><span class="tag done">done</span> <span class="small muted">pull request</span></td></tr>
+  <tr><td>1 · Run summaries</td><td>AI triage of runs in CLI and portal; Claude or local model; validated in code</td><td><span class="tag done">done</span></td></tr>
+  <tr><td>2 · Standards + rules</td><td>4 standards → 379 clauses, hybrid search, AI rule drafting, quote checks, review workflow, portal pages</td><td><span class="tag done">done</span></td></tr>
+  <tr><td>3 · Scenario drafting</td><td>Approved rule → generated test scenario → validated → proven on MockBank → reviewed; coverage matrix</td><td><span class="tag next">next</span></td></tr>
+  <tr><td>4 · Ask-the-agent</td><td>Staff ask questions about runs and the standards; agent answers with run ids and clauses</td><td><span class="tag todo">planned</span></td></tr>
+  <tr><td>5 · PIS</td><td>Payment initiation tests (designed in from the start)</td><td><span class="tag todo">planned</span></td></tr>
+  <tr><td>6 · Monitoring</td><td>Scheduled runs, regression alerts, trends</td><td><span class="tag todo">planned</span></td></tr>
+</table>
+
+<div class="kpis">
+  <div class="kpi"><b>93</b><span>automated tests, all passing</span></div>
+  <div class="kpi"><b>379</b><span>clauses from 4 standards, all embedded</span></div>
+  <div class="kpi"><b>24</b><span>rules drafted · 4 approved</span></div>
+  <div class="kpi"><b>14</b><span>runs in the store · 19 AI summaries</span></div>
+</div>
+</div>
+
+<!-- ============================== 2 PROBLEM ============================== -->
+<div class="section-flow">
+<h1>2. The problem and the approach</h1>
+<h3>The problem</h3>
+<ul>
+  <li>Writing conformance tests by hand from a 341-page standard (plus Georgian profiles) is slow, and it is hard to say
+    which requirements are covered and which are not.</li>
+  <li>Test results are long and technical; working out <i>why</i> a run failed, and whether it is the bank or our side,
+    takes an expert.</li>
+  <li>History lives in report folders; nobody can ask "when did this bank start failing?".</li>
+</ul>
+
+<h3>The approach — and why it is shaped this way</h3>
+<table>
+  <tr><th style="width:30%">Original idea</th><th>What we built instead, and why</th></tr>
+  <tr><td>AI writes tests directly from the documents</td><td><b>Document → approved rule → test.</b> A one-line rule with its quote can be reviewed in seconds; a generated test file cannot. Every future test traces back to a sentence of the standard.</td></tr>
+  <tr><td>AI "tests the APIs"</td><td><b>The AI writes, the engine runs.</b> The model never calls a bank. Results are reproducible from YAML and auditable.</td></tr>
+  <tr><td>AI summaries</td><td><b>Triage, not prose:</b> grouped by cause, bank vs our side, evidence, clause, next step; facts computed in code.</td></tr>
+  <tr><td>Rule drafting with human approval</td><td>Kept, and strengthened: the quote is <b>verified in code</b>, so a rule can never rest on words the standard does not contain.</td></tr>
+  <tr><td>Store every data</td><td>Kept, with <b>masking before writing</b> (tokens, codes, PSU ids, IBANs) and an audit log of every AI call.</td></tr>
+  <tr><td>RAG agent over logs</td><td><b>An agent with query tools</b> over the database for logs (counts and time ranges need SQL, not similarity search); retrieval only for the standards text. (Phase 4)</td></tr>
+</table>
+
+<h3>Model choice: cloud and local</h3>
+<p>
+Drafting reads only public standards, so it uses <b>Claude</b> (best accuracy; <code>claude-opus-5-5</code>).
+Features that see run data (summaries, the future ask-agent) can be switched to a <b>local model</b> via Ollama so data never
+leaves the machine. Embeddings for search are always local (<code>bge-m3</code>). The default local chat model is
+<code>qwen3:8b</code> (5 GB): it summarized a run in 35 s versus 190 s for <code>gemma4:26b</code> (17 GB) with the same root cause found.
+</p>
+</div>
+
+<!-- ============================== 3 ARCHITECTURE ============================== -->
+<div class="section">
+<h1>3. System architecture</h1>
+<div class="diagram">
+<div class="legend"><span class="l-code">code (deterministic)</span><span class="l-ai">AI model</span><span class="l-person">person</span><span class="l-data">stored data</span><span class="l-ext">external system</span></div>
+<div class="layers">
+  <div class="layer"><div class="name">People</div><div class="row" style="grid-template-columns:repeat(3,1fr)">
+    <div class="box person"><b>Tester</b>starts runs, logs in for SCA</div>
+    <div class="box person"><b>Reviewer</b>approves / rejects rules</div>
+    <div class="box person"><b>Staff</b>reads summaries (asks questions in Phase 4)</div></div></div>
+  <div class="down">▼</div>
+  <div class="layer"><div class="name">Entry points</div><div class="row" style="grid-template-columns:1fr 1fr">
+    <div class="box code"><b>aqt CLI (Python)</b>run · db · ai · standards · rules · validate · portal</div>
+    <div class="box code"><b>Portal (Flask) :5280</b>runs · AI summary · Standards · Rules review</div></div></div>
+  <div class="down">▼</div>
+  <div class="layer"><div class="name">Application</div><div class="row" style="grid-template-columns:1.1fr 1fr 1.2fr">
+    <div class="box code"><b>Engine <code>aqt/</code></b>scenario runner · JWS signing · OAuth/PKCE · reports<br><i>no AI, no database</i></div>
+    <div class="box code"><b>Standards <code>aqt/standards</code></b>PDF / Word clause readers · quote verifier · sources manifest</div>
+    <div class="box ai"><b>AI layer <code>aqt/ai</code></b>providers + audit · run summaries · ingest · rule drafter · rule book</div></div></div>
+  <div class="down">▼</div>
+  <div class="layer"><div class="name">Data &amp; models</div><div class="row" style="grid-template-columns:1fr 1.25fr 1fr 1fr">
+    <div class="box data"><b>Report folders</b>report.html · summary.json · junit.xml</div>
+    <div class="box data"><b>PostgreSQL 17 + pgvector</b>runs · exchanges · events · AI audit · clauses · rules (all masked)</div>
+    <div class="box ext"><b>Claude API</b>claude-opus-5-5 (masked prompts)</div>
+    <div class="box ext"><b>Ollama (local)</b>qwen3:8b · bge-m3 embeddings</div></div></div>
+  <div class="down">▼</div>
+  <div class="layer"><div class="name">Under test</div><div class="row" style="grid-template-columns:1fr 1fr 1fr">
+    <div class="box ext"><b>MockBank :7443</b>built-in fake bank with real XS2A checks</div>
+    <div class="box ext"><b>Bank sandboxes</b>TBC, BoG, Liberty, … (mTLS + JWS + OAuth)</div>
+    <div class="box ext"><b>Standards documents</b>Berlin Group PDF · Georgian .docx</div></div></div>
+</div>
+</div>
+<div class="caption">Figure 1 — Components. The engine has no AI and no database dependency; everything that reaches the database or a model is masked first.</div>
+
+<h3>Packages</h3>
+<table>
+  <tr><th style="width:26%">Package</th><th>Responsibility</th><th style="width:9%">Lines</th></tr>
+  <tr><td><code>aqt/</code> (engine)</td><td>YAML loading and binding, scenario runner, HTTP/TLS/SCA steps, JWS signing and verification, OAuth/PKCE, reports (HTML, JSON, JUnit)</td><td>3 281</td></tr>
+  <tr><td><code>aqt/cli.py</code>, <code>cli_ai.py</code></td><td><code>aqt</code> command: run, list, validate, mock, portal · db, ai, standards, rules</td><td>818</td></tr>
+  <tr><td><code>aqt/mockbank/</code></td><td>Fake bank with real XS2A checks (mTLS, signatures, consents, OAuth/PKCE)</td><td>1 158</td></tr>
+  <tr><td><code>aqt/portal/</code></td><td>Flask web UI: dashboard, runs, AI summary panel, Standards, Rules review (Python + templates)</td><td>1 803</td></tr>
+  <tr><td><code>aqt/store/</code> <span class="tag done">ported</span></td><td>PostgreSQL schema (SQL migrations) and access, masking, run import, clause and rule queries</td><td>1 027</td></tr>
+  <tr><td><code>aqt/standards/</code> <span class="tag done">ported</span></td><td>PDF and Word clause readers, quote verifier, sources manifest (no AI, no DB)</td><td>452</td></tr>
+  <tr><td><code>aqt/ai/</code> <span class="tag done">ported</span></td><td>Providers + audit, run summaries, standards ingest, rule drafting and review; prompts as files</td><td>1 239</td></tr>
+  <tr><td><code>tests/</code></td><td>pytest: engine, MockBank end to end, store, standards, AI, portal routes</td><td>1 212</td></tr>
+</table>
+
+<h3>Technology</h3>
+<table>
+  <tr><td style="width:24%">Runtime</td><td>Python 3.11+ (developed on 3.14); Flask portal; PyYAML, cryptography, pyOpenSSL</td></tr>
+  <tr><td>Database</td><td>PostgreSQL 17 with pgvector (Docker, port 5435); psycopg 3 with plain SQL; numbered SQL migrations</td></tr>
+  <tr><td>AI</td><td>Official <code>anthropic</code> Python SDK (Claude); Ollama over HTTP for local models and bge-m3 embeddings</td></tr>
+  <tr><td>Documents</td><td>pdfplumber (PDF text), Office Open XML read directly (Word)</td></tr>
+  <tr><td>Install</td><td>Core: <code>pip install -e .[test]</code>; store + AI layer is an optional extra: <code>pip install -e .[ai]</code></td></tr>
+  <tr><td>Constraint</td><td>Standalone: only public PyPI packages; no dependency on AltaSoft's internal repositories</td></tr>
+</table>
+</div>
+
+<!-- ============================== 4 TEST RUN ============================== -->
+<div class="section">
+<h1>4. How a test run works</h1>
+<p>
+A run takes a bank profile and a set of scenarios. <b>Preflight</b> scenarios (certificates, TLS, OAuth discovery, a signed
+request) always run first; if a critical one fails, the rest are marked <i>Blocked</i> instead of failing one by one for
+the same reason. Each scenario is a list of steps; each request is signed, sent over mutual TLS, and its response is
+checked (status, error codes, headers, JSON fields, signature).
+</p>
+<div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant R as Runner (our tool, acting as TPP)
+  participant B as Bank XS2A API
+  participant A as Bank auth server
+  participant U as Tester (browser)
+  participant S as Store
+  R->>B: POST consent (mTLS, Digest, X-Jws-Signature)
+  B-->>R: 201 consentId + link to start authorisation
+  R->>B: POST start authorisation
+  B-->>R: 201 link to OAuth
+  R->>U: open login page (PKCE, state)
+  U->>A: log in and approve
+  A-->>R: redirect with code
+  R->>A: exchange code for token (mTLS)
+  R->>B: read accounts and balances (consent + token)
+  R->>B: delete consent (cleanup)
+  R->>S: results + masked exchanges + events
+</pre></div>
+<div class="caption">Figure 2 — An account-information scenario (AIS-001) from start to store.</div>
+<table>
+  <tr><th style="width:18%">Outcome</th><th>Meaning</th></tr>
+  <tr><td>Passed</td><td>All expectations met.</td></tr>
+  <tr><td>Failed</td><td>The bank's API did not behave as expected (a bank-side deviation).</td></tr>
+  <tr><td>Error</td><td>A problem on our side: configuration, certificates, timeout waiting for a login.</td></tr>
+  <tr><td>Blocked</td><td>Not run because a critical preflight check failed.</td></tr>
+  <tr><td>Skipped</td><td>The bank does not declare the feature (expected; not a problem).</td></tr>
+</table>
+<p>Reports are written as before (<code>report.html</code>, <code>summary.json</code>, <code>junit.xml</code>), and the
+run is also saved to the database. A database problem never fails a run: it becomes a notice, and the folder can be
+imported later.</p>
+</div>
+
+<!-- ============================== 5 STORE ============================== -->
+<div class="section">
+<h1>5. Data store and privacy</h1>
+<div class="diagram">
+<div class="schema">
+  <div class="group"><h4>Test runs</h4>
+    <div class="tbl"><div class="t">runs</div><div class="c">id (folder name) · source · status · bank_bic · counts · pass_rate · suites · options (jsonb)</div></div>
+    <div class="rel">▼ has many</div>
+    <div class="tbl"><div class="t">scenario_results</div><div class="c">scenario_id · suite · severity · spec_ref · outcome · reason</div></div>
+    <div class="rel">▼ has many</div>
+    <div class="tbl"><div class="t">step_results</div><div class="c">name · kind · outcome · failures · warnings · info</div></div>
+    <div class="rel">▼ has many</div>
+    <div class="tbl"><div class="t">exchanges</div><div class="c">method · url · status_code · headers (jsonb) · bodies — all masked, capped 64 KB</div></div>
+  </div>
+  <div class="group"><h4>Monitoring &amp; AI</h4>
+    <div class="tbl"><div class="t">events</div><div class="c">time · run_id · source · type (run.started, scenario.completed, …) · level · message · data</div></div>
+    <div class="tbl"><div class="t">ai_calls</div><div class="c">feature · provider · model · triggered_by · request (masked) · response · tokens · duration · succeeded</div></div>
+    <div class="rel">▲ linked from</div>
+    <div class="tbl"><div class="t">run_summaries</div><div class="c">run_id · status (ok / unstructured / failed) · summary (jsonb) · validation notes · ai_call_id</div></div>
+    <p class="small muted" style="text-align:center;margin:4pt 0 0">Kept when a run is deleted.</p>
+  </div>
+  <div class="group"><h4>Standards &amp; rules</h4>
+    <div class="tbl"><div class="t">standard_documents</div><div class="c">id · version · language · sha256 · clause_count</div></div>
+    <div class="rel">▼ has many</div>
+    <div class="tbl"><div class="t">clauses</div><div class="c">key (BG-IG:1.3.16:6.3.1.2) · number · title · text · search (tsvector) · embedding (vector 1024)</div></div>
+    <div class="rel">▼ referenced by key</div>
+    <div class="tbl"><div class="t">rules</div><div class="c">id (GE-CON-002) · status · level · service · requirement · quote · quote_english · check · reviewer</div></div>
+    <div class="rel">▼ history</div>
+    <div class="tbl"><div class="t">rule_reviews</div><div class="c">reviewer · action · note · before / after (jsonb)</div></div>
+  </div>
+</div>
+</div>
+<div class="caption">Figure 3 — Database tables (PostgreSQL), grouped by purpose; key columns only.</div>
+
+<h3>Masking: what never reaches the database or a model</h3>
+<table>
+  <tr><th style="width:30%">Data</th><th>Treatment</th></tr>
+  <tr><td>Authorization, Cookie, PSU-ID headers</td><td>Value replaced (<code>Bearer ***(masked)</code>)</td></tr>
+  <tr><td>Tokens, codes, secrets in JSON, forms and URLs</td><td><code>access_token</code>, <code>refresh_token</code>, <code>code_verifier</code>, … masked at any depth; the OAuth <code>code</code> in forms and query strings</td></tr>
+  <tr><td>XS2A error codes</td><td><b>Kept readable</b> (<code>"code":"FORMAT_ERROR"</code> is evidence, not a secret) — a bug found and fixed in Phase 1</td></tr>
+  <tr><td>IBANs</td><td>Country, check digits and last 4 kept: <code>GE29**************4917</code></td></tr>
+  <tr><td>Large bodies</td><td>Cut at 64 KB and flagged</td></tr>
+</table>
+<div class="callout ok">Verified on all 12 imported runs (139 exchanges): no tokens or codes in any form remain in the database. The same
+masker is applied to every prompt a model receives, as a second layer.</div>
+
+<h3>Audit</h3>
+<p>Every model call, successful or not, is a row in <code>ai_calls</code>: feature, provider, model, who triggered it,
+the masked request, the answer, token counts, duration and a prompt hash. Rule decisions are rows in
+<code>rule_reviews</code> with the fields before and after each change.</p>
+</div>
+
+<!-- ============================== 6 AI LAYER ============================== -->
+<div class="section">
+<h1>6. The AI layer</h1>
+<div class="diagram">
+<div class="legend"><span class="l-code">code (deterministic)</span><span class="l-ai">AI model</span><span class="l-person">person</span><span class="l-data">stored data</span><span class="l-ext">external system</span></div>
+<div class="flow">
+  <div class="box code"><b>Feature</b>summary, rule drafting, …</div><div class="arrow">→</div>
+  <div class="box code"><b>ChatFactory</b>provider + model + effort per feature</div><div class="arrow">→</div>
+  <div class="box code"><b>AuditingChat</b>masks outgoing text · records every call in <code>ai_calls</code></div><div class="arrow">→</div>
+  <div class="stack">
+    <div class="box ext"><b>Claude</b>beta endpoint · effort · refusal fallback</div>
+    <div class="or">or</div>
+    <div class="box ext"><b>Ollama (local)</b>num_ctx 16k · 10 min timeout</div>
+  </div>
+</div>
+<div class="flow"><div class="box ext" style="flex-basis:200pt"><b>Embeddings: bge-m3 (local)</b>clause and rule search; nothing leaves the machine</div></div>
+</div>
+<div class="caption">Figure 4 — Every model call goes through the same wrapper; features only see a common chat interface.</div>
+<table>
+  <tr><th style="width:22%">Feature</th><th style="width:22%">Default</th><th>Notes</th></tr>
+  <tr><td>Run summary</td><td>Claude, effort medium</td><td>Switchable to local (button in the portal, <code>--provider ollama</code>, <code>AQT_AI_SUMMARY_PROVIDER</code>)</td></tr>
+  <tr><td>Rule drafting</td><td>Claude, effort high</td><td>Reads only public standards; local model available for trials</td></tr>
+  <tr><td>Scenario drafting</td><td>Claude, effort high</td><td>Phase 3</td></tr>
+  <tr><td>Ask-the-agent</td><td>Claude, effort medium</td><td>Phase 4; switchable to local</td></tr>
+  <tr><td>Embeddings</td><td>bge-m3 (local)</td><td>Multilingual: English questions find Georgian clauses</td></tr>
+</table>
+<h3>Safeguards in the provider layer</h3>
+<ul>
+  <li><b>Refusal fallback:</b> our prompts contain security-testing material (signatures, tokens, auth flows) that can trip a
+    model's safety filters; a declined request is re-run on Anthropic's recommended fallback model instead of failing.</li>
+  <li><b>Context window:</b> Ollama silently cuts prompts longer than its default window; every local call now sets 16k tokens.</li>
+  <li><b>Timeouts</b> are recorded as failures (not as user cancellation), so they appear in the audit log.</li>
+  <li>The exact request sent to Claude is checked by a test against a local fake Anthropic server (model, limits, effort, fallback header, streaming) — no key needed.</li>
+  <li>Prompts and their JSON schemas are files in <code>aqt/ai/prompts/</code>, reviewed like code.</li>
+</ul>
+<div class="callout warn"><b>Not yet verified live:</b> calls to Claude. No <code>ANTHROPIC_API_KEY</code> has been set, so all live
+AI results so far come from the local <code>qwen3:8b</code>. The Claude request format is verified offline.</div>
+</div>
+
+<!-- ============================== 7 SUMMARIES ============================== -->
+<div class="section">
+<h1>7. Feature: AI run summaries (Phase 1)</h1>
+<div class="diagram">
+<div class="legend"><span class="l-code">code (deterministic)</span><span class="l-ai">AI model</span><span class="l-person">person</span><span class="l-data">stored data</span><span class="l-ext">external system</span></div>
+<div class="flow">
+  <div class="box data"><b>Stored run</b>results + masked exchanges · bank's previous run</div><div class="arrow">→</div>
+  <div class="box code"><b>Digest</b>problems + evidence excerpts · changes vs previous run computed</div><div class="arrow">→</div>
+  <div class="box ai"><b>Model</b>groups by cause, side, explanation, next step (JSON)</div>
+</div>
+<div class="flow">
+  <div class="arrow">→</div>
+  <div class="box code"><b>Validate</b>drop unknown scenarios · clauses must be in the run · warnings ≠ findings · comparison from code</div><div class="arrow">→</div>
+  <div class="box data"><b>run_summaries</b>linked to its audit row</div><div class="arrow">→</div>
+  <div class="box person"><b>Tester</b>portal panel or <code>aqt ai summarize</code></div>
+</div>
+</div>
+<div class="caption">Figure 5 — From a stored run to a checked triage.</div>
+<p>A summary contains: a <b>health</b> verdict (healthy / degraded / broken / inconclusive), <b>findings</b> grouped by root
+cause, each with the side at fault (bank, our side, environment, unclear), evidence quoted from the responses, the clause,
+and a next step; the change since the previous run; and warnings worth a look.</p>
+
+<h3>Evaluation on real data</h3>
+<p>All 9 stored runs with results were summarized with the local model and compared with the database. Five kinds of error
+were found and each was fixed — preferably in code:</p>
+<table>
+  <tr><th style="width:38%">Error found</th><th>Fix</th></tr>
+  <tr><td>"Since the previous run" described changes wrongly</td><td>Now written <b>in code</b> from the computed changes</td></tr>
+  <tr><td>Warnings of passed scenarios reported as problems</td><td><b>Code</b> moves them to "worth a look"; findings about skipped scenarios are dropped (Python port)</td></tr>
+  <tr><td>Random 503s of the TBC test sandbox blamed on the bank</td><td>Prompt: temporary 5xx = environment unless persistent</td></tr>
+  <tr><td>A tester clicking "Deny" treated as a critical bank fault</td><td>Prompt: <code>access_denied</code> at login = unclear, suggest a re-run</td></tr>
+  <tr><td>A correct but shortened clause reference was removed</td><td>Validator matches clause numbers and restores the run's exact wording</td></tr>
+</table>
+<div class="callout ok">After the fixes, re-run on the 5 affected runs: all correct against the data. The real TBC deviation
+(global consent rejected with <code>FORMAT_ERROR</code> instead of <code>PARAMETER_NOT_SUPPORTED</code>) is found every time with the
+right clause. Local speed: 15–35 s per run.</div>
+</div>
+
+<!-- ============================== 8 RULES ============================== -->
+<div class="section">
+<h1>8. Feature: standards → rules → human review (Phase 2)</h1>
+<div class="diagram">
+<div class="legend"><span class="l-code">code (deterministic)</span><span class="l-ai">AI model</span><span class="l-person">person</span><span class="l-data">stored data</span><span class="l-ext">external system</span></div>
+<div class="flow">
+  <div class="box data"><b>sources.yaml</b>URL + SHA-256</div><div class="arrow">→</div>
+  <div class="box code"><b>Fetch + verify</b>changed file refused</div><div class="arrow">→</div>
+  <div class="box code"><b>Clause readers</b>PDF TOC · Word headings</div><div class="arrow">→</div>
+  <div class="box data"><b>379 clauses</b>words + meaning search</div>
+</div>
+<div class="flow">
+  <div class="arrow">→</div>
+  <div class="box ai"><b>AI drafts rules</b>from one clause</div><div class="arrow">→</div>
+  <div class="box code" style="flex-basis:150pt"><b>Checks in code</b>quote in clause? · level backed by wording? · duplicate? · id assigned</div><div class="arrow">→</div>
+  <div class="box data"><b>Draft queue</b>failed quote → <i>invalid</i> (kept, not reviewable)</div>
+</div>
+<div class="flow">
+  <div class="arrow">→</div>
+  <div class="box person" style="flex-basis:150pt"><b>Person reviews</b>approve · edit (quote re-checked) · reject with reason</div><div class="arrow">→</div>
+  <div class="box data" style="flex-basis:150pt"><b>Approved + history</b>who, when, before/after · exported to rules/*.yaml</div>
+</div>
+</div>
+<div class="caption">Figure 6 — The rule pipeline. Only a person moves a rule to approved.</div>
+
+<h3>The standards</h3>
+<table>
+  <tr><th>ID</th><th>Document</th><th>Version</th><th>Language</th><th>Clauses</th></tr>
+  <tr><td><code>BG-IG</code></td><td>Berlin Group NextGenPSD2 XS2A Implementation Guidelines</td><td>1.3.16 (Dec 2025, latest)</td><td>English</td><td>182</td></tr>
+  <tr><td><code>GE-XS2A</code></td><td>Georgian XS2A Implementation Guide (openfinance.ge)</td><td>0.8.RC3</td><td>Georgian</td><td>133</td></tr>
+  <tr><td><code>GE-JWS</code></td><td>Georgian JSON Web Signature Guide</td><td>0.5.RC1</td><td>Georgian</td><td>32</td></tr>
+  <tr><td><code>GE-IAA</code></td><td>Georgian Identification, Authentication and Authorization Manual</td><td>0.8.RC1</td><td>Georgian</td><td>32</td></tr>
+</table>
+<ul class="small">
+  <li><b>PDF:</b> the table of contents gives the clause list; each entry is found in order in the body; deeper sections
+    (e.g. 6.3.1.2) are found inside their parent. Running headers and footers are dropped by pattern (pdfplumber puts
+    footers last). A defect in the PDF (a stray sentence glued into the chapter 6 heading) is corrected in the manifest.
+    The Python reader gives the same 182 clauses as the C# one; every existing rule quote still verifies.</li>
+  <li><b>Word:</b> heading styles give the structure; numbers are computed like Word. Verified against the published PDF of
+    the Georgian guide, because the document's own cross-references contradict each other.</li>
+  <li>The Georgian guides exist only in Georgian. The Georgian text is the source of truth; each rule carries an English
+    translation of its quote, labelled as an AI translation.</li>
+  <li>Documents are downloaded, not committed; a changed file (different SHA-256) is refused until reviewed.</li>
+</ul>
+
+<h3>What a rule looks like</h3>
+<pre>GE-CON-002   MUST · AIS · GE-XS2A 9.1.1.10
+Requirement  When validUntil is 9999-12-31, the bank sets the consent's validity to the maximum
+             allowed (at most 90 days) and returns that date in the consent details.
+Quote        "<span class="ka">გამონაკლისს შეადგენს მნიშვნელობა „9999-12-31“, რომლის მიღების შემთხვევაში აუცილებელია
+             ამსმპ-მა თანხმობის ვადა შეცვალოს მაქსიმალურ დასაშვებ მნიშვნელობაზე (არაუმეტეს 90 დღისა)</span> ..."
+EN (AI)      "The exception is the value '9999-12-31' ... must be replaced with the maximum allowed
+             duration (≤90 days) ..."
+Check        positive — create consent with 9999-12-31, read it back, expect ≤ 90 days
+Tool checks  ✓ quote found in the clause</pre>
+
+<h3>Checks done in code before a person sees a draft</h3>
+<table>
+  <tr><th style="width:28%">Check</th><th>Effect</th></tr>
+  <tr><td>Quote occurs in the clause</td><td>Ignores only spacing, line breaks, hyphenation, quote/dash style and case; "…" marks skipped words. Fails → rule stored as <b>invalid</b> (kept, never reviewable).</td></tr>
+  <tr><td>Level vs wording</td><td>MUST/SHOULD/MAY must be backed by the quote's keywords (English and Georgian); otherwise a warning for the reviewer.</td></tr>
+  <tr><td>Duplicates</td><td>Close in meaning (embeddings) <b>and</b> naming the same fields, codes and statuses; otherwise "accept availableAccounts" and "accept allPsd2" looked identical.</td></tr>
+  <tr><td>Review</td><td>Approve only drafts; reject needs a reason; an edited quote is checked again; a stale update is refused; every action recorded with the reviewer's name.</td></tr>
+</table>
+<div class="callout"><b>Findings from the first drafts (local model).</b> It finds requirements and quotes them exactly, including
+Georgian — it found the Georgia-specific <b>90-day consent limit</b> (<code>PERIOD_INVALID</code>), which the Berlin Group guide does not
+have. Its weak point is the level: it marks optional functions as MUST; the level check flags this to the reviewer. In
+clause 4.1 it joined non-adjacent bullet items without "…": the quote check correctly rejected 8 such drafts (the prompt
+now forbids it). On GE-XS2A 9.2.2 it changed one Georgian word inside a quote (<span class="ka">სათაურის → სათავის</span>), and the check
+caught that too.</div>
+</div>
+
+<!-- ============================== 9 PORTAL + CLI ============================== -->
+<div class="section">
+<h1>9. Portal and command line</h1>
+<h3>Portal (Flask, http://localhost:5280)</h3>
+<table>
+  <tr><th style="width:18%">Page</th><th>What it does</th></tr>
+  <tr><td>Dashboard</td><td>All bank profiles with last result and pass rate; MockBank start/stop</td></tr>
+  <tr><td>New run / Run</td><td>Start a run, watch it live, SCA login button; per scenario steps and HTTP exchanges; <b>AI summary</b> panel with "Summarize with Claude" / "Local"</td></tr>
+  <tr><td>Runs, Scenarios</td><td>Run history; scenario catalogue</td></tr>
+  <tr><td><b>Standards</b></td><td>Documents, outline with rule counts, search (English or Georgian, by words and meaning), clause view, "Draft rules with Claude / Local"</td></tr>
+  <tr><td><b>Rules</b></td><td>Review queue by status and standard; quote, translation, tool checks; approve / edit (incl. area, service, expected codes) / reject / reopen; reviewer name; "How to review" guide; export to <code>rules/</code></td></tr>
+</table>
+<h3>Command line (<code>aqt</code>)</h3>
+<table class="small">
+  <tr><th style="width:44%">Command</th><th>Purpose</th></tr>
+  <tr><td><code>run --bank X [--suite ..] [--with-mock] [--sca-auto]</code></td><td>Run scenarios; saved to the store when <code>AQT_DB</code> is set</td></tr>
+  <tr><td><code>db migrate | import | status</code></td><td>Database schema, import of report folders, row counts</td></tr>
+  <tr><td><code>ai check</code> · <code>ai summarize &lt;run|latest&gt;</code></td><td>Provider check; AI triage of a run</td></tr>
+  <tr><td><code>standards fetch | ingest | list | search | show</code></td><td>Download and verify, split and store, browse and search clauses</td></tr>
+  <tr><td><code>rules draft | list | show | approve | reject | reopen | export</code></td><td>Draft rules from a clause; review; export approved rules</td></tr>
+  <tr><td><code>validate</code> · <code>list</code> · <code>mock</code> · <code>portal [--db | --no-db]</code></td><td>Check all YAML; list banks/scenarios; run MockBank; run the portal</td></tr>
+</table>
+</div>
+
+<!-- ============================== 10 QUALITY ============================== -->
+<div class="section">
+<h1>10. Quality: tests, verification, bugs found</h1>
+<table>
+  <tr><th style="width:30%">Test file</th><th style="width:8%">Tests</th><th>Covers</th></tr>
+  <tr><td>Engine (4 files)</td><td>22</td><td>YAML, variables, JSON paths, signing, reports, every shipped YAML, MockBank end to end (teammates' port)</td></tr>
+  <tr><td><code>test_store.py</code></td><td>20</td><td>Masking, run mapping, import, PostgreSQL round trips, search, a database created by the C# tool</td></tr>
+  <tr><td><code>test_standards.py</code></td><td>18</td><td>TOC parsing, page furniture, sub-sections, Word numbering, quote verifier (English and Georgian), manifest</td></tr>
+  <tr><td><code>test_ai.py</code></td><td>29</td><td>Options, exact Claude request (fake server), audit and masking, summaries, drafting, level and duplicate checks, review workflow, export</td></tr>
+  <tr><td><code>test_portal_ai.py</code></td><td>4</td><td>Pages with and without the database, reviewer name, edit and approve, redirect safety</td></tr>
+</table>
+<p class="small muted">93 pass with <code>AQT_TEST_DB</code> (throw-away database per test module); without it 76 pass and 17 are skipped.</p>
+<div class="callout ok"><b>Port verified against the C# results:</b> the Python store maps all 12 imported runs (139 exchanges) exactly as the
+C# tool stored them; the Georgian readers give identical clauses; the Python digest equals the C# digest; the existing
+database is used unchanged.</div>
+<h3>Bugs found by testing against real data, and fixed</h3>
+<table class="small">
+  <tr><th style="width:36%">Bug</th><th>Effect if left</th></tr>
+  <tr><td>Run crashed when the database was down</td><td>A storage problem would fail a test run</td></tr>
+  <tr><td>Masker hid XS2A error codes</td><td>The key evidence of failures unreadable to people and the AI</td></tr>
+  <tr><td>Engine's partial token masking (12 characters kept)</td><td>Token prefixes stored; now fully masked</td></tr>
+  <tr><td>Local model timeout at 100 s, not audited</td><td>Silent failures with large models</td></tr>
+  <tr><td>Ollama truncating long prompts silently</td><td>Rules drafted from half a clause</td></tr>
+  <tr><td>Full-text search required every word</td><td>Questions found nothing</td></tr>
+  <tr><td>Contents heading not counted in Georgian numbering</td><td>Every Georgian clause number off by one</td></tr>
+  <tr><td>Clause links redirected in a loop</td><td>Standards page unusable from links</td></tr>
+  <tr><td>False duplicates from embeddings</td><td>Different rules flagged as the same</td></tr>
+  <tr><td>Unstyled input boxes</td><td>Portal looked unfinished</td></tr>
+  <tr><td>OAuth callback port not reusable on macOS (Python port)</td><td>Second login scenario of every run failed on a Mac (15/16)</td></tr>
+  <tr><td>pdfplumber footer order (Python port)</td><td>No Berlin Group headings found</td></tr>
+  <tr><td>Georgian "optional" read as "mandatory"</td><td>Wrong level warnings on Georgian rules</td></tr>
+  <tr><td>All-digit SHA-256 read as a number</td><td>Manifest crash for such a hash</td></tr>
+</table>
+<p>Every step, decision and finding is recorded in <code>NOTE.md</code> (42 entries); <code>ARCHITECTURE.md</code> holds the current diagrams.</p>
+</div>
+
+<!-- ============================== 11 STATE ============================== -->
+<div class="section">
+<h1>11. Current state in numbers</h1>
+<table>
+  <tr><th style="width:40%">Item</th><th>Value</th></tr>
+  <tr><td>Runs in the store</td><td>14 (MockBank, TBC sandbox, TBC test bank), 136 scenario results, 199 HTTP exchanges</td></tr>
+  <tr><td>AI run summaries</td><td>19 (local model)</td></tr>
+  <tr><td>Standards / clauses</td><td>4 documents, 379 clauses, all with embeddings</td></tr>
+  <tr><td>Rules</td><td><b>4 approved</b> (BG-AUTH-003, BG-AUTH-004, BG-GEN-001, BG-SIG-002) · <b>11 drafts</b> to review · <b>9 invalid</b> (quote not verbatim)</td></tr>
+  <tr><td>AI calls audited</td><td>27, all to the local model (no Claude key yet)</td></tr>
+  <tr><td>Automated tests</td><td>93, all passing</td></tr>
+  <tr><td>Git</td><td><code>main</code>: teammates' Python port. <code>ai-layer-python</code>: the ported AI layer, as a pull request</td></tr>
+</table>
+<h3>Approved rules so far</h3>
+<table class="small">
+  <tr><th style="width:15%">Rule</th><th style="width:8%">Level</th><th>Requirement</th></tr>
+  <tr><td>BG-AUTH-003</td><td>MUST</td><td>The bank provides dedicated authorisation endpoints for payment initiation.</td></tr>
+  <tr><td>BG-AUTH-004</td><td>MUST</td><td>The bank creates authorisation sub-resources when authorisation is started via the signing-baskets endpoint.</td></tr>
+  <tr><td>BG-GEN-001</td><td>MUST</td><td>Content parameters in the HTTP body are JSON or XML; XML only for ISO 20022 payment or account messages.</td></tr>
+  <tr><td>BG-SIG-002</td><td>MAY</td><td>If the signing-baskets endpoint is offered, the bank lets the TPP submit payment data without starting authorisation.</td></tr>
+</table>
+<p class="small muted">Note: three of the four approved rules concern payments (PIS) and signing baskets, which the tool does not test yet (Phase 5);
+BG-SIG-002 is tagged area SIG although it is about signing baskets (SBK) — the edit form can change it now.</p>
+</div>
+
+<!-- ============================== 12 ROADMAP ============================== -->
+<div class="section">
+<h1>12. What is left: roadmap and open items</h1>
+<h3>Immediately</h3>
+<table>
+  <tr><th style="width:32%">Item</th><th>Why</th></tr>
+  <tr><td><b>Review and merge the pull request</b></td><td>The Python AI layer is on branch <code>ai-layer-python</code>; it includes a small fix to <code>aqt/oauth.py</code> (macOS port reuse) that the teammates should see.</td></tr>
+  <tr><td><b>Set <code>ANTHROPIC_API_KEY</code></b></td><td>No live Claude call has been made. Compare Claude's rule drafts and summaries with the local model on the same inputs.</td></tr>
+  <tr><td>Finish the review queue</td><td>11 drafts waiting: reject BG-CON-001..003 (request formats, not bank duties), edit then approve GE-CON-001, approve GE-CON-002, judge the 4.1 drafts with the review guide.</td></tr>
+  <tr><td>Re-draft clause BG 4.1</td><td>8 drafts failed because the model joined non-adjacent bullet items without "…"; the prompt now forbids it — draft the clause again.</td></tr>
+  <tr><td>Approve AIS rules</td><td>Phase 3 needs approved rules for what the tool can test today (consents, accounts) — e.g. the 90-day consent rules.</td></tr>
+</table>
+
+<h3>Phase 3 — scenarios from approved rules <span class="tag next">next</span></h3>
+<ul>
+  <li><b>ScenarioDrafter:</b> from an approved rule, the AI writes a YAML scenario using the existing templates; then a loop in
+    code: <code>validate</code> → dry run against MockBank → errors fed back (a few attempts).</li>
+  <li>New scenario field <code>rules: [...]</code>; <code>aqt validate</code> warns about scenarios citing unapproved rules and approved
+    rules without a scenario.</li>
+  <li><b>Drafts review page</b> for generated scenarios (diff-style YAML view, MockBank result) — approved scenarios go to
+    <code>scenarios/</code> in git; drafts never run against real banks.</li>
+  <li><b>Coverage matrix:</b> clause → rules → scenarios → last result per bank.</li>
+  <li><b>MockBank gaps:</b> when an approved rule is not enforced by MockBank (e.g. the 90-day limit), that is a task, so generated
+    tests can be proven before they meet a real bank.</li>
+</ul>
+
+<h3>Phase 4 — ask-the-agent <span class="tag todo">planned</span></h3>
+<ul>
+  <li>A chat page and <code>aqt ask</code>: "Why did TBC fail last night?", "Since when does bank X return 503?", "Which rules cover consent expiry?".</li>
+  <li>Read-only tools over the database (search runs, scenario history, exchanges, compare runs) and over the standards
+    (clause search, rules). Answers cite run ids and clauses. A database role with read access to views only.</li>
+  <li>An evaluation set of about 30 real staff questions with known answers, before staff use it.</li>
+</ul>
+
+<h3>Phase 5 — payment initiation (PIS) <span class="tag todo">planned</span></h3>
+<ul>
+  <li>Payment templates and a <code>pis</code> suite: initiate → authorise (SCA) → status → cancellation; negative cases.</li>
+  <li>A <code>poll</code> option for request steps (wait for a final transaction status).</li>
+  <li>MockBank payment endpoints with a status lifecycle. Already designed in: <code>service: AIS | PIS | COMMON</code>.</li>
+</ul>
+
+<h3>Phase 6 — monitoring <span class="tag todo">planned</span></h3>
+<ul>
+  <li>Scheduled runs per bank, alerts when a bank that passed starts failing, trend views.</li>
+  <li>Retention: exchanges kept 90 days (configurable); results and summaries kept.</li>
+</ul>
+
+<h3>Open items and risks</h3>
+<table>
+  <tr><th style="width:30%">Item</th><th>Detail</th></tr>
+  <tr><td><span class="tag risk">before staff use</span> Login and roles</td><td>The portal has no login; the reviewer name is typed in. Real staff review needs authentication and an "approver" role.</td></tr>
+  <tr><td>Data policy for run data</td><td>Masked run data goes to Claude when summaries use Claude. Confirm this is acceptable for real bank data, or set summaries to local.</td></tr>
+  <tr><td>Real bank sandboxes</td><td>Most of the 16 bank profiles are placeholders; real certificates and credentials are needed. AIS has only run against MockBank and TBC.</td></tr>
+  <tr><td>English Georgian guides</td><td>Only Georgian versions exist; translations are AI-made per rule. Ask obstandards@association.ge for English versions.</td></tr>
+  <tr><td>Local environment</td><td>On this Mac, uv-created venvs mark the install file hidden and Python 3.14 skips it: run <code>python -m aqt</code> from the repository root.</td></tr>
+  <tr><td>Not verified by clicking</td><td>Portal actions are covered by route tests and screenshots, not by browser automation; auto-summary after a run is untested.</td></tr>
+  <tr><td>Continuous integration</td><td>No CI pipeline yet (pytest with a PostgreSQL service on each push).</td></tr>
+  <tr><td>Retention</td><td>Designed (90 days for exchanges) but not implemented.</td></tr>
+</table>
+</div>
+
+<!-- ============================== 13 DECISIONS ============================== -->
+<div class="section">
+<h1>13. Key decisions</h1>
+<table class="small">
+  <tr><th style="width:28%">Decision</th><th>Choice and reason</th></tr>
+  <tr><td>Language</td><td>Python (team decision; the teammates ported the engine, verified both ways against the C# client and MockBank). The AI layer was ported to match.</td></tr>
+  <tr><td>Database</td><td>PostgreSQL (Docker) with pgvector: one database for runs, audit, clauses and vectors. Python uses plain SQL on the same schema; the database the C# tool created is kept.</td></tr>
+  <tr><td>Models</td><td>Claude for drafting (public documents, best accuracy); local Ollama option for features that see run data; local embeddings.</td></tr>
+  <tr><td>Local model</td><td><code>qwen3:8b</code> by default (5× faster than <code>gemma4:26b</code>, same root causes found); bigger models selectable.</td></tr>
+  <tr><td>Standards</td><td>Latest versions: Berlin Group IG 1.3.16; Georgian guides from openfinance.ge (Georgian only).</td></tr>
+  <tr><td>Translation</td><td>No whole-document translation; Georgian text is the source of truth; per-rule English translation labelled as AI.</td></tr>
+  <tr><td>Rules storage</td><td>Database is the source of truth (queue, history, search); approved rules exported to YAML for git.</td></tr>
+  <tr><td>Approval</td><td>The team approves now; real staff later (needs login). Every action recorded with name, time and reason.</td></tr>
+  <tr><td>Scope</td><td>AIS first; PIS designed in from the start, built in Phase 5.</td></tr>
+  <tr><td>Logs Q&amp;A</td><td>Agent with database tools, not vector search over logs.</td></tr>
+  <tr><td>Repository</td><td>Public GitHub repository; source documents not committed (licences); no secrets committed.</td></tr>
+</table>
+</div>
+
+<!-- ============================== 14 RUN ============================== -->
+<div class="section">
+<h1>14. How to run it</h1>
+<pre>python -m venv .venv && source .venv/bin/activate
+pip install -e ".[test,ai]"
+docker compose up -d                                   # PostgreSQL + pgvector on localhost:5435
+aqt db migrate
+aqt db import reports
+
+# a full test run against the built-in fake bank, saved to the database
+aqt run --bank MOCK --with-mock --sca-auto --db "Host=localhost;Port=5435;Database=aqt;Username=aqt;Password=aqt_dev"
+
+# AI (local model needs Ollama with qwen3:8b and bge-m3; Claude needs ANTHROPIC_API_KEY)
+aqt ai check
+aqt ai summarize latest --provider ollama
+
+# standards and rules
+aqt standards fetch && aqt standards ingest
+aqt rules draft GE-XS2A:0.8.RC3:9.1.1.10 --provider ollama
+
+# web portal (store/AI pages on when the database is reachable)
+aqt portal                                             # http://localhost:5280
+
+# tests (including database tests)
+AQT_TEST_DB="host=localhost port=5435 user=aqt password=aqt_dev" pytest</pre>
+<h3>Further reading in the repository</h3>
+<table class="small">
+  <tr><td style="width:32%"><code>README.md</code></td><td>User manual: commands, profiles, scenarios</td></tr>
+  <tr><td><code>ARCHITECTURE.md</code></td><td>Current diagrams (updated after every phase)</td></tr>
+  <tr><td><code>docs/ai/PLAN.md</code></td><td>AI plan, phases and decisions</td></tr>
+  <tr><td><code>docs/ai/REVIEW-GUIDE.md</code></td><td>How to approve, edit and reject rules</td></tr>
+  <tr><td><code>NOTE.md</code></td><td>Journal: every step with what and why</td></tr>
+  <tr><td><code>standards/sources.yaml</code></td><td>Standards: versions, URLs, hashes</td></tr>
+</table>
+</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: false, theme: "neutral", securityLevel: "loose",
+    flowchart: { htmlLabels: true, curve: "basis", useMaxWidth: true },
+    sequence: { useMaxWidth: true }, er: { useMaxWidth: true },
+    themeVariables: { fontSize: "13px", fontFamily: "-apple-system, Segoe UI, Roboto, Arial, sans-serif" } });
+  mermaid.run({ querySelector: ".mermaid" }).then(() => { document.body.dataset.ready = "1"; });
+</script>
+</body>
+</html>

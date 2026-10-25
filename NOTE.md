@@ -439,3 +439,130 @@ has 28 px more space between the two words: everything above row 480 moved up 14
 **Why:** the user said the words sat too close together. Rows 464–495 of the original were empty apart from
 near-invisible specks (alpha ≤ 3), so the split doesn't cut through any visible splatter.
 **Verified:** before/after renders on the dark theme background; nothing clipped at the top or bottom edge.
+
+## 2026-10-24 · 35. Before pushing: friends' Python port found; plan to port the AI layer
+
+**What:** `git fetch` before pushing showed three new commits on `origin/main` from teammates:
+- the C# implementation replaced by Python (`ca72efb`),
+- the Aura logo (`53fe338`),
+- a CSS tweak (`9bb7d32`).
+
+The Python port covers the engine, CLI, MockBank and portal, but not the Store, AI and Standards layers (Phases 0–2).
+**Why I stopped:** pushing my local commit (the system overview PDF, which describes the C# system) on top would have
+documented software that is no longer on `main`. A trial rebase on a temporary branch showed only a `NOTE.md`
+numbering conflict. The user confirmed Python is final and asked for the port. Work happens on branch
+`ai-layer-python` from their `main`, so their commits stay untouched. My local PDF commit stays on local `main`
+(not pushed).
+
+## 2026-10-24 · 36. Port: environment, and a macOS bug in the Python port
+
+**What:**
+- Python 3.14 (Homebrew) venv via `uv`; their 22 tests pass.
+- uv marks the editable-install `.pth` file *hidden* on this Mac, and Python 3.14 skips hidden `.pth` files.
+  Workaround: `python -m aqt` from the repo root (documented in CLAUDE.md).
+- **Bug:** `test_all_mock_suites_pass` failed every time on macOS, and a real `aqt run --bank MOCK` gave 15/16. The
+  second SCA scenario couldn't reopen the OAuth callback port (TIME_WAIT), because the listener set only Windows'
+  `SO_EXCLUSIVEADDRUSE`. Fixed with `SO_REUSEADDR` on POSIX, which still prevents two active listeners.
+  Now 16/16 and 22/22.
+
+## 2026-10-24 · 37. Port: store (`aqt/store`)
+
+**What:** psycopg 3 + plain SQL instead of EF Core.
+- Migration `0001` is the exact schema the C# tool created (from `pg_dump`). A database with the C# tool's EF Core
+  history is recognised and kept, so **all existing data is reused**.
+- Masking, mapper and importer were ported.
+- The C#-style `Host=...;Port=...` connection string still works.
+
+**Verified:**
+- Python mapping vs what C# stored, for all 12 runs and 139 exchanges: **0 differences**.
+- Reads, previous-run lookup, summaries, standards, rules and search all work on the existing database.
+
+## 2026-10-24 · 38. Port: standards (`aqt/standards`)
+
+**What:** Word reader, PDF reader (pdfplumber instead of PdfPig), quote verifier, manifest.
+**Found:**
+- **Georgian guides:** identical clauses, titles and text to C# (133/32/32).
+- **Berlin Group PDF:** pdfplumber returns the page footer *last*, but the C# rule "drop the page up to the
+  License-Notice line" assumed it came first, and found no headings at all.
+  - Fix: page furniture is dropped by **pattern** (`pageFurniture` in `sources.yaml`) plus automatic removal of lines
+    repeated at the top of many pages.
+  - Rotated figure labels (single letters) are filtered out.
+  - Result: the same 182 clauses in the same order. Prose is identical; tables and figures differ in places
+    (median similarity 0.97). **Every existing non-invalid rule quote still verifies.**
+- YAML read an all-digit SHA-256 as a number (a test exposed it); the manifest now reads hashes as text.
+
+## 2026-10-24 · 39. Port: AI layer (`aqt/ai`)
+
+**What:**
+- `chat.py`:
+  - Claude via the `anthropic` SDK 2.3: beta endpoint, `fallbacks: "default"`, adaptive thinking, effort per
+    feature, streaming.
+  - Ollama over HTTP: `num_ctx` 16k, JSON schema output.
+  - `AuditingChat`: masking plus an `ai_calls` row per call, including failures.
+- `summaries.py`, `rules.py` (drafter, RuleBook, export), `ingest.py`.
+- Prompts and schemas are **extracted programmatically** from the C# sources into `aqt/ai/prompts/`, so there are no
+  retyping errors.
+
+**Improvements made while porting:**
+- The drafting prompt now says never to join non-adjacent list items without "…". This was the cause of the 8
+  invalid BG 4.1 drafts.
+- The Georgian "optional" (*არასავალდებულო*) no longer counts as "mandatory". It contains both *სავალდებულო* and
+  *ვალდებულ*; the C# version had this bug too, and a new test caught it.
+- Findings about **skipped** scenarios are dropped instead of moved to "worth a look". Seen in a portal screenshot:
+  skipped TBC scenarios were listed as worth a look.
+
+**Verified:**
+- The exact Claude request against a local fake Anthropic server: model, `max_tokens`, `fallbacks`, beta header,
+  thinking, effort, streaming.
+- Python digest = C# digest for a real run.
+- Real summaries with `qwen3:8b`: correct.
+- A real draft from GE-XS2A 9.2.2: one rule for review; one correctly rejected because the model changed one
+  Georgian word in its quote (*სათაურის* → *სათავის*).
+
+## 2026-10-24 · 40. Port: CLI and portal
+
+**What:**
+- `aqt/cli_ai.py`: `db`, `ai`, `standards`, `rules`, and `run --db`. Imports happen inside the commands, so the core
+  tool works without the `ai` extra.
+- Portal:
+  - `ai_services.py`: background store writes, summaries, rules.
+  - Hooks in their `RunService`: queued, started, scenario completed, finished, deleted, plus optional auto-summary.
+  - Routes and Jinja templates for the AI summary panel, Standards, Rules (review, edit, export).
+  - The reviewer name is kept in a cookie.
+  - Their CSS already contained my styles.
+- `aqt portal [--db | --no-db] [--auto-summarize]`.
+
+**Verified:**
+- A portal MOCK run: 16 passed, stored with 30 exchanges and 26 events.
+- Summary button → a correct local summary.
+- Screenshots of the Run, Standards and Rules pages.
+- With the database down, CLI runs still exit 0 with a notice.
+
+## 2026-10-24 · 41. Port: tests
+
+**What:** pytest ports of the store, standards, AI and portal tests (`tests/test_store.py`, `test_standards.py`,
+`test_ai.py`, `test_portal_ai.py`, helpers in `tests/ai_support.py`), including:
+- a fake Anthropic server,
+- throw-away databases,
+- a test that a database created by the C# tool is recognised.
+
+**Result:**
+- **93 passed** with `AQT_TEST_DB`.
+- Without it, 76 passed and 17 skipped.
+- No test databases are left behind.
+
+## 2026-10-24 · 42. Port: docs
+
+**What:** README ("Store and AI layer" section; "Moved from C#" now says everything is ported),
+CLAUDE.md (Python modules, commands, the macOS note), ARCHITECTURE.md (components with the AI layer, summary
+and rules flows, store schema, test counts), PLAN status.
+
+## 2026-10-24 · 43. System overview PDF for the Python system; publishing as a pull request
+
+**What:** Regenerated `docs/overview/system-overview.pdf` (19 pages) from the earlier overview, converted to the Python
+system. The converter fails if any expected sentence is missing, so nothing stays outdated by accident. It covers
+packages and line counts, the Python stack, the port's verification, the new bugs, current numbers (14 runs, 19 summaries,
+24 rules, 93 tests), the roadmap (merge the PR first) and the decisions (Python as a team decision).
+**Why:** the user chose to regenerate it for Python and to publish the port as a **pull request**, so teammates see
+the change to their `aqt/oauth.py` before it reaches `main`. The earlier local commit with the C# PDF (`18409b2`) was
+dropped from local `main` (it only ever existed locally).

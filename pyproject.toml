@@ -16,6 +16,13 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+# Store (PostgreSQL), standards (PDF) and AI (Claude, local models via Ollama). The core tool does not need them.
+ai = [
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.4",
+    "anthropic>=2.3",
+    "pdfplumber>=0.11",
+]
 
 [project.scripts]
 aqt = "aqt.cli:_entry"
@@ -24,7 +31,8 @@ aqt = "aqt.cli:_entry"
 include = ["aqt*"]
 
 [tool.setuptools.package-data]
-aqt = ["mockbank/*.json", "portal/templates/*.html", "portal/static/*.css", "portal/static/*.png"]
+aqt = ["mockbank/*.json", "portal/templates/*.html", "portal/static/*.css", "portal/static/*.png",
+       "store/migrations/*.sql", "ai/prompts/*.txt", "ai/prompts/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
