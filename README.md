@@ -11,6 +11,37 @@ and every response checked against what the standard expects.
   (`pip install -e .[ai]`) adds PostgreSQL, AI run summaries and rules drafted from the standards.
 - **Data-driven:** banks are YAML profiles in `banks/`, tests are YAML scenarios in `scenarios/`.
 
+## Quick start for teammates (everything, from a fresh clone)
+
+Until the pull requests are merged, the complete tool (Python port + AI layer, Phases 0–6, evals) is on branch
+`phase3-scenarios`; `main` has only the engine.
+
+```bash
+git clone git@github.com:levan-petrosiani/Aurasoft-Monitoring.git && cd Aurasoft-Monitoring
+git checkout phase3-scenarios
+python3 -m venv .venv && source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e ".[test,ai]"
+
+# 1. No bank, no database: everything against the built-in MockBank
+aqt validate
+aqt run --bank MOCK --with-mock --sca-auto               # 28 passed, 7 skipped (TBC-only)
+pytest                                                   # database tests are skipped without AQT_TEST_DB
+
+# 2. Store + AI layer
+docker compose up -d                                     # PostgreSQL + pgvector on localhost:5435
+aqt db migrate
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env               # your own key; .env is git-ignored, never commit it
+ollama pull bge-m3                                       # local embeddings for search (Ollama: https://ollama.com)
+ollama pull qwen3:8b                                     # optional: the local model (--provider ollama)
+aqt ai check                                             # Claude and Ollama reachable
+aqt standards fetch && aqt standards ingest              # download + split the standards (once)
+aqt portal                                               # http://localhost:5280 — every page incl. AI, Monitoring
+AQT_TEST_DB="host=localhost port=5435 user=aqt password=aqt_dev" pytest   # all 147 tests
+```
+
+On macOS with uv-created venvs, if `aqt` is not found, use `python -m aqt ...` from the repository root. The overview
+of the whole system (architecture, how it works, Claude vs local model) is `docs/overview/system-overview.pdf`.
+
 ## Setup
 
 ```bash
